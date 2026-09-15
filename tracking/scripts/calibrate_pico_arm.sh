@@ -388,7 +388,7 @@ run_geometry() {
     geometry_arguments+=(--verbose)
   fi
   geometry_arguments+=("$@")
-  if ! "$repo_root/src/pico_bridge/scripts/pico_arm_geometry_runtime.sh" \
+  if ! bash "$repo_root/src/pico_bridge/scripts/pico_arm_geometry_runtime.sh" \
       "${geometry_arguments[@]}"; then
     # The calibrator prints the actionable Gate reasons and evidence paths.
     # Only add a wrapper-level error when it died before producing evidence.

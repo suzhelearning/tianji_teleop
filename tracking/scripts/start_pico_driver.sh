@@ -3,12 +3,13 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 
-source "$repo_root/scripts/environment.sh"
-
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-120}"
 export EXO_REQUESTED_ROS_DOMAIN_ID="${EXO_REQUESTED_ROS_DOMAIN_ID:-$ROS_DOMAIN_ID}"
 export ROS_LOCALHOST_ONLY="${ROS_LOCALHOST_ONLY:-1}"
 export ROS2CLI_DISABLE_DAEMON="${ROS2CLI_DISABLE_DAEMON:-1}"
+
+# Set project defaults before the ROS SDK can supply its own localhost policy.
+source "$repo_root/scripts/environment.sh"
 
 
 command -v adb >/dev/null || { echo "adb not found" >&2; exit 2; }

@@ -276,7 +276,7 @@ bash compress_data.sh
 ```
 
 默认读取 `dataset`，输出到 `dataset_jpeg50`。
-**压缩质量固定为 50；原始 RGB 文件不删除、不覆盖。** 保持 episode 相对路径、所有关节值、时间戳、任务和成功标记。
+**压缩质量固定为 50；RGB 或已有 JPEG 源文件均不删除、不覆盖。** JPEG 输入先解码再编码为 Q50，会产生额外有损损失，程序启动时会提示源质量。保持 episode 相对路径、所有关节值、时间戳、任务和成功标记。
 脚本跳过 `.partial.h5` 与符号链接；已完成输出通过源身份和 JPEG 格式校验后跳过，之后新增的 episode 会在下次运行时处理。
 中断或失败不会发布半成品为完成文件；可重复运行继续，结束时显示 `converted/skipped/failed`，失败返回非零退出码。
 不要手动改写已压缩文件的源文件；身份不匹配或目标配置冲突时脚本拒绝覆盖。
@@ -286,6 +286,13 @@ bash compress_data.sh
 ```bash
 bash compress_data.sh /data/tianji_raw /data/tianji_jpeg50
 bash visualize_data.sh dataset_jpeg50
+```
+
+按日期处理 `$HOME/Documents/TianjiData` 中的数据：
+
+```bash
+bash compress.sh --date 20260914
+# 输出到 $HOME/Documents/TianjiData/20260914_compressed；不传 --date 时使用当天日期。
 ```
 
 源/目标不能相同或互相包含。建议在暂停录制时压缩，避免读盘、写盘和编码争抢采集资源。
@@ -914,6 +921,12 @@ right = (-0.9599310886, -1.1344640138,  1.2217304764, -1.0471975512, -1.04719755
 cd tracking
 bash scripts/start_pico_driver.sh
 ```
+
+驱动与标定器默认均使用 `ROS_DOMAIN_ID=120`、`ROS_LOCALHOST_ONLY=1`。
+驱动在加载 ROS SDK 前设置这些默认值，避免 SDK 将驱动改为非 localhost 模式。
+若显式覆盖，两个终端必须保持一致；旧进程不会因脚本更新而自动改变环境。
+TCP 标定订阅 `/pico/pose/{left,right}_hand` 并同时需要 `/pico/pose/head`。
+出现“未收到新鲜数据”时，先核对两个进程的 ROS 域和 localhost 设置，不要直接改话题名。
 
 按一次 A 并完成地面初始化后，在终端 2 按顺序执行，每一步成功后再继续：
 

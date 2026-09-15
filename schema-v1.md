@@ -68,7 +68,7 @@ TianjiData_3cam_raw/
 原始 `rgb[i]` 是一帧 RGB 通道顺序的 uint8 像素，HDF5 chunks 为 `(1,720,1280,3)`，不启用压缩或其他过滤器。
 离线压缩后在独立数据集 `TianjiData_3cam_jpeg50` 中，将每路 `rgb` 替换为 `jpeg: vlen uint8 [F]`；
 每个 `jpeg[i]` 是一帧完整 JPEG 的编码字节。一个相机组只包含 `timestamp_ns` 和对应编码的数据集，不同时保存两份图像。
-旧 JPEG Q90 数据继续兼容；固定 Q50 的批量脚本只接受原始 RGB，不对旧 JPEG 进行二次有损压缩。
+旧 JPEG Q90 数据继续兼容；固定 Q50 的批量脚本同时接受原始 RGB 和已有 JPEG。JPEG 输入经解码后二次有损编码为 Q50，仅写入独立输出目录，不修改源数据或其配置。
 
 ## 4. 真实关节状态
 

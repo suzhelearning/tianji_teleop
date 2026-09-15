@@ -1,0 +1,17 @@
+schema_version: 1
+valid: true
+side: left
+transform_convention: wrist_to_palm
+source_topic: /pico/palm_left
+source_frame: pico
+motion_mode: yaw
+tracking_epoch: 163
+tracking_epoch_source: wire_world_reset
+wrist_to_palm_m:
+  x: 0.05699305705562771
+  y: 0.019116871879917445
+  z: 0.0
+quality:
+  sample_count: 450
+  position_rms_m: 0.01219750319121752
+  condition_number: 3.747307944580863

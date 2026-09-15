@@ -81,7 +81,7 @@ R_wrist = R_palm
 默认的60帧基线仍只代表PICO SMPL比例。需要快速验证个体骨长时，运行：
 
 ~~~bash
-./src/pico_bridge/scripts/pico_arm_geometry_runtime.sh \
+bash ./src/pico_bridge/scripts/pico_arm_geometry_runtime.sh \
   --side left --domain 42 --start-mode space \
   --tcp-artifact "$HOME/.config/pico_tracker/pico_left_palm_tcp.yaml" \
   --wrist-pivot-artifact "$HOME/.config/pico_tracker/pico_left_wrist_pivot.yaml"
