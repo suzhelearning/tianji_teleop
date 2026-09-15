@@ -1,0 +1,614 @@
+<?xml version='1.0' encoding='utf-8'?>
+<robot name="data_glove_urdf_L">
+  <!-- 由 data_glove_urdf.urdf 沿 XZ 平面镜像（y 取反）；网格、质心及惯量同步镜像。关节轴按轴向量变换为 (-ax, ay, -az)，相同关节角得到镜像姿态；关节名保留。 -->
+  <link name="wrist_link">
+    <inertial>
+      <origin xyz="-0.0020108 -0.0053871 0.035776" rpy="0 0 0" />
+      <mass value="0.045574" />
+      <inertia ixx="4.2078E-05" ixy="-1.0967E-06" ixz="-4.3696E-08" iyy="2.601E-05" iyz="-3.5448E-06" izz="1.6455E-05" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://data_glove_urdf_L/meshes/wrist_link.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://data_glove_urdf_L/meshes/wrist_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="thumb_cmc_flex_link">
+    <inertial>
+      <origin xyz="0.019427 -0.012082 0.0018389" rpy="0 0 0" />
+      <mass value="0.019987" />
+      <inertia ixx="1.7875E-06" ixy="-2.5694E-07" ixz="-1.2598E-06" iyy="5.1666E-06" iyz="-1.4999E-07" izz="3.8747E-06" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://data_glove_urdf_L/meshes/thumb_cmc_flex_link.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://data_glove_urdf_L/meshes/thumb_cmc_flex_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="thumb_cmc_flex_joint" type="continuous">
+    <origin xyz="-0.00800000000000013 -0.0321923881554251 -0.00500000000000006" rpy="0 0 0" />
+    <parent link="wrist_link" />
+    <child link="thumb_cmc_flex_link" />
+    <axis xyz="1 0 0" />
+  </joint>
+  <link name="thumb_cmc_abd_link">
+    <inertial>
+      <origin xyz="-0.00229626864254114 -0.0025019741546171 -0.000436777539487287" rpy="0 0 0" />
+      <mass value="0.00119117342000522" />
+      <inertia ixx="1.42401930141673E-08" ixy="-4.20777982960054E-09" ixz="-3.32014267151954E-10" iyy="2.12316928109292E-08" iyz="1.13037574404821E-09" izz="2.15007903896514E-08" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://data_glove_urdf_L/meshes/thumb_cmc_abd_link.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://data_glove_urdf_L/meshes/thumb_cmc_abd_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="thumb_cmc_abd_joint" type="continuous">
+    <origin xyz="0.0420106042997699 -0.0157498161804066 0.0242675357151679" rpy="0 0 0" />
+    <parent link="thumb_cmc_flex_link" />
+    <child link="thumb_cmc_abd_link" />
+    <axis xyz="0 0.93969262078591 0.342020143325665" />
+  </joint>
+  <link name="thumb_mcp_link">
+    <inertial>
+      <origin xyz="0.00248668828538748 -0.0161489445897399 0.0131327311111442" rpy="0 0 0" />
+      <mass value="0.00374067384037843" />
+      <inertia ixx="4.93107216011441E-07" ixy="-1.41032959420786E-08" ixz="-2.08858195114374E-08" iyy="6.48055630880886E-07" iyz="4.4873283054032E-08" izz="2.72402768253552E-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://data_glove_urdf_L/meshes/thumb_mcp_link.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://data_glove_urdf_L/meshes/thumb_mcp_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="thumb_mcp_joint" type="continuous">
+    <origin xyz="0.00325932819822321 0.00875597049638259 0.0241859413784691" rpy="0 0 0" />
+    <parent link="thumb_cmc_abd_link" />
+    <child link="thumb_mcp_link" />
+    <axis xyz="0.986631617798999 0.0557377948750778 -0.153138332829486" />
+  </joint>
+  <link name="thumb_ip_link">
+    <inertial>
+      <origin xyz="0.00234022761204072 -0.0128632412496094 0.0104060094679635" rpy="0 0 0" />
+      <mass value="0.00250986189310521" />
+      <inertia ixx="1.71287853333995E-07" ixy="-3.86463495825574E-09" ixz="1.13425746546399E-08" iyy="3.01576893365904E-07" iyz="2.32760165724564E-08" izz="2.5083815876647E-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://data_glove_urdf_L/meshes/thumb_ip_link.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://data_glove_urdf_L/meshes/thumb_ip_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="thumb_ip_joint" type="continuous">
+    <origin xyz="0.00570382434689043 -0.0118106760565236 0.0324495657737923" rpy="0 0 0" />
+    <parent link="thumb_mcp_link" />
+    <child link="thumb_ip_link" />
+    <axis xyz="0.986631617798999 0.0557377948750777 -0.153138332829486" />
+  </joint>
+  <link name="index_mcp_abd_link">
+    <inertial>
+      <origin xyz="-0.00250047285030029 0.00233813866466019 6.51214884913598E-05" rpy="0 0 0" />
+      <mass value="0.00119117326877849" />
+      <inertia ixx="2.19897616453943E-08" ixy="4.16840957665446E-09" ixz="2.76794130402293E-10" iyy="1.40504209973986E-08" iyz="-2.17568565356851E-11" izz="2.09324888735647E-08" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://data_glove_urdf_L/meshes/index_mcp_abd_link.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://data_glove_urdf_L/meshes/index_mcp_abd_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="index_mcp_abd_joint" type="continuous">
+    <origin xyz="-0.00800000000000009 -0.0241923881554252 0.065" rpy="0 0 0" />
+    <parent link="wrist_link" />
+    <child link="index_mcp_abd_link" />
+    <axis xyz="1 0 0" />
+  </joint>
+  <link name="index_mcp_flex_link">
+    <inertial>
+      <origin xyz="-0.0114070328047424 0.000607370388683481 0.0290133395013445" rpy="0 0 0" />
+      <mass value="0.00284655724061209" />
+      <inertia ixx="3.28204843425552E-07" ixy="4.80669980678278E-09" ixz="-5.78407128131855E-08" iyy="2.84955983774339E-07" iyz="-1.57555232223385E-08" izz="1.51630121702924E-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://data_glove_urdf_L/meshes/index_mcp_flex_link.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://data_glove_urdf_L/meshes/index_mcp_flex_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="index_mcp_flex_joint" type="continuous">
+    <origin xyz="0.014 0 0" rpy="0 0 0" />
+    <parent link="index_mcp_abd_link" />
+    <child link="index_mcp_flex_link" />
+    <axis xyz="0 -1 0" />
+  </joint>
+  <link name="index_pip_link">
+    <inertial>
+      <origin xyz="-0.00820059005677119 0.00062637497856944 0.0141171645574372" rpy="0 0 0" />
+      <mass value="0.00272817140621968" />
+      <inertia ixx="3.09947910621127E-07" ixy="1.02957359554329E-08" ixz="1.30297508003673E-08" iyy="2.10123925298428E-07" iyz="-1.11165431221713E-08" izz="2.1891706675412E-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://data_glove_urdf_L/meshes/index_pip_link.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://data_glove_urdf_L/meshes/index_pip_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="index_pip_joint" type="continuous">
+    <origin xyz="0 0 0.0439999999999998" rpy="0 0 0" />
+    <parent link="index_mcp_flex_link" />
+    <child link="index_pip_link" />
+    <axis xyz="0 -1 0" />
+  </joint>
+  <link name="index_dip_link">
+    <inertial>
+      <origin xyz="-0.00772883281781931 7.81614501817532E-07 0.00944658781453485" rpy="0 0 0" />
+      <mass value="0.00138621744308339" />
+      <inertia ixx="9.65928060476362E-08" ixy="1.77160475460755E-12" ixz="2.14747997492926E-09" iyy="5.15724750020167E-08" iyz="-8.91862797053314E-13" izz="1.01767267555001E-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://data_glove_urdf_L/meshes/index_dip_link.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://data_glove_urdf_L/meshes/index_dip_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="index_dip_joint" type="continuous">
+    <origin xyz="0 0 0.025" rpy="0 0 0" />
+    <parent link="index_pip_link" />
+    <child link="index_dip_link" />
+    <axis xyz="0 -1 0" />
+  </joint>
+  <link name="middle_mcp_abd_link">
+    <inertial>
+      <origin xyz="-0.00250047285018376 0.0023381386646602 6.51214885598259E-05" rpy="0 0 0" />
+      <mass value="0.00119117326877849" />
+      <inertia ixx="2.19897616453813E-08" ixy="4.16840957665499E-09" ixz="2.7679413042726E-10" iyy="1.40504209973987E-08" iyz="-2.17568564372661E-11" izz="2.09324888735778E-08" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://data_glove_urdf_L/meshes/middle_mcp_abd_link.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://data_glove_urdf_L/meshes/middle_mcp_abd_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="middle_mcp_abd_joint" type="continuous">
+    <origin xyz="-0.00799999999999999 -0.000192388155425213 0.07" rpy="0 0 0" />
+    <parent link="wrist_link" />
+    <child link="middle_mcp_abd_link" />
+    <axis xyz="1 0 0" />
+  </joint>
+  <link name="middle_mcp_flex_link">
+    <inertial>
+      <origin xyz="-0.0110734509955478 0.000526306274228233 0.0311789260511265" rpy="0 0 0" />
+      <mass value="0.00325556171697284" />
+      <inertia ixx="4.75936416980801E-07" ixy="5.61616044482396E-09" ixz="-7.37987196767189E-08" iyy="4.10432511690092E-07" iyz="-1.86776487140322E-08" izz="1.92454987135351E-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://data_glove_urdf_L/meshes/middle_mcp_flex_link.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://data_glove_urdf_L/meshes/middle_mcp_flex_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="middle_mcp_flex_joint" type="continuous">
+    <origin xyz="0.0140000000001174 0 0" rpy="0 0 0" />
+    <parent link="middle_mcp_abd_link" />
+    <child link="middle_mcp_flex_link" />
+    <axis xyz="0 -1 0" />
+  </joint>
+  <link name="middle_pip_link">
+    <inertial>
+      <origin xyz="-0.00822617379922164 0.000542285459422311 0.0161655057796501" rpy="0 0 0" />
+      <mass value="0.00314497750486674" />
+      <inertia ixx="4.38073313893312E-07" ixy="1.03755168315814E-08" ixz="1.65013994364525E-08" iyy="3.01976248682741E-07" iyz="-1.4337094440513E-08" izz="2.66532276625686E-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://data_glove_urdf_L/meshes/middle_pip_link.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://data_glove_urdf_L/meshes/middle_pip_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="middle_pip_joint" type="continuous">
+    <origin xyz="-0.000153153729170198 0 0.0479997556653703" rpy="0 0 0" />
+    <parent link="middle_mcp_flex_link" />
+    <child link="middle_pip_link" />
+    <axis xyz="0 -1 0" />
+  </joint>
+  <link name="middle_dip_link">
+    <inertial>
+      <origin xyz="-0.00778740874902174 1.14449541866422E-06 0.0103317008808603" rpy="0 0 0" />
+      <mass value="0.00158795100623238" />
+      <inertia ixx="1.26589985299263E-07" ixy="2.46249384730863E-12" ixz="1.41064944236084E-09" iyy="6.53474068143681E-08" iyz="-2.96066082217762E-12" izz="1.23503557934076E-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://data_glove_urdf_L/meshes/middle_dip_link.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://data_glove_urdf_L/meshes/middle_dip_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="middle_dip_joint" type="continuous">
+    <origin xyz="-9.25303780403182E-05 0 0.0289998523811612" rpy="0 0 0" />
+    <parent link="middle_pip_link" />
+    <child link="middle_dip_link" />
+    <axis xyz="0 -1 0" />
+  </joint>
+  <link name="ring_mcp_abd_link">
+    <inertial>
+      <origin xyz="-0.00154998547198234 0.00305234356989308 6.51213123810043E-05" rpy="0 0 0" />
+      <mass value="0.00119117333663402" />
+      <inertia ixx="2.37404379665959E-08" ixy="6.41531701695861E-10" ixz="2.52659449546094E-10" iyy="1.2299745324109E-08" iyz="-1.15114402431804E-10" izz="2.09324896594417E-08" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://data_glove_urdf_L/meshes/ring_mcp_abd_link.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://data_glove_urdf_L/meshes/ring_mcp_abd_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="ring_mcp_abd_joint" type="continuous">
+    <origin xyz="-0.00315764691224457 0.0235986790557135 0.062" rpy="0 0 0" />
+    <parent link="wrist_link" />
+    <child link="ring_mcp_abd_link" />
+    <axis xyz="0.939692620785906 -0.342020143325674 0" />
+  </joint>
+  <link name="ring_mcp_flex_link">
+    <inertial>
+      <origin xyz="-0.0105115793432703 0.00447235460666146 0.02901224685332" rpy="0 0 0" />
+      <mass value="0.00284615308470233" />
+      <inertia ixx="3.26217944911901E-07" ixy="-1.02184783780063E-08" ixz="-5.97368930638282E-08" iyy="2.86907987896054E-07" iyz="4.97284107877626E-09" izz="1.51628480470892E-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://data_glove_urdf_L/meshes/ring_mcp_flex_link.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://data_glove_urdf_L/meshes/ring_mcp_flex_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="ring_mcp_flex_joint" type="continuous">
+    <origin xyz="0.0159747745533604 -0.00581434243653645 0" rpy="0 0 0" />
+    <parent link="ring_mcp_abd_link" />
+    <child link="ring_mcp_flex_link" />
+    <axis xyz="-0.342020143325673 -0.939692620785907 0" />
+  </joint>
+  <link name="ring_pip_link">
+    <inertial>
+      <origin xyz="-0.00746932008628099 0.00334574665152387 0.0151534818610933" rpy="0 0 0" />
+      <mass value="0.0029034063513932" />
+      <inertia ixx="3.53401043194511E-07" ixy="-2.68791557922181E-08" ixz="9.23365002679006E-09" iyy="2.57096789957627E-07" iyz="-1.69396873978382E-08" izz="2.32694570423764E-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://data_glove_urdf_L/meshes/ring_pip_link.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://data_glove_urdf_L/meshes/ring_pip_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="ring_pip_joint" type="continuous">
+    <origin xyz="0 0 0.044" rpy="0 0 0" />
+    <parent link="ring_mcp_flex_link" />
+    <child link="ring_pip_link" />
+    <axis xyz="-0.342020143325673 -0.939692620785907 0" />
+  </joint>
+  <link name="ring_dip_link">
+    <inertial>
+      <origin xyz="-0.00726193569823967 0.00264402659682362 0.0094444882658432" rpy="0 0 0" />
+      <mass value="0.00138583353960473" />
+      <inertia ixx="9.13152493786747E-08" ixy="-1.44690460584584E-08" ixz="2.01252391429793E-09" iyy="5.68239551627066E-08" iyz="-7.3370364423235E-10" izz="1.01766984589333E-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://data_glove_urdf_L/meshes/ring_dip_link.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://data_glove_urdf_L/meshes/ring_dip_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="ring_dip_joint" type="continuous">
+    <origin xyz="0 0 0.027" rpy="0 0 0" />
+    <parent link="ring_pip_link" />
+    <child link="ring_dip_link" />
+    <axis xyz="-0.342020143325673 -0.939692620785907 0" />
+  </joint>
+  <link name="pinky_cmc_link">
+    <inertial>
+      <origin xyz="0.00336410686323215 0.0100056497442341 0.0251142466577473" rpy="0 0 0" />
+      <mass value="0.00538890561683075" />
+      <inertia ixx="7.10927556193362E-07" ixy="-5.34391219212694E-08" ixz="-1.5310429303977E-08" iyy="5.63078242811867E-07" iyz="-1.4281062651887E-07" izz="2.05433348559066E-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://data_glove_urdf_L/meshes/pinky_cmc_link.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://data_glove_urdf_L/meshes/pinky_cmc_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="pinky_cmc_joint" type="continuous">
+    <origin xyz="0.00363612095623456 0.0291072830666424 0.0193" rpy="0 0 0" />
+    <parent link="wrist_link" />
+    <child link="pinky_cmc_link" />
+    <axis xyz="0 0 -1" />
+  </joint>
+  <link name="pinky_mcp_abd_link">
+    <inertial>
+      <origin xyz="-0.00154998547198234 0.0030523435698931 6.51213123810043E-05" rpy="0 0 0" />
+      <mass value="0.00119117333663402" />
+      <inertia ixx="2.37404379665959E-08" ixy="6.41531701695871E-10" ixz="2.52659449546099E-10" iyy="1.2299745324109E-08" iyz="-1.15114402431798E-10" izz="2.09324896594417E-08" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://data_glove_urdf_L/meshes/pinky_mcp_abd_link.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://data_glove_urdf_L/meshes/pinky_mcp_abd_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="pinky_mcp_abd_joint" type="continuous">
+    <origin xyz="1.24329837017426E-05 0.0131912791427107 0.0352" rpy="0 0 0" />
+    <parent link="pinky_cmc_link" />
+    <child link="pinky_mcp_abd_link" />
+    <axis xyz="0.939692620785907 -0.342020143325672 0" />
+  </joint>
+  <link name="pink_mcp_flex_link">
+    <inertial>
+      <origin xyz="-0.0103753455329359 0.00477038421687151 0.0250068784616453" rpy="0 0 0" />
+      <mass value="0.00193313136546952" />
+      <inertia ixx="1.16298189932802E-07" ixy="-5.23319059136308E-09" ixz="-2.06242717495122E-08" iyy="8.89049123924794E-08" iyz="-3.9565285962366E-10" izz="8.10842547791097E-08" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://data_glove_urdf_L/meshes/pink_mcp_flex_link.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://data_glove_urdf_L/meshes/pink_mcp_flex_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="pink_mcp_flex_joint" type="continuous">
+    <origin xyz="0.0131556966910027 -0.00478828200655942 0" rpy="0 0 0" />
+    <parent link="pinky_mcp_abd_link" />
+    <child link="pink_mcp_flex_link" />
+    <axis xyz="-0.342020143325673 -0.939692620785907 0" />
+  </joint>
+  <link name="pink_pip_link">
+    <inertial>
+      <origin xyz="-0.00750049500710275 0.00360184044077902 0.0109564939225916" rpy="0 0 0" />
+      <mass value="0.0021246823554996" />
+      <inertia ixx="1.67996754461158E-07" ixy="-8.51912087163331E-09" ixz="6.00229316982644E-09" iyy="1.15830637133994E-07" iyz="-8.96825805138717E-09" izz="1.53475257119411E-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://data_glove_urdf_L/meshes/pink_pip_link.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://data_glove_urdf_L/meshes/pink_pip_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="pink_pip_joint" type="continuous">
+    <origin xyz="0 0 0.035" rpy="0 0 0" />
+    <parent link="pink_mcp_flex_link" />
+    <child link="pink_pip_link" />
+    <axis xyz="-0.342020143325673 -0.939692620785907 0" />
+  </joint>
+  <link name="pink_dip_link">
+    <inertial>
+      <origin xyz="-0.00715853004671411 0.00260635143158212 0.00940910615411399" rpy="0 0 0" />
+      <mass value="0.0013280171732761" />
+      <inertia ixx="7.68076668801599E-08" ixy="-9.5940255120806E-09" ixz="1.89254119442026E-09" iyy="5.39355546192163E-08" iyz="-6.87130026813664E-10" izz="8.58070220826519E-08" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://data_glove_urdf_L/meshes/pink_dip_link.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://data_glove_urdf_L/meshes/pink_dip_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="pink_dip_joint" type="continuous">
+    <origin xyz="0 0 0.019" rpy="0 0 0" />
+    <parent link="pink_pip_link" />
+    <child link="pink_dip_link" />
+    <axis xyz="-0.342020143325673 -0.939692620785907 0" />
+  </joint>
+</robot>

@@ -1,0 +1,302 @@
+{
+  "version": 4,
+  "name": "right-000000e04ce613db",
+  "hand": "right",
+  "device_id": "0x000000e04ce613db",
+  "network": {
+    "host": "192.168.7.2",
+    "port": 9100,
+    "http_port": 5570,
+    "mtu": 8000,
+    "host_address": "192.168.7.4/24",
+    "route_table": 17002,
+    "mac": "02:33:80:00:00:01",
+    "protocol": "encoder-v1",
+    "interface": "usb0"
+  },
+  "glove_urdf": "../../../assets/data_glove_urdf/data_glove_urdf_R/urdf/data_glove_urdf_R.urdf",
+  "mapping": {
+    "version": 1,
+    "hand": "right",
+    "channels": 21,
+    "angle_unit": "degree",
+    "length_unit": "millimeter",
+    "input_angle_unit": "degree",
+    "output_angle_unit": "radian",
+    "ready": false,
+    "directions_verified": false,
+    "description": "设备 right-000000e04ce613db 的独立机构配置，参数复制自 right.json；接线顺序已由实物 HTTP 元数据核验。方向与 ready 尚未实物验收；零位须单独真实采集。",
+    "disabled_joint_names": [],
+    "expected_cs_by_joint": [
+      18,
+      20,
+      19,
+      15,
+      11,
+      3,
+      14,
+      10,
+      6,
+      2,
+      17,
+      13,
+      9,
+      5,
+      1,
+      16,
+      12,
+      8,
+      4,
+      0,
+      7
+    ],
+    "groups": [
+      {
+        "name": "four_finger_pip",
+        "description": "食指、中指、无名指、小指的 PIP 共用参数",
+        "channels": [
+          "J12",
+          "J13",
+          "J14",
+          "J15"
+        ],
+        "input_directions": {
+          "J12": -1,
+          "J13": -1,
+          "J14": -1,
+          "J15": -1
+        },
+        "parameters": {
+          "L_AD": 14.77,
+          "L_AB": 13.5,
+          "L_BC": 22.56,
+          "L_CD": 15.21,
+          "theta_A0_deg": -177,
+          "branch": -1
+        }
+      },
+      {
+        "name": "four_finger_dip",
+        "description": "食指、中指、无名指、小指的 DIP 共用参数",
+        "channels": [
+          "J17",
+          "J18",
+          "J19",
+          "J20"
+        ],
+        "input_directions": {
+          "J17": -1,
+          "J18": -1,
+          "J19": -1,
+          "J20": -1
+        },
+        "parameters": {
+          "L_AD": 14.23,
+          "L_AB": 11.5,
+          "L_BC": 20.63,
+          "L_CD": 15.69,
+          "theta_A0_deg": -170,
+          "branch": -1
+        }
+      },
+      {
+        "name": "thumb_ip",
+        "description": "thumb_ip_joint 单独参数",
+        "channels": [
+          "J16"
+        ],
+        "input_directions": {
+          "J16": -1
+        },
+        "parameters": {
+          "L_AD": 15.69,
+          "L_AB": 13.5,
+          "L_BC": 22.14,
+          "L_CD": 17.61,
+          "theta_A0_deg": 164.4,
+          "branch": -1
+        }
+      }
+    ],
+    "joints": [
+      {
+        "joint_name": "thumb_cmc_flex_joint",
+        "source_channel": "J6",
+        "direction": -1,
+        "scale": 1
+      },
+      {
+        "joint_name": "thumb_cmc_abd_joint",
+        "source_channel": "J1",
+        "direction": -1
+      },
+      {
+        "joint_name": "thumb_mcp_joint",
+        "source_channel": "J11",
+        "direction": 1
+      },
+      {
+        "joint_name": "thumb_ip_joint",
+        "source_channel": "J16",
+        "direction": -1
+      },
+      {
+        "joint_name": "index_mcp_abd_joint",
+        "source_channel": "J2",
+        "direction": -1
+      },
+      {
+        "joint_name": "index_mcp_flex_joint",
+        "source_channel": "J7",
+        "direction": 1,
+        "scale": 1
+      },
+      {
+        "joint_name": "index_pip_joint",
+        "source_channel": "J12",
+        "direction": -1
+      },
+      {
+        "joint_name": "index_dip_joint",
+        "source_channel": "J17",
+        "direction": -1
+      },
+      {
+        "joint_name": "middle_mcp_abd_joint",
+        "source_channel": "J3",
+        "direction": -1
+      },
+      {
+        "joint_name": "middle_mcp_flex_joint",
+        "source_channel": "J8",
+        "direction": 1,
+        "scale": 1
+      },
+      {
+        "joint_name": "middle_pip_joint",
+        "source_channel": "J13",
+        "direction": -1
+      },
+      {
+        "joint_name": "middle_dip_joint",
+        "source_channel": "J18",
+        "direction": -1
+      },
+      {
+        "joint_name": "ring_mcp_abd_joint",
+        "source_channel": "J4",
+        "direction": -1
+      },
+      {
+        "joint_name": "ring_mcp_flex_joint",
+        "source_channel": "J9",
+        "direction": 1,
+        "scale": 1
+      },
+      {
+        "joint_name": "ring_pip_joint",
+        "source_channel": "J14",
+        "direction": -1
+      },
+      {
+        "joint_name": "ring_dip_joint",
+        "source_channel": "J19",
+        "direction": -1
+      },
+      {
+        "joint_name": "pinky_cmc_joint",
+        "source_channel": "J21",
+        "direction": 1
+      },
+      {
+        "joint_name": "pinky_mcp_abd_joint",
+        "source_channel": "J5",
+        "direction": -1
+      },
+      {
+        "joint_name": "pink_mcp_flex_joint",
+        "source_channel": "J10",
+        "direction": 1,
+        "scale": 1
+      },
+      {
+        "joint_name": "pink_pip_joint",
+        "source_channel": "J15",
+        "direction": -1
+      },
+      {
+        "joint_name": "pink_dip_joint",
+        "source_channel": "J20",
+        "direction": -1
+      }
+    ]
+  },
+  "zeros": {
+    "initial": {
+      "version": 1,
+      "hand": "right",
+      "channels": 21,
+      "angle_unit": "degree",
+      "stream_zeroed": false,
+      "stream_range_deg": [
+        0,
+        360
+      ],
+      "expected_cs_by_joint": [
+        18,
+        20,
+        19,
+        15,
+        11,
+        3,
+        14,
+        10,
+        6,
+        2,
+        17,
+        13,
+        9,
+        5,
+        1,
+        16,
+        12,
+        8,
+        4,
+        0,
+        7
+      ],
+      "zero_offsets_deg": {
+        "J1": 70.061767578125,
+        "J2": 112.63458251953125,
+        "J3": 91.3238525390625,
+        "J4": 90.32293701171875,
+        "J5": 110.7781982421875,
+        "J6": 20.6790771484375,
+        "J7": 106.7816162109375,
+        "J8": 96.63970947265625,
+        "J9": 95.37841796875,
+        "J10": 70.204833984375,
+        "J11": 119.322509765625,
+        "J12": 157.1759033203125,
+        "J13": 224.0496826171875,
+        "J14": 352.034912109375,
+        "J15": 253.30078125,
+        "J16": 183.1805419921875,
+        "J17": 345.69580078125,
+        "J18": 5.47119140625,
+        "J19": 85.78564453125,
+        "J20": 233.316650390625,
+        "J21": 167.6898193359375
+      },
+      "captured_groups": [
+        "thumb",
+        "index",
+        "middle",
+        "ring",
+        "pinky",
+        "pinky_cmc"
+      ]
+    }
+  },
+  "active_zero": "initial"
+}

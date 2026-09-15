@@ -1,0 +1,27 @@
+{
+  "hand": "left",
+  "generation": "v1",
+  "description": "Direct calibrated dataglove DOF to Wuji v1 left hand mapping",
+  "mapping": [
+    {"semantic_dof": "thumb1_flex", "model_joint": "finger1_joint1", "scale": 1.0, "offset_deg": 0},
+    {"semantic_dof": "thumb1_abd", "model_joint": "finger1_joint2", "scale": 1.0, "offset_deg": 0},
+    {"semantic_dof": "thumb2_flex", "model_joint": "finger1_joint3", "scale": 1.0, "offset_deg": 0},
+    {"semantic_dof": "thumb3_flex", "model_joint": "finger1_joint4", "scale": 1.0, "offset_deg": 0},
+    {"semantic_dof": "index1_flex", "model_joint": "finger2_joint1", "scale": 1.0, "offset_deg": 0},
+    {"semantic_dof": "index1_abd", "model_joint": "finger2_joint2", "scale": 1.0, "offset_deg": 0},
+    {"semantic_dof": "index2_flex", "model_joint": "finger2_joint3", "scale": 1.0, "offset_deg": 0},
+    {"semantic_dof": "index3_flex", "model_joint": "finger2_joint4", "scale": 1.0, "offset_deg": 0},
+    {"semantic_dof": "middle1_flex", "model_joint": "finger3_joint1", "scale": 1.0, "offset_deg": 0},
+    {"semantic_dof": "middle1_abd", "model_joint": "finger3_joint2", "scale": 1.0, "offset_deg": 0},
+    {"semantic_dof": "middle2_flex", "model_joint": "finger3_joint3", "scale": 1.0, "offset_deg": 0},
+    {"semantic_dof": "middle3_flex", "model_joint": "finger3_joint4", "scale": 1.0, "offset_deg": 0},
+    {"semantic_dof": "ring1_flex", "model_joint": "finger4_joint1", "scale": 1.0, "offset_deg": 0},
+    {"semantic_dof": "ring1_abd", "model_joint": "finger4_joint2", "scale": 1.0, "offset_deg": 0},
+    {"semantic_dof": "ring2_flex", "model_joint": "finger4_joint3", "scale": 1.0, "offset_deg": 0},
+    {"semantic_dof": "ring3_flex", "model_joint": "finger4_joint4", "scale": 1.0, "offset_deg": 0},
+    {"semantic_dof": "pinky1_flex", "model_joint": "finger5_joint1", "scale": 1.0, "offset_deg": 0},
+    {"semantic_dof": "pinky1_abd", "model_joint": "finger5_joint2", "scale": 1.0, "offset_deg": 0},
+    {"semantic_dof": "pinky2_flex", "model_joint": "finger5_joint3", "scale": 1.0, "offset_deg": 0},
+    {"semantic_dof": "pinky3_flex", "model_joint": "finger5_joint4", "scale": 1.0, "offset_deg": 0}
+  ]
+}

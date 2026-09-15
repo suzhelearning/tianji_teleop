@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "name": "default",
+  "gloves": {
+    "left": "../../dataglove/devices/left-000000e04c1a0399.json",
+    "right": "../../dataglove/devices/right-000000e04ce613db.json"
+  },
+  "robot_serials": {},
+  "robot_network": {
+    "connection": "wuji-left",
+    "interface": "enp4s0"
+  }
+}

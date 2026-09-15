@@ -11,6 +11,7 @@ __pycache__/
 build/
 .pytest_cache/
 /retargeting/wuji_retargeting/_native*.so
+/exoskeleton/src/data_glove_wuji_teleop/_native*.so
 
 # Preserved local environments/recordings from before the source cutover.
 # No source or runtime launcher consumes these directories.
@@ -33,6 +34,14 @@ MUJOCO_LOG.TXT
 /dataset/
 /dataset_jpeg50/
 /logs/home/
+
+# Repository-owned exoskeleton runtime output (tracked device profiles stay in config).
+/exoskeleton/.pixi-cache/
+/exoskeleton/.coverage
+/exoskeleton/dist/
+/exoskeleton/data/records/
+/exoskeleton/config/dataglove/calibration/*_local.json
+/exoskeleton/config/dataglove/calibration/*.backup.json
 
 # provision Odin mTLS credentials separately; never commit private keys
 /tracking/src/odin/odin-sdk2/sdk/utils/http/certs/certs.h

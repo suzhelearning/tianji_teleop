@@ -21,6 +21,7 @@ COMMANDS = {
     "calibrate": "Run the project-owned PICO calibration workflow",
     "pico": "Start PICO input for an explicitly selected operator",
     "manus": "Start Manus input for an explicitly selected operator",
+    "exoskeleton": "Start both gloves and send local TJH2 (use --hand left/right for one side)",
     "compress": "Compress recorded datasets offline",
     "visualize": "Browse recorded datasets",
     "preview": "Preview the live collection stream",
@@ -43,6 +44,7 @@ def command_line(command: str, arguments: list[str]) -> tuple[list[str], Path]:
         "calibrate": "tracking/scripts/calibrate_pico_arm.sh",
         "pico": "pico.sh",
         "manus": "manus.sh",
+        "exoskeleton": "exo.sh",
     }
     if command in scripts:
         return ["/bin/bash", str(ROOT / scripts[command]), *arguments], ROOT

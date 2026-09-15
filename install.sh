@@ -6,23 +6,35 @@ cd -- "$project_root"
 
 usage() {
   printf '%s\n' \
-    'Usage: bash install.sh [--check | --help]' \
-    'Default: install locked Pixi environments, Python dependencies, control, Manus and tracking.' \
+    'Usage: bash install.sh [--exoskeleton | --check | --help]' \
+    'Default: install locked Pixi environments, Python dependencies, control, Manus, tracking and exoskeleton.' \
+    '--exoskeleton: install the internal Python 3.12 glove environment and C++ kernels (Linux x86_64, Pixi and /usr/bin/g++ required).' \
     '--check: check basic prerequisites only; do not download or build.' \
-    'Requires Linux x86_64, Pixi, /usr/bin/g++, libudev, libusb and zlib.' \
+    'Full installation requires Linux x86_64, Pixi, /usr/bin/g++, libudev, libusb and zlib.' \
     'Ubuntu/Debian system setup: sudo apt-get install build-essential libudev1 libusb-1.0-0 zlib1g adb tmux' \
     'Install Pixi first: https://pixi.sh/latest/installation/' \
-    'Allow ample disk space for both environments and package caches; network access is required.'
+    'Allow ample disk space for the environments and package caches; network access is required.'
 }
 if (( $# > 1 )); then usage >&2; exit 2; fi
 case "${1:-}" in
   --help|-h) usage; exit 0 ;;
-  ''|--check) ;;
+  ''|--check|--exoskeleton) ;;
   *) usage >&2; exit 2 ;;
 esac
 fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 [[ "$(uname -s)" == Linux && "$(uname -m)" == x86_64 ]] || fail 'Only Linux x86_64 is supported by pixi.lock.'
 command -v pixi >/dev/null || fail 'Install Pixi first: https://pixi.sh/latest/installation/'
+install_exoskeleton() {
+  [[ -r exoskeleton/pixi.toml && -r exoskeleton/pixi.lock ]] || fail 'Missing internal exoskeleton Pixi manifest or lockfile.'
+  [[ -x /usr/bin/g++ && -x /usr/bin/gcc ]] || fail 'Install build-essential; exoskeleton C++ kernels require /usr/bin/g++ and /usr/bin/gcc.'
+  # Rebuild this editable package so native-only source changes cannot leave a stale extension.
+  CC=/usr/bin/gcc CXX=/usr/bin/g++ pixi reinstall --manifest-path "$project_root/exoskeleton/pixi.toml" --locked data-glove-wuji-teleop
+}
+if [[ "${1:-}" == --exoskeleton ]]; then
+  install_exoskeleton
+  printf '%s\n' 'Exoskeleton environment installed. No hardware was contacted; main and tracking environments were not changed.'
+  exit 0
+fi
 [[ -x /usr/bin/g++ ]] || fail 'Install build-essential; manus/build.sh requires /usr/bin/g++.'
 sdk=manus/ManusSDK/lib/libManusSDK_Integrated.so
 [[ -r "$sdk" ]] || fail "Missing vendor SDK: $sdk"
@@ -34,6 +46,7 @@ trap 'printf "Installation failed at line %s; fix the reported error and rerun b
 
 pixi install --locked
 pixi install --locked -e tracking
+install_exoskeleton
 if [[ ! -e .venv ]]; then
   pixi run --locked python -m venv .venv
 fi

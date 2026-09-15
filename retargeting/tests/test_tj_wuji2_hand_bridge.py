@@ -14,6 +14,7 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[2]
 from retargeting.example import tj_wuji2_hand_bridge as bridge
+from tianji import hand_protocol
 
 
 def message(data, label=None, *, size=None, stride=None, offset=0):
@@ -86,7 +87,7 @@ class PacketTests(unittest.TestCase):
     def test_exact_cpp_wire_contract_and_crc(self):
         left = np.linspace(-0.8, 0.8, 20)
         right = np.linspace(0.7, -0.7, 20)
-        packet = bridge.encode_packet(0x0102030405060708, 123456789, left=left, right=right,
+        packet = hand_protocol.encode_packet(0x0102030405060708, 123456789, left=left, right=right,
                                       left_timestamp_ns=123450000, right_timestamp_ns=123455000)
         self.assertEqual(len(packet), 364)
         self.assertEqual(struct.unpack_from("<4sBBHQqqq", packet),
@@ -104,8 +105,8 @@ class PacketTests(unittest.TestCase):
         self.assertEqual(struct.unpack_from("<I", packet, 360)[0], crc ^ 0xFFFFFFFF)
 
     def test_absent_side_has_zero_timestamp_and_joints(self):
-        left_packet = bridge.encode_packet(1, 10, left=np.arange(20), left_timestamp_ns=8)
-        right_packet = bridge.encode_packet(2, 11, right=-np.arange(20), right_timestamp_ns=9)
+        left_packet = hand_protocol.encode_packet(1, 10, left=np.arange(20), left_timestamp_ns=8)
+        right_packet = hand_protocol.encode_packet(2, 11, right=-np.arange(20), right_timestamp_ns=9)
         self.assertEqual(left_packet[5], 1)
         self.assertEqual(right_packet[5], 2)
         self.assertEqual(struct.unpack_from("<qq", left_packet, 24), (8, 0))
@@ -118,17 +119,17 @@ class PacketTests(unittest.TestCase):
         for sequence, stamp in ((0, 1), (-1, 1), (2**64, 1), (1, 0), (1, -1), (1, 2**63)):
             with self.subTest(sequence=sequence, stamp=stamp):
                 with self.assertRaises(ValueError):
-                    bridge.encode_packet(sequence, stamp, left=np.zeros(20), left_timestamp_ns=1)
+                    hand_protocol.encode_packet(sequence, stamp, left=np.zeros(20), left_timestamp_ns=1)
         for values in (np.zeros(19), np.zeros((5, 4)), [np.nan] * 20, [np.inf] * 20):
             with self.assertRaises(ValueError):
-                bridge.encode_packet(1, 1, right=values, right_timestamp_ns=1)
+                hand_protocol.encode_packet(1, 1, right=values, right_timestamp_ns=1)
         with self.assertRaises(ValueError):
-            bridge.encode_packet(1, 1)
+            hand_protocol.encode_packet(1, 1)
         for source_ns in (-1, 0, 11, 2**63, 1.5):
             with self.subTest(source_ns=source_ns), self.assertRaises(ValueError):
-                bridge.encode_packet(1, 10, right=np.zeros(20), right_timestamp_ns=source_ns)
+                hand_protocol.encode_packet(1, 10, right=np.zeros(20), right_timestamp_ns=source_ns)
         with self.assertRaises(ValueError):
-            bridge.encode_packet(1, 10, left=np.zeros(20), left_timestamp_ns=5,
+            hand_protocol.encode_packet(1, 10, left=np.zeros(20), left_timestamp_ns=5,
                                  right_timestamp_ns=5)
 
     def test_joint_reordering_uses_names_not_urdf_position(self):
@@ -142,7 +143,7 @@ class PacketTests(unittest.TestCase):
             perm = bridge.joint_permutation(source, side)
             source_values = np.array([expected.index(name) + 0.25 for name in source])
             ordered = source_values[perm]
-            packet = bridge.encode_packet(1, 1, **{side: ordered, f"{side}_timestamp_ns": 1})
+            packet = hand_protocol.encode_packet(1, 1, **{side: ordered, f"{side}_timestamp_ns": 1})
             self.assertEqual(struct.unpack_from("<20d", packet, 40 if side == "left" else 200),
                              tuple(np.arange(20) + 0.25))
             with self.assertRaises(ValueError):
@@ -312,7 +313,7 @@ class ModelWristFrameTests(unittest.TestCase):
                     points = self.model_landmarks(hand, side, qpos)
                     for _ in range(20):
                         output = hand.retarget(points)
-                    slot = bridge.JOINT_STEMS.index(stem)
+                    slot = hand_protocol.JOINT_STEMS.index(stem)
                     self.assertAlmostEqual(float(output[slot]), 0.6, delta=0.05)
                     untouched = [i for i in range(20) if i // 4 != slot // 4]
                     self.assertLess(float(np.max(np.abs(output[untouched]))), 0.05)
@@ -351,7 +352,7 @@ class ModelWristFrameTests(unittest.TestCase):
                     decoded = bridge.interpret_hand_input(message(frame.data, side))[side]
                     for _ in range(25):
                         output = hand.retarget(decoded)
-                    slot = bridge.JOINT_STEMS.index(stem)
+                    slot = hand_protocol.JOINT_STEMS.index(stem)
                     self.assertAlmostEqual(float(output[slot]), 0.6, delta=0.05)
 
     def test_rigid_hand_motion_preserves_model_wrist_targets(self):

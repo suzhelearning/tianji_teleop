@@ -22,7 +22,7 @@ struct WujiHandTeleopFrame {
   std::uint64_t sequence{0U};
   // Publication sample time, on the shared local monotonic clock.
   std::int64_t source_timestamp_ns{0};
-  // Original ROS callback receive times, retained by repeated publications.
+  // Original per-side local input receive times; cached poses retain their age.
   std::int64_t left_source_timestamp_ns{0};
   std::int64_t right_source_timestamp_ns{0};
   std::array<double, kWujiHandJointDof> left{};

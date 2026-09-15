@@ -1,0 +1,19 @@
+{
+  "version": 2,
+  "name": "right-current",
+  "hand": "right",
+  "device_id": null,
+  "network": {
+    "protocol": "dgst-v3",
+    "mac": "02:33:80:00:00:01",
+    "host": "192.168.7.2",
+    "port": 5580,
+    "http_port": 5570,
+    "mtu": 8000,
+    "host_address": "192.168.7.1/24",
+    "route_table": 17001
+  },
+  "glove_urdf": "../../../assets/data_glove_urdf/data_glove_urdf_R/urdf/data_glove_urdf_R.urdf",
+  "glove_config": "../urdf/right.json",
+  "zero_file": "../urdf/zero/right.json"
+}

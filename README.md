@@ -77,8 +77,9 @@ bash install.sh --check  # 只检查基础前置条件，不下载、不编译
 bash install.sh          # 安装依赖并编译全部基础遥操组件
 ```
 
-脚本使用 `pixi.lock` 安装默认和 tracking 两套环境，创建根 `.venv`，安装 Python
-依赖和原生扩展，编译双臂控制器、Manus 采集器及默认 tracking ROS 包。
+脚本使用根 `pixi.lock` 安装默认和 tracking 环境，创建根 Python 3.11 `.venv`，安装 Python
+依赖和原生扩展，编译双臂控制器、Manus 采集器及默认 tracking ROS 包；另外使用
+`exoskeleton/pixi.lock` 安装仓库内独立的 Python 3.12 外骨骼环境并编译其 C++ 数值扩展。
 统一使用副本内的 tracking ROS 环境，不复用原电脑的环境路径。
 Pixi 依赖受锁文件约束；Python pip 依赖仍按 `pyproject.toml` 的版本范围解析。
 失败时立即停止，修复报错后可重新运行。脚本不会自动调用 sudo，不启动或使能硬件。
@@ -87,6 +88,9 @@ Pixi 依赖受锁文件约束；Python pip 依赖仍按 `pyproject.toml` 的版�
 安装后不要移动或删除本目录，因为 Python 使用 editable 安装。
 USB 权限、设备网络地址及个人标定仍须按后续文档配置；已有标定不适用于任意新操作者。
 默认不构建需要另行提供私钥的可选 Odin 组件。
+
+已有主项目环境，仅补装外骨骼输入时执行 `bash install.sh --exoskeleton`。
+该分支安装 `exoskeleton/.pixi/envs/default` 并重建本项目外骨骼扩展，不重装主环境、不编译控制器／Manus／ROS，也不启动硬件。编译需要 `/usr/bin/gcc`、`/usr/bin/g++`（Ubuntu/Debian 的 `build-essential`）。
 
 交付验证：复制文件已进行 SHA-256 对比；安装脚本基础预检及 Manus 原生编译通过。
 受交付机器磁盘空间限制，未在本副本中执行完整依赖安装及双臂／tracking 全量构建。
@@ -114,7 +118,7 @@ pixi run -e tracking bash tracking/scripts/build.sh
 ```
 
 系统还需 `adb`、`tmux`、USB／网络权限。Manus SDK 动态库通过本仓库 LFS 提供；Odin 的可选私钥独立配置。
-运行器统一使用 `.venv/bin/python`，可显式设置 `TIANJI_PYTHON`；不搜索旧子工程环境、不自动回退。
+主项目运行器使用 `.venv/bin/python`，可显式设置 `TIANJI_PYTHON`；外骨骼入口 `exo.sh` 使用仓库内 `exoskeleton/` 的锁定 Pixi Python 3.12 环境。两者均不搜索外部旧工程或自动回退到旧环境。
 Tracking 启动器同时加载所选 ROS SDK 的 `lib/` 共享库目录，普通 `bash pico.sh --user NAME` 即可加载 GLFW／MuJoCo，无需先进入 `pixi shell`。
 
 ```bash
@@ -455,6 +459,68 @@ bash manus.sh --user syz
 该命令统一管理 Manus 采集器、ROS `/hand_input` 适配器及 Hand2 UDP 桥。
 保持终端运行，不要另开第二个采集器。
 
+#### 外骨骼手套输入（替代 Manus）
+
+外骨骼源代码、设备／零位档案、手套与 Wuji 模型、官方重定向求解器已纳入本项目 `exoskeleton/`，不再依赖外部 `~/syz/data_glove_wuji_teleop`。终端 2 直接运行发送器；不需要额外桥接终端：
+
+```bash
+# 首次使用，或更新 C++ 内核后重新编译安装：
+bash install.sh --exoskeleton
+
+# 只检查本地身份档案、零位、方向、FK/MANO 和模型，不连接设备：
+bash exo.sh --check-config
+
+# 采集、重定向并直接向本机控制器发送 TJH2：
+bash exo.sh
+# 等价入口：.venv/bin/tianji exoskeleton <相同参数>
+```
+
+默认启动双手；只启动左手用 `bash exo.sh --hand left`，只启动右手用 `bash exo.sh --hand right`。
+入口默认允许采集发送和未验收方向调试，不需要追加 `--confirm-send` 或 `--commission-directions`。
+当前迁入档案的方向尚未验收；默认调试许可不会修改验收标记，也不代表真机动作已验证。
+`exo.sh` 只管理发送器，不启动 PICO、仿真或真机。
+缺少内部环境时会提示安装命令，不借用原工程环境。
+
+后续设备与零位配置修改在 `exoskeleton/config/dataglove/devices/`，任务绑定在
+`exoskeleton/config/teleoperation/`。传给 `exo.sh` 的相对配置路径以 `exoskeleton/` 为基准；
+也可通过 `pixi run --manifest-path exoskeleton/pixi.toml --locked <任务>` 使用迁入的注册、标定等工具。
+这是独立的仓库内源代码副本，原工程未删除，但两处代码和标定不会自动同步。
+原有录制数据、虚拟环境、缓存和未使用的 STEP/USD 资源未迁入；部署所需的 URDF/MJCF/STL 已保留。
+第三方模型与求解器许可证随资源保留；原手套 URDF 的 BSD 许可声明不完整，不能将整个目录视为统一 MIT 授权。
+
+外骨骼每帧的数值内核已迁入 `exoskeleton/native/`：
+
+- `encoder_kinematics.cpp`：四连杆几何求解和 21 通道机构换算，缓存机构参数，保留无解／退化检查。
+- `morphology.cpp`：独立 MANO 手型的前向几何、残差／解析雅可比、初值选择、有界迭代、时序项和捏合二次拟合。固定大小工作数组；拟合期间释放 GIL，每个实例独立保护并原子提交历史状态。
+- `module.cpp`：通过 pybind11 暴露给现有 Python 接口；不保留旧 Python 数值循环或缺少扩展时的回退路径。
+
+这是数值内核迁移，不是整套程序 C++ 化：配置与标定、设备采集、软件零位和 URDF 映射调度仍在 Python，
+MuJoCo FK 继续使用现有原生库，官方 Wuji 求解 worker 与 TJH2 发送路径保持不变。
+`setup.py` 使用 C++17、`-O3`、`-ffp-contract=off`，不启用 fast-math。
+运行 `bash install.sh --exoskeleton` 会按锁文件安装依赖并重建本地 editable 包，避免仅修改 C++ 后误用旧扩展；
+运行中的进程不会热更新，重新启动 `exo.sh` 后使用新内核。
+
+不要同时启动 `manus.sh`。`pico.sh`、`teleop.sh --sim/--real` 保持不变。
+旧版 JSON UDP 中转已移除；切换前停止旧发送器和旧桥接进程。外骨骼与 Manus 共用协议编码器，但外骨骼直发不依赖 ROS 或 Manus 标定。
+
+发送器默认向 `127.0.0.1:16000` 发送 364 字节的 TJH2 v2 二进制包，含 CRC32、
+递增序号、发布时间和每侧原始测量时间；每侧 20 个有限弧度角。
+关节顺序以 `tianji/hand_protocol.py::JOINT_STEMS` 为准：
+拇指、食指、中指、无名指、小指，每指 4 个关节。发送官方 Wuji 模型坐标下的 qpos 并重排关节顺序，不额外裁剪或拒绝有限的越界值；真机安全仍由执行端负责。
+
+只有新求解结果触发发送，不再增加 100 Hz 中转重发。未更新侧可以随包携带缓存姿态，
+但保留该侧原始帧读取完成时的 `monotonic_ns`，不能用另一侧更新或发布时间刷新其年龄。
+FK／求解耗时计入帧年龄；发送器保留过期丢弃门禁，执行端继续独立检查每侧 150 ms 新鲜度。
+冷启动求解超过该时限的帧也不能用于执行。故障侧清除缓存，不用零位替代；
+没有新结果、空发送和退出均不补包，恢复需重启该侧采集。
+
+这一路径要求发送器和控制器共享同机单调时钟，`--udp-host` 仅允许回环 IPv4 地址，
+不能将目的地址改为另一台电脑。`--udp-port` 可显式覆盖默认端口，但必须匹配控制器配置。
+
+使用 `bash exo.sh --help` 查看参数。先仿真逐指验证，再走原有真机安全流程。
+已验证仓库内锁定环境、双手离线配置，以及合成零位帧经真实 FK／官方求解 worker／随机回环 UDP 直发，由原生控制器协议解码和每侧新鲜度逻辑检查；覆盖旧侧过期、故障缓存清除与退出不补包。此次验证没有连接实物手套、修改网络或启动真机；实际外骨骼＋PICO 带运动闭环仍需按安全流程验证。
+原生内核迁移已编译安装，并通过左右手各两帧合成编码器输入运行实际机构换算／FK／手型拟合／官方求解／TJH2 UDP 链路；未运行测试套件或性能基准，不宣称具体加速倍数。
+
 ### 3. 选择参考显示或动力学仿真
 
 先关闭旧机器人 Viewer，再在终端 3 执行：
@@ -472,7 +538,7 @@ bash teleop.sh --sim
 检查顺序：先缓慢、小幅活动双臂，再保持手腕稳定，逐个活动手指。
 确认左右对应，握拳时手指朝掌心弯曲。
 
-两者都使用上文的 PICO 和 Manus 输入。`--sim` 内部启动同一套无界面参考控制器，
+两者都使用上文的 PICO 和手部输入（Manus 或外骨骼二选一）。`--sim` 内部启动同一套无界面参考控制器，
 通过独占的动态 loopback UDP 端口接收 TJRC v2 目标，不占用真机输出端口 `17000`。
 不能再额外启动独立机器人 Viewer。没有输入时保持初始目标；某一路输入失效时保持
 该路最后目标，但物理积分继续，受力后仍可能运动。终端区分 `waiting`、`ready` 和 `stale-hold`。

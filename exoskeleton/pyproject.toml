@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=75", "pybind11>=2.13,<4"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "data-glove-wuji-teleop"
+version = "0.1.0"
+description = "Wuji v1/v2 dataglove calibration, teleoperation, simulation and replay."
+requires-python = ">=3.12,<3.13"
+# Native solver and video dependencies are provided by the single Pixi environment.
+dependencies = [
+  "mujoco>=3.6,<4",
+  "numpy>=1.26,<3",
+  "scipy>=1.11,<2",
+  "pyzmq>=25",
+  "pyyaml>=6,<7",
+  "h5py>=3.11,<4",
+  "wuji-sdk==2026.7.21",
+]
+
+[project.scripts]
+wuji-teleop = "data_glove_wuji_teleop.cli:main"
+wuji-hardware = "data_glove_wuji_teleop.hardware_cli:main"
+wuji-official-teleop = "data_glove_wuji_teleop.official_teleop:main"
+wuji-simulator-v1 = "data_glove_wuji_teleop.adapters.simulation.mujoco_wuji_v1:main"
+wuji-simulator-v2 = "data_glove_wuji_teleop.adapters.simulation.mujoco_wuji_v2:main"
+wuji-check = "data_glove_wuji_teleop.project:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["data_glove_wuji_teleop", "data_glove_wuji_teleop.*"]
+namespaces = false
