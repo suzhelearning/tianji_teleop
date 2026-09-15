@@ -227,8 +227,11 @@ class RealRobotViewer:
         self._status_fd = status_read
         try:
             self._await_ready(float(startup_timeout_s))
-        except BaseException:
-            self.close()
+        except BaseException as error:
+            try:
+                self.close()
+            except Exception as cleanup_error:
+                error.add_note(f"viewer cleanup failed: {cleanup_error}")
             raise
 
     @property
@@ -271,28 +274,48 @@ class RealRobotViewer:
                 os.close(state_fd)
             except OSError:
                 pass
-        if process is not None:
-            self._process = None
-            if process.poll() is None:
-                try:
-                    process.wait(timeout=CLOSE_TIMEOUT_S)
-                except subprocess.TimeoutExpired:
-                    process.terminate()
+        errors = []
+        try:
+            if process is not None:
+                if process.poll() is None:
                     try:
                         process.wait(timeout=CLOSE_TIMEOUT_S)
                     except subprocess.TimeoutExpired:
-                        process.kill()
+                        errors.append("viewer graceful shutdown timed out; forced termination required")
+                        try:
+                            process.terminate()
+                        except ProcessLookupError:
+                            pass  # The child may have exited since wait timed out.
                         try:
                             process.wait(timeout=CLOSE_TIMEOUT_S)
                         except subprocess.TimeoutExpired:
-                            pass
-        self._drain_status()
-        if status_fd is not None:
-            self._status_fd = None
-            try:
-                os.close(status_fd)
-            except OSError:
-                pass
+                            try:
+                                process.kill()
+                            except ProcessLookupError:
+                                pass
+                            try:
+                                process.wait(timeout=CLOSE_TIMEOUT_S)
+                            except subprocess.TimeoutExpired:
+                                errors.append("viewer exit could not be confirmed after kill")
+                code = process.poll()
+                if code is not None:
+                    self._process = None
+                    if code != 0:
+                        errors.append(f"viewer process exited with status {code}")
+                # Retain ownership if still alive, so close can be retried.
+            self._drain_status()
+            if self._failure is not None:
+                errors.append(self._failure)
+        finally:
+            if status_fd is not None:
+                self._status_fd = None
+                try:
+                    os.close(status_fd)
+                except OSError:
+                    pass
+        if errors:
+            self._failure = "; ".join(errors)
+            raise RuntimeError(self._failure)
 
     def _await_ready(self, timeout_s: float) -> None:
         deadline = time.monotonic() + timeout_s

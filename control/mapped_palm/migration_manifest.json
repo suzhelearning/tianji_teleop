@@ -1,0 +1,921 @@
+{
+  "schema_version": 1,
+  "source_project": "dexhand_deploy",
+  "source_commit": "a6ff1bd9a32e0a2b3dac2c131abf0cf0c2ea00b4",
+  "source_directory": "src/tianji_teleop/src/ik/mapped_palm",
+  "notes": [
+    "CMake uses destination pinned dependencies and local Ruckig; runtime RPATH relative to project.",
+    "native_worker.cpp adapts helper include paths only.",
+    "Wuji hand protocol/receiver replaced by destination side-timestamp ABI with isolated namespace.",
+    "deployment.yaml changes only source reference startup Home; bandwidth.yaml retained.",
+    "Assets copied from source src/tianji_teleop/assets; calibration profiles are external and NOT copied.",
+    "TJRC adapter/calibration pipe/target observer are new integration code, not a full source scheduler port."
+  ],
+  "files": [
+    {
+      "path": "CMakeLists.txt",
+      "source_sha256": "dabd7dc5bfc04dfd4eebdc7f8f47f01c8005c4db6f0cbee26843b108fc97c0e8",
+      "target_sha256": "3e5c7406823fb2157ca43912899d1aa7e17853a16f9df6b549c0531aa86e94dd"
+    },
+    {
+      "path": "bilateral_cycle.cpp",
+      "source_sha256": "2535e30d7ecf4662b5e06b2914d31d54fdcabc533f295944d6a2b635d014aee6",
+      "target_sha256": "2535e30d7ecf4662b5e06b2914d31d54fdcabc533f295944d6a2b635d014aee6"
+    },
+    {
+      "path": "bilateral_cycle.hpp",
+      "source_sha256": "c0773a45d437876e738e19cb212619348edaa8137be64d3178b18e020c042027",
+      "target_sha256": "c0773a45d437876e738e19cb212619348edaa8137be64d3178b18e020c042027"
+    },
+    {
+      "path": "config/bandwidth.yaml",
+      "source_sha256": "474b7c16ebf428533f405eca8ecb182c078a82dba05991dda5c8db5b435eed45",
+      "target_sha256": "474b7c16ebf428533f405eca8ecb182c078a82dba05991dda5c8db5b435eed45"
+    },
+    {
+      "path": "include/tianji_mapped_palm/acceleration_bounds.hpp",
+      "source_sha256": "b969a3528cd62d9ddcc2fe1485f894ba951e9921fb8fa0bf6368aaae06bd60b5",
+      "target_sha256": "b969a3528cd62d9ddcc2fe1485f894ba951e9921fb8fa0bf6368aaae06bd60b5"
+    },
+    {
+      "path": "include/tianji_mapped_palm/acceleration_controller.hpp",
+      "source_sha256": "07368369a52c240f047f051212b959a1f328928971cb0ba6f8e63b3fe6973e78",
+      "target_sha256": "07368369a52c240f047f051212b959a1f328928971cb0ba6f8e63b3fe6973e78"
+    },
+    {
+      "path": "include/tianji_mapped_palm/acceleration_ik.hpp",
+      "source_sha256": "beae66efb24f6ec459ab146f4a06de3e6483beff00aa2ac69a03415baa7d36fe",
+      "target_sha256": "beae66efb24f6ec459ab146f4a06de3e6483beff00aa2ac69a03415baa7d36fe"
+    },
+    {
+      "path": "include/tianji_mapped_palm/acceleration_qp.hpp",
+      "source_sha256": "50b3781e3f4ded666f26f89e660dd5b843399ddb03ce95d4a2d3576c44a5149c",
+      "target_sha256": "50b3781e3f4ded666f26f89e660dd5b843399ddb03ce95d4a2d3576c44a5149c"
+    },
+    {
+      "path": "include/tianji_mapped_palm/acceleration_qpoases_solver.hpp",
+      "source_sha256": "b06306687756a3ff8c9614e2bf0d6e63221ec7f0f2dd63424ad753a759b8113b",
+      "target_sha256": "b06306687756a3ff8c9614e2bf0d6e63221ec7f0f2dd63424ad753a759b8113b"
+    },
+    {
+      "path": "include/tianji_mapped_palm/arm_angle.hpp",
+      "source_sha256": "cf4551d9600332ea2d84362d95919f8db8c889159b07abe737af50fb67bec437",
+      "target_sha256": "cf4551d9600332ea2d84362d95919f8db8c889159b07abe737af50fb67bec437"
+    },
+    {
+      "path": "include/tianji_mapped_palm/benchmark_dataset.hpp",
+      "source_sha256": "d83a32e546ab7822a83fd98438b604fbce52d62290789b575faaf006a0b32f4b",
+      "target_sha256": "d83a32e546ab7822a83fd98438b604fbce52d62290789b575faaf006a0b32f4b"
+    },
+    {
+      "path": "include/tianji_mapped_palm/cartesian_acceleration_servo.hpp",
+      "source_sha256": "53138705e3b2bd211d619577252a16974058a7e661de71001b18598323844a00",
+      "target_sha256": "53138705e3b2bd211d619577252a16974058a7e661de71001b18598323844a00"
+    },
+    {
+      "path": "include/tianji_mapped_palm/cartesian_feedforward_allocator.hpp",
+      "source_sha256": "085ac29c2ee1807e76b7c2d32aa1e947acd96020657644183a9b98885d35b091",
+      "target_sha256": "085ac29c2ee1807e76b7c2d32aa1e947acd96020657644183a9b98885d35b091"
+    },
+    {
+      "path": "include/tianji_mapped_palm/cartesian_frf.hpp",
+      "source_sha256": "d980ee3c70afcfa96e8d7b20ca396a533c08650a5dd21276fa8679c10d1ade46",
+      "target_sha256": "d980ee3c70afcfa96e8d7b20ca396a533c08650a5dd21276fa8679c10d1ade46"
+    },
+    {
+      "path": "include/tianji_mapped_palm/cartesian_otg.hpp",
+      "source_sha256": "5a284020381118c212fe3a8d5fffe87b604019d6bc0769a1997ecb815e0f7a2d",
+      "target_sha256": "5a284020381118c212fe3a8d5fffe87b604019d6bc0769a1997ecb815e0f7a2d"
+    },
+    {
+      "path": "include/tianji_mapped_palm/cartesian_servo.hpp",
+      "source_sha256": "c48c0b09b790d2978ecba8b70f6acc9d27de2ea598e8a9c0b9547018da7489ab",
+      "target_sha256": "c48c0b09b790d2978ecba8b70f6acc9d27de2ea598e8a9c0b9547018da7489ab"
+    },
+    {
+      "path": "include/tianji_mapped_palm/cartesian_task_allocator.hpp",
+      "source_sha256": "fd309b6b8b0b11920d01a216871e16e4e204db544427ec2d6e1bb5d10f6c0210",
+      "target_sha256": "fd309b6b8b0b11920d01a216871e16e4e204db544427ec2d6e1bb5d10f6c0210"
+    },
+    {
+      "path": "include/tianji_mapped_palm/causal_se3_twist_estimator.hpp",
+      "source_sha256": "1d02c5d65dc58ef505b18fb7394fcef5cf92f7fa3bbeb52d7a8cfb15207099f7",
+      "target_sha256": "1d02c5d65dc58ef505b18fb7394fcef5cf92f7fa3bbeb52d7a8cfb15207099f7"
+    },
+    {
+      "path": "include/tianji_mapped_palm/config.hpp",
+      "source_sha256": "89bfa7e6ef76ec0c043c9598c0363a64cec3a772109aaeea6c29c3e4dab0acb2",
+      "target_sha256": "89bfa7e6ef76ec0c043c9598c0363a64cec3a772109aaeea6c29c3e4dab0acb2"
+    },
+    {
+      "path": "include/tianji_mapped_palm/controller.hpp",
+      "source_sha256": "960d4b97879eb1ca5fe6a74eccd5f8913a232d1eee0edb85468bfa93d451e740",
+      "target_sha256": "960d4b97879eb1ca5fe6a74eccd5f8913a232d1eee0edb85468bfa93d451e740"
+    },
+    {
+      "path": "include/tianji_mapped_palm/equality_constrained_qpoases_solver.hpp",
+      "source_sha256": "8f6189554d9498c46d5a47d15510cb7f37d5d17720526c6baf191e3460b4d9cf",
+      "target_sha256": "8f6189554d9498c46d5a47d15510cb7f37d5d17720526c6baf191e3460b4d9cf"
+    },
+    {
+      "path": "include/tianji_mapped_palm/hierarchical_qp.hpp",
+      "source_sha256": "36e8f4a66243a6a1f01bb53344591933e397ee51f3646715f45ee0319e05048f",
+      "target_sha256": "36e8f4a66243a6a1f01bb53344591933e397ee51f3646715f45ee0319e05048f"
+    },
+    {
+      "path": "include/tianji_mapped_palm/hierarchical_qp_ik.hpp",
+      "source_sha256": "bde22445a4332eabb8dd63b506503db3d428f4d204cd8142140fae4a51ba9b37",
+      "target_sha256": "bde22445a4332eabb8dd63b506503db3d428f4d204cd8142140fae4a51ba9b37"
+    },
+    {
+      "path": "include/tianji_mapped_palm/hierarchical_qpoases_solver.hpp",
+      "source_sha256": "6ac6a61b2770ba33c241beb2e0300183eb9e274dd53259a13e19b4ca7b722779",
+      "target_sha256": "6ac6a61b2770ba33c241beb2e0300183eb9e274dd53259a13e19b4ca7b722779"
+    },
+    {
+      "path": "include/tianji_mapped_palm/interactive_marker.hpp",
+      "source_sha256": "795738884cda21791b0c6a50fc88d9d920cd46c6d5d26ac270ff1d5e756a0578",
+      "target_sha256": "795738884cda21791b0c6a50fc88d9d920cd46c6d5d26ac270ff1d5e756a0578"
+    },
+    {
+      "path": "include/tianji_mapped_palm/iterative_pose_dls.hpp",
+      "source_sha256": "97393a111bec6199d587853c2ac609f2721feab9e8beaa49f60f770cd1a3387a",
+      "target_sha256": "97393a111bec6199d587853c2ac609f2721feab9e8beaa49f60f770cd1a3387a"
+    },
+    {
+      "path": "include/tianji_mapped_palm/joint_kinematics_plot.hpp",
+      "source_sha256": "d6dccef17a2b3e79ebe36e71732b655082db8b04b08e54ef705cdd788a5b2653",
+      "target_sha256": "d6dccef17a2b3e79ebe36e71732b655082db8b04b08e54ef705cdd788a5b2653"
+    },
+    {
+      "path": "include/tianji_mapped_palm/joint_trajectory_limiter.hpp",
+      "source_sha256": "a98c8212b8dee3e75c00689bfaa8802cd24ceae615af928b88d9ca8b152cd665",
+      "target_sha256": "a98c8212b8dee3e75c00689bfaa8802cd24ceae615af928b88d9ca8b152cd665"
+    },
+    {
+      "path": "include/tianji_mapped_palm/mujoco_joint_plot.hpp",
+      "source_sha256": "ac4fefbe38f151fab8c6c6b03cef129a44edc2174c526f4cc265608dcdb4012b",
+      "target_sha256": "ac4fefbe38f151fab8c6c6b03cef129a44edc2174c526f4cc265608dcdb4012b"
+    },
+    {
+      "path": "include/tianji_mapped_palm/mujoco_marker_adapter.hpp",
+      "source_sha256": "e195e13cac7ab2200c6f49573abbc9845292ab64534f7852ae2f57230e7fdce1",
+      "target_sha256": "e195e13cac7ab2200c6f49573abbc9845292ab64534f7852ae2f57230e7fdce1"
+    },
+    {
+      "path": "include/tianji_mapped_palm/mujoco_robot.hpp",
+      "source_sha256": "7dc46b4d4d8e3271b4c641180cd7c2c04d013ba279998029f9e1e39310ead662",
+      "target_sha256": "7dc46b4d4d8e3271b4c641180cd7c2c04d013ba279998029f9e1e39310ead662"
+    },
+    {
+      "path": "include/tianji_mapped_palm/nullspace_dls.hpp",
+      "source_sha256": "534c57db7f409eb9b51c1b36c91d7dbad798b09dba3ad3875df845750e0c486c",
+      "target_sha256": "534c57db7f409eb9b51c1b36c91d7dbad798b09dba3ad3875df845750e0c486c"
+    },
+    {
+      "path": "include/tianji_mapped_palm/osqp_solver.hpp",
+      "source_sha256": "a18b2b7e623cdca784a631f517a3b35a0ba69e444a88c59cf1e52c0e7daa1cfe",
+      "target_sha256": "a18b2b7e623cdca784a631f517a3b35a0ba69e444a88c59cf1e52c0e7daa1cfe"
+    },
+    {
+      "path": "include/tianji_mapped_palm/pico_ee_headroom.hpp",
+      "source_sha256": "ed9a38d668edcaa1e0212bece93aacc40fa79360ae4378df236903ffe6c6de2a",
+      "target_sha256": "ed9a38d668edcaa1e0212bece93aacc40fa79360ae4378df236903ffe6c6de2a"
+    },
+    {
+      "path": "include/tianji_mapped_palm/pico_ee_motion_confidence.hpp",
+      "source_sha256": "3c5136be8ce0cc909af437f17e8a8deed612cd4db416a74cbad98f14723894fa",
+      "target_sha256": "3c5136be8ce0cc909af437f17e8a8deed612cd4db416a74cbad98f14723894fa"
+    },
+    {
+      "path": "include/tianji_mapped_palm/pico_ee_reference.hpp",
+      "source_sha256": "b1d6f52fe45a8e606aff72117052cf3e84dc56139ba8f29ff7f988bc43db8ece",
+      "target_sha256": "b1d6f52fe45a8e606aff72117052cf3e84dc56139ba8f29ff7f988bc43db8ece"
+    },
+    {
+      "path": "include/tianji_mapped_palm/pico_mapped_arm_angle_vector_governor.hpp",
+      "source_sha256": "7e584aad2df6d846ace21d8ed7f948c1c152b7e4117ec556c18864f1b63439a2",
+      "target_sha256": "7e584aad2df6d846ace21d8ed7f948c1c152b7e4117ec556c18864f1b63439a2"
+    },
+    {
+      "path": "include/tianji_mapped_palm/pico_mapped_corrected_palm.hpp",
+      "source_sha256": "28951f93a65fb4addd02b8a1711b99623bb9dc1bab4a9e6bf355cdd6db6af016",
+      "target_sha256": "28951f93a65fb4addd02b8a1711b99623bb9dc1bab4a9e6bf355cdd6db6af016"
+    },
+    {
+      "path": "include/tianji_mapped_palm/pico_skeleton_arm_angle.hpp",
+      "source_sha256": "95fcfa7cf21ded5d712b3568ab56a51f36be3445782af27601c3c1712cc5befc",
+      "target_sha256": "95fcfa7cf21ded5d712b3568ab56a51f36be3445782af27601c3c1712cc5befc"
+    },
+    {
+      "path": "include/tianji_mapped_palm/pico_skeleton_overlay.hpp",
+      "source_sha256": "01bfa1862ab214284487fc50c3d6593a42a802a582efaf2ba995326f4b89036b",
+      "target_sha256": "01bfa1862ab214284487fc50c3d6593a42a802a582efaf2ba995326f4b89036b"
+    },
+    {
+      "path": "include/tianji_mapped_palm/pico_teleop_protocol.hpp",
+      "source_sha256": "60b7ef70bbb8393a36c356f4fbd9f235fcfd9627d3b161de2350f583b447cbb0",
+      "target_sha256": "60b7ef70bbb8393a36c356f4fbd9f235fcfd9627d3b161de2350f583b447cbb0"
+    },
+    {
+      "path": "include/tianji_mapped_palm/pico_teleop_session.hpp",
+      "source_sha256": "890e49158a850ea998c6a2272b535e983e17edd669c05edb28954567f486bb3f",
+      "target_sha256": "890e49158a850ea998c6a2272b535e983e17edd669c05edb28954567f486bb3f"
+    },
+    {
+      "path": "include/tianji_mapped_palm/pico_trace_recorder.hpp",
+      "source_sha256": "a029ed367c1f3cf5f57b274e368ff3d34161c97181481d5c61021175ee238e44",
+      "target_sha256": "a029ed367c1f3cf5f57b274e368ff3d34161c97181481d5c61021175ee238e44"
+    },
+    {
+      "path": "include/tianji_mapped_palm/pico_trace_replay.hpp",
+      "source_sha256": "fd6b129bfd8c179577e39b3ce6b5ada80a7025fca3f5b257eab54df5c7788a9b",
+      "target_sha256": "fd6b129bfd8c179577e39b3ce6b5ada80a7025fca3f5b257eab54df5c7788a9b"
+    },
+    {
+      "path": "include/tianji_mapped_palm/pico_udp_receiver.hpp",
+      "source_sha256": "f9ff1c2ead52a53c9eebdf75aab5632739e11c866ce54dc1aa4941d86670c6fb",
+      "target_sha256": "f9ff1c2ead52a53c9eebdf75aab5632739e11c866ce54dc1aa4941d86670c6fb"
+    },
+    {
+      "path": "include/tianji_mapped_palm/pinocchio_arm_kinematics.hpp",
+      "source_sha256": "905fb75b53eb6b01f0ffc5020ac5d3ec389562bb57a9c22e654466784cd0cc40",
+      "target_sha256": "905fb75b53eb6b01f0ffc5020ac5d3ec389562bb57a9c22e654466784cd0cc40"
+    },
+    {
+      "path": "include/tianji_mapped_palm/qp_builder.hpp",
+      "source_sha256": "dc38522f6a078de3d67aa1cb83a9cefe4c4c9c564c85cc255f5e6814e245df59",
+      "target_sha256": "dc38522f6a078de3d67aa1cb83a9cefe4c4c9c564c85cc255f5e6814e245df59"
+    },
+    {
+      "path": "include/tianji_mapped_palm/qp_solver.hpp",
+      "source_sha256": "978a30cd2fd54e3139826daee9ce6938204caa7b286b12686a0d57d7980e55ff",
+      "target_sha256": "978a30cd2fd54e3139826daee9ce6938204caa7b286b12686a0d57d7980e55ff"
+    },
+    {
+      "path": "include/tianji_mapped_palm/qpoases_solver.hpp",
+      "source_sha256": "cc1387295e592c6e0e0b105a5aa3da9badb5388a5222e3447d0e18243ddff6d3",
+      "target_sha256": "cc1387295e592c6e0e0b105a5aa3da9badb5388a5222e3447d0e18243ddff6d3"
+    },
+    {
+      "path": "include/tianji_mapped_palm/safety.hpp",
+      "source_sha256": "6692d15c8a2c577aee1c3b958df19d9aae259ed84e69bb4236e005d85f36eccb",
+      "target_sha256": "6692d15c8a2c577aee1c3b958df19d9aae259ed84e69bb4236e005d85f36eccb"
+    },
+    {
+      "path": "include/tianji_mapped_palm/so3.hpp",
+      "source_sha256": "c28d9825c9b96580e7799440f91fc9db0cae0616f4cddc2458242e88346dcea5",
+      "target_sha256": "c28d9825c9b96580e7799440f91fc9db0cae0616f4cddc2458242e88346dcea5"
+    },
+    {
+      "path": "include/tianji_mapped_palm/spark_constraint_headroom.hpp",
+      "source_sha256": "d17c3a0802355123f97fb69c0fed8cf26d6f939de44f832ea558540666d86ee6",
+      "target_sha256": "d17c3a0802355123f97fb69c0fed8cf26d6f939de44f832ea558540666d86ee6"
+    },
+    {
+      "path": "include/tianji_mapped_palm/spark_feedforward_reference.hpp",
+      "source_sha256": "b02b5236c89e892bbc4c9dcc251e631939ee8cb60c25a81534d30232d87b9280",
+      "target_sha256": "b02b5236c89e892bbc4c9dcc251e631939ee8cb60c25a81534d30232d87b9280"
+    },
+    {
+      "path": "include/tianji_mapped_palm/spark_guidance.hpp",
+      "source_sha256": "6b686db7acf29e328c89c4e600e4f2b9fa8a2273a710be93aab35c4b7f607cbb",
+      "target_sha256": "6b686db7acf29e328c89c4e600e4f2b9fa8a2273a710be93aab35c4b7f607cbb"
+    },
+    {
+      "path": "include/tianji_mapped_palm/spark_palm_twist_estimator.hpp",
+      "source_sha256": "733f6fefcdc7892671be48efc5508da379ed7a1b1e3309abc8769210154a2d59",
+      "target_sha256": "733f6fefcdc7892671be48efc5508da379ed7a1b1e3309abc8769210154a2d59"
+    },
+    {
+      "path": "include/tianji_mapped_palm/spark_posture_reference.hpp",
+      "source_sha256": "898bcb57d905ef66eaf2e36ec584fc142d9714e97e185725358a94d80f2aa8ec",
+      "target_sha256": "898bcb57d905ef66eaf2e36ec584fc142d9714e97e185725358a94d80f2aa8ec"
+    },
+    {
+      "path": "include/tianji_mapped_palm/spark_qpoases_diagnostic.hpp",
+      "source_sha256": "9bcd05c4ac444d9f55fab994cb82434d0b2c4be60466479a320a22e8ea5c78b7",
+      "target_sha256": "9bcd05c4ac444d9f55fab994cb82434d0b2c4be60466479a320a22e8ea5c78b7"
+    },
+    {
+      "path": "include/tianji_mapped_palm/spark_upper_qpoases_ik.hpp",
+      "source_sha256": "5974259dd573d6fdb867e019353e5042329ac214086597ca48b27ad94b01a235",
+      "target_sha256": "5974259dd573d6fdb867e019353e5042329ac214086597ca48b27ad94b01a235"
+    },
+    {
+      "path": "include/tianji_mapped_palm/spark_upper_retarget.hpp",
+      "source_sha256": "45c1fd3aa4ab6d9ec4cc89e3fd5669527f24340be707bb09bbb6e7927baff037",
+      "target_sha256": "45c1fd3aa4ab6d9ec4cc89e3fd5669527f24340be707bb09bbb6e7927baff037"
+    },
+    {
+      "path": "include/tianji_mapped_palm/target_manager.hpp",
+      "source_sha256": "2a559d6b94cd1cab121cc92f8c0fd39fd385539da25d89eb6946b9f4611d3061",
+      "target_sha256": "2a559d6b94cd1cab121cc92f8c0fd39fd385539da25d89eb6946b9f4611d3061"
+    },
+    {
+      "path": "include/tianji_mapped_palm/telemetry.hpp",
+      "source_sha256": "b3687588b4f19544284bb79ec71b453609153295736f3dd46c591a2af4e80953",
+      "target_sha256": "b3687588b4f19544284bb79ec71b453609153295736f3dd46c591a2af4e80953"
+    },
+    {
+      "path": "include/tianji_mapped_palm/types.hpp",
+      "source_sha256": "85ad9d12bd7564b6ed3f75bbfddf022874bcca2bf47ff662937196debda4680d",
+      "target_sha256": "85ad9d12bd7564b6ed3f75bbfddf022874bcca2bf47ff662937196debda4680d"
+    },
+    {
+      "path": "include/tianji_mapped_palm/upper_arm_outward.hpp",
+      "source_sha256": "03497b1aa3e73798ca48d2bc77861856fe4f07c82cc43a4217ca190119bc86f4",
+      "target_sha256": "03497b1aa3e73798ca48d2bc77861856fe4f07c82cc43a4217ca190119bc86f4"
+    },
+    {
+      "path": "include/tianji_mapped_palm/velocity_ik.hpp",
+      "source_sha256": "dc8a196c161709cae1d25436a7a47fbee12c1699c992d187a27a2887d2d9f106",
+      "target_sha256": "dc8a196c161709cae1d25436a7a47fbee12c1699c992d187a27a2887d2d9f106"
+    },
+    {
+      "path": "include/tianji_mapped_palm/wuji_hand_teleop_protocol.hpp",
+      "source_sha256": "e18c5dfbf28ba68469b93eed27f9c1136a7a8682f31f2370089032f89c15255e",
+      "target_sha256": "2733cce5f5c25a74fbdcd10a3308d6a3d666322e76ff2aa4267b3f0946dae82d"
+    },
+    {
+      "path": "include/tianji_mapped_palm/wuji_hand_udp_receiver.hpp",
+      "source_sha256": "378ab74d102af7256a922a535b5232c7bc6044db1e2bf603db89321e36ab2807",
+      "target_sha256": "378ab74d102af7256a922a535b5232c7bc6044db1e2bf603db89321e36ab2807"
+    },
+    {
+      "path": "native_worker.cpp",
+      "source_sha256": "ba64a15dd3dddbfe3657f1b036b37828875a6c7f381ac96f6ed96d20fb9b9fc4",
+      "target_sha256": "2b12331c191d039470a451cd9ab1c56ea3e26ce605d4cf2baec4da2f4061086e"
+    },
+    {
+      "path": "source_manifest.json",
+      "source_sha256": "781ec622356047bcda852f48bf9172d758c273df0af109c5f47249e4d6096d3e",
+      "target_sha256": "781ec622356047bcda852f48bf9172d758c273df0af109c5f47249e4d6096d3e"
+    },
+    {
+      "path": "src/acceleration_bounds.cpp",
+      "source_sha256": "2dc207f21e1db69abe917d5c09435910bcb483044d03f7c9d88825a2cf53ac79",
+      "target_sha256": "2dc207f21e1db69abe917d5c09435910bcb483044d03f7c9d88825a2cf53ac79"
+    },
+    {
+      "path": "src/acceleration_controller.cpp",
+      "source_sha256": "8b0fd183b83b964738e3e7f02fd63d8e423e38dd8ff7b525fb1c0f7cc60821f2",
+      "target_sha256": "8b0fd183b83b964738e3e7f02fd63d8e423e38dd8ff7b525fb1c0f7cc60821f2"
+    },
+    {
+      "path": "src/acceleration_qp.cpp",
+      "source_sha256": "f3c5a0324c968f8ea0b431ac6216bf8cf0107cd79a3becdf5642725de76a2f85",
+      "target_sha256": "f3c5a0324c968f8ea0b431ac6216bf8cf0107cd79a3becdf5642725de76a2f85"
+    },
+    {
+      "path": "src/acceleration_qpoases_solver.cpp",
+      "source_sha256": "1c46326f7d187b2239f493bf86d746d4ef58f6fc58be2cf1c1c3e4d6b7613126",
+      "target_sha256": "1c46326f7d187b2239f493bf86d746d4ef58f6fc58be2cf1c1c3e4d6b7613126"
+    },
+    {
+      "path": "src/arm_angle.cpp",
+      "source_sha256": "f84f8c2273a6fb382b4df4fb7add5638fe6f6a5ddb8b4b1094ee70e11daaf7b8",
+      "target_sha256": "f84f8c2273a6fb382b4df4fb7add5638fe6f6a5ddb8b4b1094ee70e11daaf7b8"
+    },
+    {
+      "path": "src/benchmark_dataset.cpp",
+      "source_sha256": "1eb1f50eb218034b546acdf955035c33145a64038230ee1d3c7c542785c76db2",
+      "target_sha256": "1eb1f50eb218034b546acdf955035c33145a64038230ee1d3c7c542785c76db2"
+    },
+    {
+      "path": "src/cartesian_acceleration_servo.cpp",
+      "source_sha256": "f2557061dff6d64cb35de1d2a5161241b035396867c1cfd3ba7a131887a6b514",
+      "target_sha256": "f2557061dff6d64cb35de1d2a5161241b035396867c1cfd3ba7a131887a6b514"
+    },
+    {
+      "path": "src/cartesian_feedforward_allocator.cpp",
+      "source_sha256": "74c7512b68fa469d80d41a92d60ed2469a3d709cade5551d25ec2e431a65bb21",
+      "target_sha256": "74c7512b68fa469d80d41a92d60ed2469a3d709cade5551d25ec2e431a65bb21"
+    },
+    {
+      "path": "src/cartesian_frf.cpp",
+      "source_sha256": "108e9b5ac99d59394e27ab0c5a3591b635cbc2eed5831723fdb5aa068c5edab6",
+      "target_sha256": "108e9b5ac99d59394e27ab0c5a3591b635cbc2eed5831723fdb5aa068c5edab6"
+    },
+    {
+      "path": "src/cartesian_otg.cpp",
+      "source_sha256": "41902d45c54fd3d57e104d6916196c1834a92112fe9bd368aac354564fe83cb9",
+      "target_sha256": "41902d45c54fd3d57e104d6916196c1834a92112fe9bd368aac354564fe83cb9"
+    },
+    {
+      "path": "src/cartesian_servo.cpp",
+      "source_sha256": "1ea8c171c7ae92e232e791412d7eb3ab3dcefa3d69d7199b18ba67d03ac4043e",
+      "target_sha256": "1ea8c171c7ae92e232e791412d7eb3ab3dcefa3d69d7199b18ba67d03ac4043e"
+    },
+    {
+      "path": "src/cartesian_task_allocator.cpp",
+      "source_sha256": "5d9a6b6f739f8736dee3400ebc63156d0faf65c3750cd95119966ce35625b4d2",
+      "target_sha256": "5d9a6b6f739f8736dee3400ebc63156d0faf65c3750cd95119966ce35625b4d2"
+    },
+    {
+      "path": "src/causal_se3_twist_estimator.cpp",
+      "source_sha256": "052a9f8faece5fc3ec13da39f2c506799fedc22945c686063d0bef7772b0833d",
+      "target_sha256": "052a9f8faece5fc3ec13da39f2c506799fedc22945c686063d0bef7772b0833d"
+    },
+    {
+      "path": "src/config.cpp",
+      "source_sha256": "d618a2b3d85ba3de9adce4b5ff7cc45d5caf1756fbe82e3c1da4e653e18e248e",
+      "target_sha256": "d618a2b3d85ba3de9adce4b5ff7cc45d5caf1756fbe82e3c1da4e653e18e248e"
+    },
+    {
+      "path": "src/controller.cpp",
+      "source_sha256": "c75f5ace37c008685285284b6854b31e9dd7bc931a076969791dc262a2dfc64c",
+      "target_sha256": "c75f5ace37c008685285284b6854b31e9dd7bc931a076969791dc262a2dfc64c"
+    },
+    {
+      "path": "src/equality_constrained_qpoases_solver.cpp",
+      "source_sha256": "9fca33b69c852eeb06753640b18ebd8dee3cc48c9f3c4a22d458a6bde1e1e30c",
+      "target_sha256": "9fca33b69c852eeb06753640b18ebd8dee3cc48c9f3c4a22d458a6bde1e1e30c"
+    },
+    {
+      "path": "src/hierarchical_qp.cpp",
+      "source_sha256": "453beab3525152762a7e96ecdf9fd23a146eb88290bccc09484fc0b68e32772b",
+      "target_sha256": "453beab3525152762a7e96ecdf9fd23a146eb88290bccc09484fc0b68e32772b"
+    },
+    {
+      "path": "src/hierarchical_qp_ik.cpp",
+      "source_sha256": "8736f25c4ca325b5831c3fe6730de75099966a9c6e52efc3b1924f8bb3b955aa",
+      "target_sha256": "8736f25c4ca325b5831c3fe6730de75099966a9c6e52efc3b1924f8bb3b955aa"
+    },
+    {
+      "path": "src/hierarchical_qpoases_solver.cpp",
+      "source_sha256": "10f95ae0db487226daa41a8f3b79d8f7c574014ff6a8210ed67f54f6fe8426e1",
+      "target_sha256": "10f95ae0db487226daa41a8f3b79d8f7c574014ff6a8210ed67f54f6fe8426e1"
+    },
+    {
+      "path": "src/interactive_marker.cpp",
+      "source_sha256": "f8f8e3e6f8e9d47bc62de85fcad9d0377525ca8c66eab1c15afcf40aa457c11a",
+      "target_sha256": "f8f8e3e6f8e9d47bc62de85fcad9d0377525ca8c66eab1c15afcf40aa457c11a"
+    },
+    {
+      "path": "src/iterative_pose_dls.cpp",
+      "source_sha256": "6f7abe400a8c174cfaa14746dec227ad5f255dc92a0fe8ab0eb70f27d6efe584",
+      "target_sha256": "6f7abe400a8c174cfaa14746dec227ad5f255dc92a0fe8ab0eb70f27d6efe584"
+    },
+    {
+      "path": "src/joint_kinematics_plot.cpp",
+      "source_sha256": "32191f23a555c3bcbdc07645fd8bcad67f6c1224ad585681e474ccddcbc0d443",
+      "target_sha256": "32191f23a555c3bcbdc07645fd8bcad67f6c1224ad585681e474ccddcbc0d443"
+    },
+    {
+      "path": "src/joint_trajectory_limiter.cpp",
+      "source_sha256": "9b410668c1ef060b6eff90f15ddf706b6750154c758e5308a4c2f24ea846a4d8",
+      "target_sha256": "9b410668c1ef060b6eff90f15ddf706b6750154c758e5308a4c2f24ea846a4d8"
+    },
+    {
+      "path": "src/mujoco_joint_plot.cpp",
+      "source_sha256": "cf0822a9e5be3d9518c73052161895a845ac9ff89e28371ef35d303ae3fb25d7",
+      "target_sha256": "cf0822a9e5be3d9518c73052161895a845ac9ff89e28371ef35d303ae3fb25d7"
+    },
+    {
+      "path": "src/mujoco_marker_adapter.cpp",
+      "source_sha256": "9e117c2d1fe22413e9dfec58aef9c8890c56e5f5d8acbd1ae2f7b60fb65fd570",
+      "target_sha256": "9e117c2d1fe22413e9dfec58aef9c8890c56e5f5d8acbd1ae2f7b60fb65fd570"
+    },
+    {
+      "path": "src/mujoco_robot.cpp",
+      "source_sha256": "241ce6b3c4d81026ce619d093b2a8366de5b796e9f99b60a21ded9c13fab4653",
+      "target_sha256": "241ce6b3c4d81026ce619d093b2a8366de5b796e9f99b60a21ded9c13fab4653"
+    },
+    {
+      "path": "src/nullspace_dls.cpp",
+      "source_sha256": "c65c11ac5d26d94cbe06c34a11678f01d02e1dc13a8db6b04a63a71c56b3cb6a",
+      "target_sha256": "c65c11ac5d26d94cbe06c34a11678f01d02e1dc13a8db6b04a63a71c56b3cb6a"
+    },
+    {
+      "path": "src/osqp_solver.cpp",
+      "source_sha256": "7cc78afd2c9412e1f49a9e3b6c6afa71ef3a0c2f2dd89503b17108c15799e856",
+      "target_sha256": "7cc78afd2c9412e1f49a9e3b6c6afa71ef3a0c2f2dd89503b17108c15799e856"
+    },
+    {
+      "path": "src/pico_ee_headroom.cpp",
+      "source_sha256": "13eb75840403ed6255bce81069d7f73b8f5286087661fea0f6a98225fa5a8964",
+      "target_sha256": "13eb75840403ed6255bce81069d7f73b8f5286087661fea0f6a98225fa5a8964"
+    },
+    {
+      "path": "src/pico_ee_motion_confidence.cpp",
+      "source_sha256": "2f14b4a6634d66a1fe2b53642caa2fe7ee990a470f96ccf804a7df11d7596950",
+      "target_sha256": "2f14b4a6634d66a1fe2b53642caa2fe7ee990a470f96ccf804a7df11d7596950"
+    },
+    {
+      "path": "src/pico_ee_reference.cpp",
+      "source_sha256": "82f915619bbe679cab1d8eb890ffcff936e6b70baf40455f4449022c2deb2e0e",
+      "target_sha256": "82f915619bbe679cab1d8eb890ffcff936e6b70baf40455f4449022c2deb2e0e"
+    },
+    {
+      "path": "src/pico_mapped_arm_angle_vector_governor.cpp",
+      "source_sha256": "12604a86c140fec7940bed89b8e5e2f36ee1215c598ed0cbfe4854e9a4612ddf",
+      "target_sha256": "12604a86c140fec7940bed89b8e5e2f36ee1215c598ed0cbfe4854e9a4612ddf"
+    },
+    {
+      "path": "src/pico_mapped_corrected_palm.cpp",
+      "source_sha256": "47070653cd7286f834a4f758f57ef98c6bc6ea39559b697b79a1ba457b706361",
+      "target_sha256": "47070653cd7286f834a4f758f57ef98c6bc6ea39559b697b79a1ba457b706361"
+    },
+    {
+      "path": "src/pico_skeleton_arm_angle.cpp",
+      "source_sha256": "d2cfadf1f9accd0b5de60fb33a9d5dcdafdaaf5c4b2915e9c1cea1ae0b5640c3",
+      "target_sha256": "d2cfadf1f9accd0b5de60fb33a9d5dcdafdaaf5c4b2915e9c1cea1ae0b5640c3"
+    },
+    {
+      "path": "src/pico_skeleton_overlay.cpp",
+      "source_sha256": "3b1384049cdcb809ae29e1aa8718bce85efe814a90b17e5243c71c07380889e1",
+      "target_sha256": "3b1384049cdcb809ae29e1aa8718bce85efe814a90b17e5243c71c07380889e1"
+    },
+    {
+      "path": "src/pico_teleop_protocol.cpp",
+      "source_sha256": "4eed0b85fff07a4dd57092c81e9bc7a2f1462ab56fcc6ced3e4a97cab34d88d4",
+      "target_sha256": "4eed0b85fff07a4dd57092c81e9bc7a2f1462ab56fcc6ced3e4a97cab34d88d4"
+    },
+    {
+      "path": "src/pico_teleop_session.cpp",
+      "source_sha256": "c9c4bd15097fb42cf1f18048f5bfc86017d99745254f7e849dade1ae936593b3",
+      "target_sha256": "c9c4bd15097fb42cf1f18048f5bfc86017d99745254f7e849dade1ae936593b3"
+    },
+    {
+      "path": "src/pico_trace_recorder.cpp",
+      "source_sha256": "460fbd54bbd7f88259c3af6f4095884c0a00ee41e0dc10e0dcee877224883797",
+      "target_sha256": "460fbd54bbd7f88259c3af6f4095884c0a00ee41e0dc10e0dcee877224883797"
+    },
+    {
+      "path": "src/pico_trace_replay.cpp",
+      "source_sha256": "513dc03e78a3bd4833a4f545eafc07049a045825d20e8bd9f4241b7cddbc6055",
+      "target_sha256": "513dc03e78a3bd4833a4f545eafc07049a045825d20e8bd9f4241b7cddbc6055"
+    },
+    {
+      "path": "src/pico_udp_receiver.cpp",
+      "source_sha256": "97b097b3e0654d4c576a9d4188fc3e1800ab507de9b23d47e0fd94727076041d",
+      "target_sha256": "97b097b3e0654d4c576a9d4188fc3e1800ab507de9b23d47e0fd94727076041d"
+    },
+    {
+      "path": "src/pinocchio_arm_kinematics.cpp",
+      "source_sha256": "942a67eeaa1dbf8402aac9d3fc80db71c55c8d062414e0470bc2ccd9ca9b59c3",
+      "target_sha256": "942a67eeaa1dbf8402aac9d3fc80db71c55c8d062414e0470bc2ccd9ca9b59c3"
+    },
+    {
+      "path": "src/qp_builder.cpp",
+      "source_sha256": "efb483719cf935a4a323066c4723aaa23e34861bf1282146bca4b725056a4b82",
+      "target_sha256": "efb483719cf935a4a323066c4723aaa23e34861bf1282146bca4b725056a4b82"
+    },
+    {
+      "path": "src/qpoases_solver.cpp",
+      "source_sha256": "e998a769c2207fa4d9b7f5a7618fa443b0ab9817c1a77ec516305808dd6a3320",
+      "target_sha256": "e998a769c2207fa4d9b7f5a7618fa443b0ab9817c1a77ec516305808dd6a3320"
+    },
+    {
+      "path": "src/safety.cpp",
+      "source_sha256": "ca3118598eaa81551e5f2bf20e70ff5cf182540201d618868af50d872d88c048",
+      "target_sha256": "ca3118598eaa81551e5f2bf20e70ff5cf182540201d618868af50d872d88c048"
+    },
+    {
+      "path": "src/so3.cpp",
+      "source_sha256": "99eb3a6acdfbab2c2d6dd608ef87e5da041b9e835036853b258e660add196ecc",
+      "target_sha256": "99eb3a6acdfbab2c2d6dd608ef87e5da041b9e835036853b258e660add196ecc"
+    },
+    {
+      "path": "src/spark_constraint_headroom.cpp",
+      "source_sha256": "d0bbc43dbc41a97cf1bd97612ce3879717df8524d06ceddd4aef31fb348a5737",
+      "target_sha256": "d0bbc43dbc41a97cf1bd97612ce3879717df8524d06ceddd4aef31fb348a5737"
+    },
+    {
+      "path": "src/spark_feedforward_reference.cpp",
+      "source_sha256": "201791b4734b5bc9ff7262fe6104609eb6eea706e178ba061f6021f603af61f7",
+      "target_sha256": "201791b4734b5bc9ff7262fe6104609eb6eea706e178ba061f6021f603af61f7"
+    },
+    {
+      "path": "src/spark_guidance.cpp",
+      "source_sha256": "3ec869f13e1b5befe478584fbc00724664d3cd6c1489842d7b4998b349f584cb",
+      "target_sha256": "3ec869f13e1b5befe478584fbc00724664d3cd6c1489842d7b4998b349f584cb"
+    },
+    {
+      "path": "src/spark_palm_twist_estimator.cpp",
+      "source_sha256": "296240a806baf2f9d39345f9b4ca3ca8c3fa7ec2d944e43ea59a2fc016964570",
+      "target_sha256": "296240a806baf2f9d39345f9b4ca3ca8c3fa7ec2d944e43ea59a2fc016964570"
+    },
+    {
+      "path": "src/spark_posture_reference.cpp",
+      "source_sha256": "ca67fb73354ba6620c9e3b7ee583645bf1857e118cb1097ad8fbf574e53b236b",
+      "target_sha256": "ca67fb73354ba6620c9e3b7ee583645bf1857e118cb1097ad8fbf574e53b236b"
+    },
+    {
+      "path": "src/spark_qpoases_diagnostic.cpp",
+      "source_sha256": "dd798cadff44cebb0cb4e78ff0f52631a9cf4e5829a17c3cfbeae40c239920e6",
+      "target_sha256": "dd798cadff44cebb0cb4e78ff0f52631a9cf4e5829a17c3cfbeae40c239920e6"
+    },
+    {
+      "path": "src/spark_upper_qpoases_ik.cpp",
+      "source_sha256": "4284e017ef72d5f2a0b8b6b71ad23428a1a51446ae7238e031f5e1d3438088ca",
+      "target_sha256": "4284e017ef72d5f2a0b8b6b71ad23428a1a51446ae7238e031f5e1d3438088ca"
+    },
+    {
+      "path": "src/spark_upper_retarget.cpp",
+      "source_sha256": "f65e9345b7dfa410df9e9ff7ae1a14c262d5214e938bc1da32bc8e9ba6dd0ecf",
+      "target_sha256": "f65e9345b7dfa410df9e9ff7ae1a14c262d5214e938bc1da32bc8e9ba6dd0ecf"
+    },
+    {
+      "path": "src/target_manager.cpp",
+      "source_sha256": "c76701d92e3e9e329d46de4356ca74df81f42b57dc592a29313c82b4e77968ab",
+      "target_sha256": "c76701d92e3e9e329d46de4356ca74df81f42b57dc592a29313c82b4e77968ab"
+    },
+    {
+      "path": "src/telemetry.cpp",
+      "source_sha256": "1505c6c8eb6e071f11073b9e0e2bbbef02042841360d243b34e2ec1c5823037e",
+      "target_sha256": "1505c6c8eb6e071f11073b9e0e2bbbef02042841360d243b34e2ec1c5823037e"
+    },
+    {
+      "path": "src/upper_arm_outward.cpp",
+      "source_sha256": "94c1f69f8525c431e4c36db1706f37d8eb37b4757880ac6382e1b0c81f7ceeda",
+      "target_sha256": "94c1f69f8525c431e4c36db1706f37d8eb37b4757880ac6382e1b0c81f7ceeda"
+    },
+    {
+      "path": "src/velocity_ik.cpp",
+      "source_sha256": "99a519769205360f3dd7c55943d12feeb63492103efd110c20d4eef974762951",
+      "target_sha256": "99a519769205360f3dd7c55943d12feeb63492103efd110c20d4eef974762951"
+    },
+    {
+      "path": "src/wuji_hand_teleop_protocol.cpp",
+      "source_sha256": "9aa0c79399127222abd37f85e50a85562cf9b4caa21d4a38c2095f111d7b1ca7",
+      "target_sha256": "2f24c0c6fbd26a93411843a23473648d5dcada77071c4810d3dc93d098666020"
+    },
+    {
+      "path": "src/wuji_hand_udp_receiver.cpp",
+      "source_sha256": "d2dcb53296405ab83ff2df37272db5b11d617a27e46e1e17d421e937ad0a85d0",
+      "target_sha256": "4ca5ccc97b608de93caefadf828800a489ec40504944be1ff4c2dbb7c4d8a613"
+    }
+  ],
+  "assets": [
+    {
+      "path": "mapped_palm/marvin_m6_s_ccs_696_v4_local.urdf",
+      "sha256": "bb95552c7c4510d19b951c7769b0103783102a00177609cc0a0e9bf613b7ebfd"
+    },
+    {
+      "path": "mapped_palm/marvin_m6_wuji2.xml",
+      "sha256": "c024c801c1bbe01bf6b3352512c2de0e18385ca07bf1eba13d68cb2559499c0b"
+    },
+    {
+      "path": "tianji_wuji2/meshes/Base_L.STL",
+      "sha256": "f22c309ed8cacd2fc776e2f72a2fc5618d9da84315267377edd3205e91ebbcb5"
+    },
+    {
+      "path": "tianji_wuji2/meshes/Base_R.STL",
+      "sha256": "f22c309ed8cacd2fc776e2f72a2fc5618d9da84315267377edd3205e91ebbcb5"
+    },
+    {
+      "path": "tianji_wuji2/meshes/Link1_L.STL",
+      "sha256": "d00097eec49600a4111ee5a124d6636f50ea09a7a1dc8486d98f4370dde7a932"
+    },
+    {
+      "path": "tianji_wuji2/meshes/Link1_R.STL",
+      "sha256": "fdb1075fe0b41e5c2cb7c2fe13c9d2e62ff4dd6eb540ea841b8603db28369dd0"
+    },
+    {
+      "path": "tianji_wuji2/meshes/Link2_L.STL",
+      "sha256": "4776a6a2086ddc61b1643aff93386e545baccef2751db29d863fe027a76f325e"
+    },
+    {
+      "path": "tianji_wuji2/meshes/Link2_R.STL",
+      "sha256": "53eb9fc69c939d2ebd4f32c1df341c1c42bc3d9d0911db0c9fcee70aa2701b34"
+    },
+    {
+      "path": "tianji_wuji2/meshes/Link3_L.STL",
+      "sha256": "d58f1039bd3eb2ccc1a1959b89d2de7ae714344ad8cb8b78ef97b92dcd317d26"
+    },
+    {
+      "path": "tianji_wuji2/meshes/Link3_R.STL",
+      "sha256": "122456d8fc3e81694f352fc1f29d0bc19066f7f3d7572857a1be1e7c030dec9c"
+    },
+    {
+      "path": "tianji_wuji2/meshes/Link4_L.STL",
+      "sha256": "77f18566339f38acac1785fae517b05ff1e5247b95404ce26536d215bbed9cd7"
+    },
+    {
+      "path": "tianji_wuji2/meshes/Link4_R.STL",
+      "sha256": "77f18566339f38acac1785fae517b05ff1e5247b95404ce26536d215bbed9cd7"
+    },
+    {
+      "path": "tianji_wuji2/meshes/Link5_L.STL",
+      "sha256": "573f15ee62b0a9b2d62aceeb756800fd86969a685535e91416b73d51f1c57613"
+    },
+    {
+      "path": "tianji_wuji2/meshes/Link5_R.STL",
+      "sha256": "2de51a340695c89b2fd58b1171dfacc4d85aa4e6cd50879e021a2d0bde8599a8"
+    },
+    {
+      "path": "tianji_wuji2/meshes/Link6_L.STL",
+      "sha256": "b6b7570d8ebf1d2acb01baf8941b892f5a5f72aaa05503ab8340da8a2a7b2c13"
+    },
+    {
+      "path": "tianji_wuji2/meshes/Link6_R.STL",
+      "sha256": "49722d14b9ac34a84a41c95f49bd0b2a8859d4a05f66b247822bf36b0a703cd5"
+    },
+    {
+      "path": "tianji_wuji2/meshes/Link7_L.STL",
+      "sha256": "126cc7d41c37049ce34d2636bfe2d460c21e3429ed080877d1c5e983109ef798"
+    },
+    {
+      "path": "tianji_wuji2/meshes/Link7_R.STL",
+      "sha256": "6eb75b059ff383e90a153be840bcce84b23d8f8afd074b1bc9dfec1b18c2351f"
+    },
+    {
+      "path": "tianji_wuji2/meshes/Link_Base.STL",
+      "sha256": "95b3f71bb8c0c1236a62dd622a2973252be0817880d13bdda1daabc6e1e11433"
+    },
+    {
+      "path": "tianji_wuji2/meshes/Link_Stand.STL",
+      "sha256": "5b550a122b8f819a5237fff1bba3568ccf4a56ce19305de0e897fbdb72148113"
+    },
+    {
+      "path": "tianji_wuji2/meshes/TCP_Link_L.STL",
+      "sha256": "131ee3817f88b2f8e72f7f4831b8779f4dfae2afabaf170a7a0a7306a2e2e309"
+    },
+    {
+      "path": "tianji_wuji2/meshes/TCP_Link_R.STL",
+      "sha256": "131ee3817f88b2f8e72f7f4831b8779f4dfae2afabaf170a7a0a7306a2e2e309"
+    },
+    {
+      "path": "tianji_wuji2/meshes/marker_mocap.STL",
+      "sha256": "88b81edcc9a098ab020041c1b6ad54cdbc3ba278a874145b4ea33b62b037d625"
+    },
+    {
+      "path": "tianji_wuji2/meshes/wuji2_l_index_finger_distal.STL",
+      "sha256": "88073f1d4223a746dea7aa271abe3a33db72baeb7bcc3c69fe5e67496898b603"
+    },
+    {
+      "path": "tianji_wuji2/meshes/wuji2_l_index_finger_middle.STL",
+      "sha256": "c7f8ca28f2fa973d4279acd49b07322053eb6dd8404a8f503f43ba8ee1a30c03"
+    },
+    {
+      "path": "tianji_wuji2/meshes/wuji2_l_index_finger_proximal.STL",
+      "sha256": "bf935ef489598daa56b49cb0ac6aeb5c9b2827ce8476803332f427eecee64c7a"
+    },
+    {
+      "path": "tianji_wuji2/meshes/wuji2_l_index_finger_proximal_abd.STL",
+      "sha256": "49e25d1cf82ae9585cc0473783ed6a1c3253ac01b0c001c9d237c19980fe030e"
+    },
+    {
+      "path": "tianji_wuji2/meshes/wuji2_l_middle_finger_distal.STL",
+      "sha256": "e9fbb382b15a11b8f47ad7992722c387e2b917636a154623eb6717d210848ae3"
+    },
+    {
+      "path": "tianji_wuji2/meshes/wuji2_l_middle_finger_middle.STL",
+      "sha256": "1bbeb7aed7685f8cb37f94996bfb53d611f6db7ff3c8cc13e83a7f8d9d6048ab"
+    },
+    {
+      "path": "tianji_wuji2/meshes/wuji2_l_middle_finger_proximal.STL",
+      "sha256": "8094b18da5c57109c90179116dc780c1ee984a957e0ef88cb09e50faa87bb931"
+    },
+    {
+      "path": "tianji_wuji2/meshes/wuji2_l_middle_finger_proximal_abd.STL",
+      "sha256": "9c27f542865f96d5ca0b00e01e8004ecba0860040d8abbd10dc72c980f433a61"
+    },
+    {
+      "path": "tianji_wuji2/meshes/wuji2_l_mount.STL",
+      "sha256": "175491889134d13e4b468c32e80cc93e14d6eed3f287c52ed7e0cb8273920aae"
+    },
+    {
+      "path": "tianji_wuji2/meshes/wuji2_l_pinky_distal.STL",
+      "sha256": "cdaaf5601c0d8b3ac94da35e6e1ddc5ea21e1593e9a1d7e2988dd97d9a040745"
+    },
+    {
+      "path": "tianji_wuji2/meshes/wuji2_l_pinky_middle.STL",
+      "sha256": "c19b3b46d170a87e08beb309307fcbcc11b89fc52061f6d8ad63a6692c0c33d5"
+    },
+    {
+      "path": "tianji_wuji2/meshes/wuji2_l_pinky_proximal.STL",
+      "sha256": "df5bbe36bbd592c8913ea3c6c31af5cda0011f801de184815672b2fbe4f429b1"
+    },
+    {
+      "path": "tianji_wuji2/meshes/wuji2_l_pinky_proximal_abd.STL",
+      "sha256": "af1e1a26483fac1b030b3bec7fe6a96b1705c8b1f1410095ecb6fb09751ad641"
+    },
+    {
+      "path": "tianji_wuji2/meshes/wuji2_l_ring_finger_distal.STL",
+      "sha256": "9a6d8d6ff2baa590fce40ad8e29f3d133bb8ef718ef4cfbeb24c71c39512b49e"
+    },
+    {
+      "path": "tianji_wuji2/meshes/wuji2_l_ring_finger_middle.STL",
+      "sha256": "48f08ce36e752b1b8c922b93dfc2df9a30270250b8a9aeb62bad890d7f177a37"
+    },
+    {
+      "path": "tianji_wuji2/meshes/wuji2_l_ring_finger_proximal.STL",
+      "sha256": "6379c0f29351b3a59fbc80cdab021a441710050bfc000aa83d315f91884a5204"
+    },
+    {
+      "path": "tianji_wuji2/meshes/wuji2_l_ring_finger_proximal_abd.STL",
+      "sha256": "6190e180e0f58f745b709eb9feb6dd822affb69827a9f9ad9791d2fbf57b1534"
+    },
+    {
+      "path": "tianji_wuji2/meshes/wuji2_l_thumb_distal.STL",
+      "sha256": "fc9ca88a403dedbe2afa8fd25fe1c622d986bc290cab2803cfd6806198e00e75"
+    },
+    {
+      "path": "tianji_wuji2/meshes/wuji2_l_thumb_middle.STL",
+      "sha256": "33cafea989a21445ceb51fee5bc6777b23c6ded88183ad2103946108efdbc292"
+    },
+    {
+      "path": "tianji_wuji2/meshes/wuji2_l_thumb_proximal.STL",
+      "sha256": "115227446584dd51e3ae77113063f97dc9e88cf4ce5db201eef2b81c17dd939c"
+    },
+    {
+      "path": "tianji_wuji2/meshes/wuji2_l_thumb_proximal_abd.STL",
+      "sha256": "3528478e63b18ee73b4170d03b6cf2df5bbf00f31bca2c1b03eccdfde0f5caa4"
+    },
+    {
+      "path": "tianji_wuji2/meshes/wuji2_l_wrist.STL",
+      "sha256": "b37d7bbcb3c8888e7179f27e8c87e436358adad9cf30d7cb86bc46ee696a7ee8"
+    },
+    {
+      "path": "tianji_wuji2/meshes/wuji2_r_index_finger_distal.STL",
+      "sha256": "778ca04891678c9d124817cb66d74c5deb0d00bff78d927f15fa26a8a2585a1b"
+    },
+    {
+      "path": "tianji_wuji2/meshes/wuji2_r_index_finger_middle.STL",
+      "sha256": "dc42d5c512f1d124fe7160f78e72c11161053e794036a80963a8f4a4492f01cf"
+    },
+    {
+      "path": "tianji_wuji2/meshes/wuji2_r_index_finger_proximal.STL",
+      "sha256": "0f924f11cf7ce9a431ca3f2395762e65cc44a036128a2ccb80638996b64c8a06"
+    },
+    {
+      "path": "tianji_wuji2/meshes/wuji2_r_index_finger_proximal_abd.STL",
+      "sha256": "f46cf96ed29ab98143a43eb4aee0cc727a739b8f2e104e54896f8d2c5570927c"
+    },
+    {
+      "path": "tianji_wuji2/meshes/wuji2_r_middle_finger_distal.STL",
+      "sha256": "e3097f0b48ccc87ea371b71a4fca9a94f09f84aff25a3fd0f757699eaeacf787"
+    },
+    {
+      "path": "tianji_wuji2/meshes/wuji2_r_middle_finger_middle.STL",
+      "sha256": "f9294d81a3795fd63a55abf0c00ca43326a09b8e43b8308fc92135e0ae9fdb07"
+    },
+    {
+      "path": "tianji_wuji2/meshes/wuji2_r_middle_finger_proximal.STL",
+      "sha256": "9b552c22b645272ed0f2a3728cbf3fd5c2cb9541c2d6970521e94394cf17bc29"
+    },
+    {
+      "path": "tianji_wuji2/meshes/wuji2_r_middle_finger_proximal_abd.STL",
+      "sha256": "ff459d71637c3a5fddac62f85f86c485f273ab079092233a9a29d0affb9db502"
+    },
+    {
+      "path": "tianji_wuji2/meshes/wuji2_r_mount.STL",
+      "sha256": "fd30d30dbfd254e317e957588dd5863c46405f719e255fe79104ece93a08e416"
+    },
+    {
+      "path": "tianji_wuji2/meshes/wuji2_r_pinky_distal.STL",
+      "sha256": "1ffc4d7591623a895d81de76c0db30af2199d64e4506371dd561829989461390"
+    },
+    {
+      "path": "tianji_wuji2/meshes/wuji2_r_pinky_middle.STL",
+      "sha256": "12466b870cf8cc47aacdc02a535474d65bce3bf128840a8e471c4fede43d57ee"
+    },
+    {
+      "path": "tianji_wuji2/meshes/wuji2_r_pinky_proximal.STL",
+      "sha256": "6a5696573c69e37467e3ba3b722d92ecd0078f0e18ae8e1e2c49ad118800ea8b"
+    },
+    {
+      "path": "tianji_wuji2/meshes/wuji2_r_pinky_proximal_abd.STL",
+      "sha256": "321e9e615166eab4cd87ad4bc8609a7c19944fd7200f957d11bb020fa255bb72"
+    },
+    {
+      "path": "tianji_wuji2/meshes/wuji2_r_ring_finger_distal.STL",
+      "sha256": "8659910ddc8b5275576363946a337f13cd60cde3abdda091adf58a7948547be3"
+    },
+    {
+      "path": "tianji_wuji2/meshes/wuji2_r_ring_finger_middle.STL",
+      "sha256": "c7cbabcc9dfe6eba74af3255554757b4d18d49566711eb6717f7e656ac882002"
+    },
+    {
+      "path": "tianji_wuji2/meshes/wuji2_r_ring_finger_proximal.STL",
+      "sha256": "650b7aac177e26a2d42cc7f14aee79d3e4a9d344e8de688e2b6fb18ba5bdf50b"
+    },
+    {
+      "path": "tianji_wuji2/meshes/wuji2_r_ring_finger_proximal_abd.STL",
+      "sha256": "1a90fcaa2aae3569d8343d4be31a489d630d302f3a0feebc531fc60a9dd2a2fb"
+    },
+    {
+      "path": "tianji_wuji2/meshes/wuji2_r_thumb_distal.STL",
+      "sha256": "f19c6077ca17e52f2801593880684c0347370669e9661d47c163f0b56eea99e4"
+    },
+    {
+      "path": "tianji_wuji2/meshes/wuji2_r_thumb_middle.STL",
+      "sha256": "a3e9851cd3aed770fb0ed2b05b2ceca86980af1bfef2fbc8e1925e9a6110f56f"
+    },
+    {
+      "path": "tianji_wuji2/meshes/wuji2_r_thumb_proximal.STL",
+      "sha256": "e5f4c7dbffeddf626e5d6c7883e10a6c1de0e2d8213a9122dba5ee29a488345f"
+    },
+    {
+      "path": "tianji_wuji2/meshes/wuji2_r_thumb_proximal_abd.STL",
+      "sha256": "d9e28b15b054ede554f23524c32f430fefa3622eb9fa10016c39fec10a2638e8"
+    },
+    {
+      "path": "tianji_wuji2/meshes/wuji2_r_wrist.STL",
+      "sha256": "748cf6a16bc5bfedf9c7e2ee489459f726740680db1449221133be570f9ee505"
+    }
+  ]
+}

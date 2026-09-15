@@ -187,6 +187,13 @@ class PhysicsSimulation:
     def targets(self) -> np.ndarray:
         return self._target_view
 
+    def set_simulation_arm_targets(self, values):
+        """Local simulation motion owner; never a hardware command interface."""
+        if self._fault is not None:
+            raise RuntimeError(self._fault)
+        targets = self._validated(values, slice(0, 14))
+        self._targets[:14] = targets
+
     def _validated(self, values, region: slice) -> np.ndarray:
         array = np.asarray(values, dtype=float)
         bounds = self._ranges[region]

@@ -15,10 +15,14 @@ export ROS2CLI_DISABLE_DAEMON="${ROS2CLI_DISABLE_DAEMON:-1}"
 last_operation=""
 calibration_verbose="${PICO_CALIBRATION_VERBOSE:-0}"
 calibration_user=""
+geometry_policy="${PICO_GEOMETRY_POLICY:-symmetric_max}"
 help_requested=0
 filtered_arguments=()
 while (($#)); do
   case "$1" in
+    --geometry-policy)
+      (($# >= 2)) || { echo '--geometry-policy requires original or symmetric_max' >&2; exit 2; }
+      geometry_policy="$2"; shift 2 ;;
     --user)
       if [[ -n "$calibration_user" ]]; then
         echo "Duplicate option: --user" >&2
@@ -37,6 +41,11 @@ while (($#)); do
   esac
 done
 set -- "${filtered_arguments[@]}"
+case "$geometry_policy" in
+  original|symmetric_max) ;;
+  *) echo '--geometry-policy requires original or symmetric_max' >&2; exit 2 ;;
+esac
+export PICO_GEOMETRY_POLICY="$geometry_policy"
 
 
 usage() {
@@ -47,6 +56,8 @@ usage() {
   $0 status                  查看左右侧 artifact 状态
   $0 [以上参数] --verbose     显示完整 validator/Gate JSON
   $0 [以上参数] --user NAME   保存到指定人员；status 只读取已发布版本
+  $0 [以上参数] --geometry-policy symmetric_max|original
+                             默认自动生成对称快照，不回写原始骨长
   geometry 可选: --start-mode space|auto --domain ID --countdown-s N --duration-scale SCALE
 
 默认 ROS_DOMAIN_ID=$ROS_DOMAIN_ID，ROS_LOCALHOST_ONLY=$ROS_LOCALHOST_ONLY
@@ -133,6 +144,9 @@ if [[ -n "$calibration_user" ]]; then
 fi
 
 calibration_dir="${PICO_CALIBRATION_DIR:-$HOME/.config/pico_tracker}"
+if [[ -e "$calibration_dir/pico_geometry_policy.json" && "${1:-}" != status ]]; then
+  echo '不能在派生对称快照中标定；请选择原始人员标定。' >&2; exit 2
+fi
 recordings_dir="$repo_root/recordings"
 if [[ -n "${PICO_CALIBRATION_DIR:-}" && "${1:-}" != status ]]; then
   if [[ "$PICO_CALIBRATION_DIR" != /* || "${PICO_CALIBRATION_RECORDINGS_DIR:-}" != /* ]]; then
@@ -405,6 +419,12 @@ run_geometry() {
   fi
   echo
   print_artifact_result "$side" geometry "$active" "$session_dir"
+  if [[ "$geometry_policy" == symmetric_max ]]; then
+    if ! "$profile_python" "$profile_root/scripts/pico_symmetric_profile.py" --source "$calibration_dir"; then
+      echo '原始骨长已保存，但对称快照生成失败；旧快照未更新。' >&2
+      return 3
+    fi
+  fi
 }
 
 show_one_status() {
