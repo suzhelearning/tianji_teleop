@@ -1,0 +1,9 @@
+{
+  "robot_config": "tianji_wuji2_v1",
+  "state_rate_hz": 120,
+  "cameras": {
+    "top": "409122274035",
+    "left_wrist": "409122274621",
+    "right_wrist": "409122273692"
+  }
+}

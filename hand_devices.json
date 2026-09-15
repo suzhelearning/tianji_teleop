@@ -1,0 +1,23 @@
+{
+  "scanned_at": "2026-09-14T15:25:27.740706+00:00",
+  "sdk_version": "2026.8.17",
+  "handedness_queried": true,
+  "devices": [
+    {
+      "serial_number": "WH2JA01260811019",
+      "model": "WujiHand2",
+      "address": "192.168.1.110:7447",
+      "transport": "zenoh",
+      "side": "left",
+      "query_error": null
+    },
+    {
+      "serial_number": "WH2KA01260814006",
+      "model": "WujiHand2",
+      "address": "192.168.1.111:7447",
+      "transport": "zenoh",
+      "side": "right",
+      "query_error": null
+    }
+  ]
+}

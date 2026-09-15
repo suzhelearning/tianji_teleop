@@ -1,0 +1,11 @@
+fisheye_camera_node:
+  ros__parameters:
+    usb_cameras:
+      - "/dev/video0:right_hand_fisheye:auto_exposure=1"
+      - "/dev/video2:left_hand_fisheye:auto_exposure=1"
+    width: 640
+    height: 480
+    fps: 30
+    jpeg_quality: 80
+    record: false
+    record_dir: "./recordings"

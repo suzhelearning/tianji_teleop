@@ -1,0 +1,22 @@
+im900_foot_multi_node:
+  ros__parameters:
+    channel_names: ["im900/left_foot", "im900/right_foot"]
+    frame_ids: ["left_foot_imu_link", "right_foot_imu_link"]
+    baudrate: 115200
+    report_hz: 110
+    report_tag: 46
+    battery_query_period_ms: 5000
+    enable_compass: true
+    use_reliable_qos: false
+    use_device_timestamp: true
+    coalesce_frames_per_poll: true
+    align_quaternion_hemisphere: true
+    force_positive_w: true
+    use_quaternion_continuity: true
+    clear_ins_position: true
+    clear_world_axes: false
+    restore_world_axes: false
+    target_address: 255
+    imu_topic: "imuData_raw"
+    battery_topic: "battery"
+    log_magnetic_field_status: true

@@ -1,0 +1,116 @@
+artifact_type: pico_right_arm_geometry_quick_v3
+schema_version: 3
+valid: true
+candidate_status: accepted
+side: right
+calibration_revision: 1788859872020097354
+shoulder_anchor_pico_m:
+- -0.08531740307807922
+- -0.1736169010400772
+- 0.0028116703033447266
+elbow_center_pico_m:
+- -0.07417779752996324
+- -0.26506430283999116
+- -0.22977279278309373
+upper_arm_length_m: 0.25016444706818225
+forearm_length_m: 0.21755218043691354
+covariance_tangent_order:
+- shoulder_x_m
+- shoulder_y_m
+- shoulder_z_m
+- elbow_x_m
+- elbow_y_m
+- elbow_z_m
+- upper_arm_length_m
+- forearm_length_m
+covariance_upper_triangle_8x8:
+- 5.784780016196279e-05
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 5.784780016196279e-05
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 5.784780016196279e-05
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 7.749442962541867e-05
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 7.749442962541867e-05
+- 0.0
+- 0.0
+- 0.0
+- 7.749442962541867e-05
+- 0.0
+- 0.0
+- 1.9646629463455878e-05
+- 0.0
+- 1.9646629463455878e-05
+quality:
+  length_std_m: 0.004432451856868372
+  selected_straight_groups:
+  - straight_1
+  - straight_2
+  discarded_straight_group: validation
+  straight_pair_position_error_m: 0.01011704443728677
+  upper_repeat_error_m: 0.000289881650138879
+  neutral_pair_position_error_m: 0.02933418180235626
+  forearm_repeat_error_m: 0.008864903713736744
+  static_motion_rms_m: 0.013302002973852634
+  right_angle_error_rad: 0.1937724071246183
+  right_angle_error_role: diagnostic_only
+  raw_smpl_diagnostic_available: true
+  transition_direction_error_rad: 0.15496963634283398
+  length_closure_error_m: 0.0016234454934048181
+  shoulder_motion_rms_m: 0.007605774132983623
+  straight_1_sample_count: 539
+  straight_2_sample_count: 539
+  validation_sample_count: 537
+  neutral_start_sample_count: 265
+  neutral_return_sample_count: 267
+  right_angle_sample_count: 616
+gate_results:
+  straight_1_sample_count: true
+  straight_2_sample_count: true
+  validation_sample_count: true
+  neutral_start_sample_count: true
+  neutral_return_sample_count: true
+  right_angle_sample_count: true
+  straight_pair_position_error: true
+  upper_length_repeat_error: true
+  neutral_pair_position_error: true
+  forearm_length_repeat_error: true
+  static_pose_motion: true
+  transition_direction_error: true
+  length_closure_error: true
+  length_uncertainty: true
+  upper_arm_length: true
+  forearm_length: true
+tcp_calibration_revision: 1
+tcp_artifact_sha256: dd8383c567797a27db76e4b0339fd4e7922a1a1b2b616568c94fc3dc5d786dba
+tcp_translation_revision: 1
+tcp_translation_fingerprint_sha256: 33f8f8a73f8509657736ec10484d21ff7866a94e6428b493fcee36015792037b
+wrist_pivot_sha256: 0b00006345291910d50f1b7b09b20d0c1e566f635350eb55cd7daa08bab03efc
+tracking_epoch: 1770
+tracking_epoch_source: wire_world_reset
+source_recording: /home/current/syz/tianji_teleop/PICO_tracker-feature-pico-manus-teleop/recordings/pico_right_arm_geometry_20260908_173020_3260481/capture.npz
+rejection_reasons: []
+lineage:
+- /pico/smpl_raw
+- /pico/palm_right
+- palm_local_positive_x_wrist
+- shoulder_free_three_static_pose_geometry

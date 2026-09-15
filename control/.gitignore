@@ -1,0 +1,10 @@
+.worktrees/
+.pixi/
+build/
+Testing/
+*.log
+*.csv
+*.mjb
+compile_commands.json
+__pycache__/
+*.py[cod]

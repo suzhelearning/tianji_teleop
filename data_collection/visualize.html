@@ -1,0 +1,569 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tianji · 数据回放</title>
+<style>
+:root { color-scheme: dark; --bg:#10151e; --panel:#192230; --line:#324258; --text:#eef3fa; --muted:#aebdd0; --accent:#66d9c0; --warn:#ffca7c; }
+* { box-sizing:border-box; }
+body { margin:0; font:14px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif; background:var(--bg); color:var(--text); }
+main { max-width:1600px; margin:auto; padding:24px; }
+h1 { font-size:25px; margin:0; letter-spacing:.02em; }
+h2 { font-size:17px; margin:0; }
+p { margin:6px 0; }
+header,.row { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+header { justify-content:space-between; margin-bottom:18px; }
+.muted,small { color:var(--muted); }
+.badge { display:inline-block; border:1px solid var(--line); border-radius:20px; padding:3px 11px; font-size:12px; }
+.badge.good { color:var(--accent); border-color:#37665f; }
+.badge.warn { color:var(--warn); border-color:#7b623d; }
+.panel { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:16px; min-width:0; }
+button,select,input { font:inherit; accent-color:var(--accent); }
+button,select { color:var(--text); border:1px solid #496079; background:#202d3f; border-radius:6px; padding:7px 11px; }
+button { cursor:pointer; }
+button:hover:not(:disabled) { border-color:var(--accent); }
+button:disabled,select:disabled { opacity:.45; cursor:default; }
+button:focus-visible,select:focus-visible,input:focus-visible,summary:focus-visible,canvas:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+.primary { background:#245c55; border-color:#449685; }
+#episodeSelect { min-width:220px; flex:1; max-width:100%; }
+#episodeTitle { overflow-wrap:anywhere; font-size:17px; margin:12px 0 5px; }
+#error { background:#482732; color:#ffd7df; border:1px solid #a45e70; padding:12px 16px; border-radius:8px; margin-bottom:16px; white-space:pre-wrap; overflow-wrap:anywhere; }
+#notice { color:var(--warn); }
+.transport { position:sticky; top:8px; z-index:2; box-shadow:0 6px 24px #0003; }
+#timeline { width:100%; margin:13px 0 4px; cursor:pointer; }
+.time { font-variant-numeric:tabular-nums; font-family:ui-monospace,monospace; }
+.transport .time { margin-left:auto; font-size:16px; }
+.cameras { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr)); gap:16px; }
+.camera .row { justify-content:space-between; }
+.camera-frame { position:relative; background:#080c12; aspect-ratio:16/9; margin-top:12px; border-radius:7px; overflow:hidden; display:grid; place-items:center; }
+.camera-frame img { width:100%; height:100%; object-fit:contain; position:absolute; inset:0; }
+.camera-message { padding:20px; text-align:center; color:var(--muted); }
+.camera-sample { min-height:22px; margin-top:7px; }
+.plot { width:100%; height:240px; display:block; cursor:crosshair; touch-action:pan-y; }
+.stream-head { justify-content:space-between; margin-bottom:8px; }
+.joint-options { display:flex; flex-wrap:wrap; gap:5px 12px; max-height:190px; overflow:auto; padding:10px 0; }
+.joint-option { display:flex; align-items:center; gap:5px; min-width:130px; font:12px/1.8 ui-monospace,monospace; overflow-wrap:anywhere; }
+.joint-option input { margin:0; }
+.swatch { width:9px; height:9px; display:inline-block; border-radius:50%; flex-shrink:0; }
+details { border-top:1px solid var(--line); margin-top:10px; padding-top:9px; }
+summary { cursor:pointer; color:var(--muted); }
+.values { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:0 20px; margin-top:8px; }
+.joint-value { display:flex; justify-content:space-between; gap:14px; border-bottom:1px solid #ffffff0b; padding:5px 0; }
+.joint-name { overflow-wrap:anywhere; min-width:0; }
+.joint-value output { white-space:nowrap; color:var(--accent); }
+.meta { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:7px 20px; margin-top:10px; }
+.meta-item { overflow-wrap:anywhere; }
+.empty { color:var(--muted); padding:28px; text-align:center; }
+.hidden,[hidden] { display:none !important; }
+footer { color:var(--muted); margin:18px 0; font-size:12px; }
+@media(max-width:650px) { main { padding:12px; } .panel { padding:12px; } .transport { top:0; } .transport .time { width:100%; margin-left:0; } h1 { font-size:21px; } .plot { height:220px; } }
+</style>
+</head>
+<body>
+<main>
+<header><div><h1>Tianji · 数据回放</h1><p class="muted">按原始记录时间查看相机与关节观测</p></div><span class="badge good">只读 · 无硬件连接 · 无动作数据</span></header>
+<div id="error" role="alert" hidden></div>
+<section class="panel" aria-label="选择数据">
+<div class="row"><label for="episodeSelect">Episode</label><select id="episodeSelect" disabled><option>正在读取数据目录…</option></select><button id="refresh">刷新列表</button></div>
+<h2 id="episodeTitle">等待选择记录</h2>
+<div class="row"><span id="taskLabel" class="muted">任务：—</span><span id="successBadge" class="badge">成功状态：未知</span><span id="partialBadge" class="badge warn" hidden>未完成文件 · 非成功样本</span><span id="fileSize" class="muted"></span></div>
+<p id="notice" role="status"></p>
+<details id="metadata" hidden><summary>文件属性与采样统计</summary><div id="statistics" class="meta"></div><div id="attributes" class="meta"></div><p class="muted">实际平均频率 = (样本数 − 1) / (末时间 − 首时间)；最大间隔来自相邻记录。各流独立采样，不按名义频率重建。</p></details>
+</section>
+<section class="panel transport" aria-label="回放控制">
+<div class="row"><button id="start" disabled title="回到零秒">回到起点</button><button id="previous" disabled title="跳到上一条实际记录时间">上一采样</button><button id="play" class="primary" disabled>播放</button><button id="next" disabled title="跳到下一条实际记录时间">下一采样</button><label for="speed">速度</label><select id="speed"><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select><span class="time"><span id="current">0.000</span> / <span id="duration">0.000</span> s</span></div>
+<input id="timeline" type="range" min="0" max="0" step="any" value="0" disabled aria-label="回放时间（秒）">
+<div class="row"><small>只取 ≤ 当前时刻的最后一个样本；不插值。起始采样前不显示未来数据。</small><label for="unit">关节单位</label><select id="unit"><option value="rad">rad</option><option value="deg">°</option></select></div>
+</section>
+<div id="empty" class="panel empty">正在加载…</div>
+<section id="cameras" class="cameras" aria-label="相机画面"></section>
+<section id="streams" aria-label="关节轨迹"></section>
+<footer>时间为每个 episode 内的相对单调时钟秒数。图中阶梯线仅表示“最后已知观测”；超过末样本时仅保留读数并标出年龄，不代表新的测量。所有请求均为本地只读 GET。</footer>
+</main>
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const palette = ['#66d9c0','#ffca7c','#91b9ff','#e998e5','#ff9292','#bfd66c','#b59dff','#75d4ef','#eab28a','#a6e5a4'];
+const state = { episode:null, time:0, playing:false, lastTick:0, raf:0, generation:0, seekRevision:0, episodeRequest:null, listRequest:null, listGeneration:0, imageController:null, imageActive:0, imageCursor:0, cameras:[], streams:[] };
+const seconds = value => Number.isFinite(value) ? value.toFixed(3) + ' s' : '—';
+const jointUnit = () => $('unit').value === 'deg' ? '°' : 'rad';
+const jointScale = () => $('unit').value === 'deg' ? 180 / Math.PI : 1;
+const numeric = value => typeof value === 'number' && Number.isFinite(value);
+function element(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+function showError(message) { $('error').textContent = message || ''; $('error').hidden = !message; }
+async function requestJSON(url, signal) {
+  const response = await fetch(url, { signal, cache:'no-store' });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+  return data;
+}
+function apiUrl(path, parameters) { return path + '?' + new URLSearchParams(parameters).toString(); }
+// Upper bound makes duplicate timestamps resolve to the last recorded sample.
+function sampleAt(timestamps, time) {
+  let low = 0, high = timestamps.length;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if (timestamps[middle] <= time) low = middle + 1;
+    else high = middle;
+  }
+  return low - 1;
+}
+function firstAt(timestamps, time) {
+  let low = 0, high = timestamps.length;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if (timestamps[middle] < time) low = middle + 1;
+    else high = middle;
+  }
+  return low;
+}
+function samplingText(timestamps, count = timestamps.length) {
+  if (!timestamps.length) return `${count} 个样本 · 无时间记录`;
+  const elapsed = timestamps[timestamps.length - 1] - timestamps[0];
+  let gap = 0;
+  for (let i = 1; i < timestamps.length; i++) gap = Math.max(gap, timestamps[i] - timestamps[i - 1]);
+  const rate = timestamps.length > 1 && elapsed > 0 ? ((timestamps.length - 1) / elapsed).toFixed(2) + ' Hz' : '—';
+  return `${count} 个样本 · 平均 ${rate} · 最大间隔 ${seconds(gap)} · ${seconds(timestamps[0])} → ${seconds(timestamps[timestamps.length - 1])}`;
+}
+function pause() {
+  state.playing = false;
+  cancelAnimationFrame(state.raf);
+  $('play').textContent = '播放';
+}
+function disposeViews() {
+  for (const camera of state.cameras) if (camera.url) URL.revokeObjectURL(camera.url);
+  for (const stream of state.streams) stream.observer.disconnect();
+  state.cameras = [];
+  state.imageCursor = 0;
+  state.streams = [];
+  $('cameras').replaceChildren();
+  $('streams').replaceChildren();
+}
+function setControls(enabled) {
+  for (const id of ['start','previous','play','next','timeline']) $(id).disabled = !enabled;
+}
+function resetEpisode() {
+  pause();
+  state.generation++;
+  state.episodeRequest?.abort();
+  state.imageController?.abort();
+  state.imageController = new AbortController();
+  state.episode = null;
+  state.time = 0;
+  disposeViews();
+  setControls(false);
+  $('timeline').value = '0';
+  $('timeline').max = '0';
+  $('current').textContent = '0.000';
+  $('duration').textContent = '0.000';
+  $('metadata').hidden = true;
+  $('statistics').replaceChildren();
+  $('attributes').replaceChildren();
+}
+function fileBadges(file, attrs = {}) {
+  const partial = !!file.partial;
+  $('episodeTitle').textContent = file.id;
+  $('taskLabel').textContent = '任务：' + (attrs.task ?? '未记录');
+  $('partialBadge').hidden = !partial;
+  const success = attrs.success === true || attrs.success === 1;
+  const failure = attrs.success === false || attrs.success === 0;
+  $('successBadge').textContent = partial ? '成功状态：不可判定（未完成）' : success ? '成功样本' : failure ? '非成功样本' : '成功状态：未记录';
+  $('successBadge').className = 'badge' + (!partial && success ? ' good' : '');
+  $('fileSize').textContent = numeric(file.bytes) ? `${(file.bytes / 1024 / 1024).toFixed(2)} MiB` : '';
+}
+async function loadEpisodes() {
+  const generation = ++state.listGeneration;
+  state.listRequest?.abort();
+  state.listRequest = new AbortController();
+  $('refresh').disabled = true;
+  showError('');
+  try {
+    const data = await requestJSON('/api/episodes', state.listRequest.signal);
+    if (generation !== state.listGeneration) return;
+    const episodes = data.episodes || [];
+    const previous = $('episodeSelect').value;
+    $('episodeSelect').replaceChildren();
+    for (const file of episodes) {
+      const option = element('option', '', `${file.partial ? '[未完成] ' : ''}${file.id}`);
+      option.value = file.id;
+      option.dataset.partial = String(!!file.partial);
+      option.dataset.bytes = String(file.bytes);
+      $('episodeSelect').append(option);
+    }
+    $('episodeSelect').disabled = !episodes.length;
+    if (!episodes.length) {
+      resetEpisode();
+      $('episodeSelect').append(element('option', '', '目录中没有 episode'));
+      $('episodeTitle').textContent = '没有可查看的记录';
+      $('taskLabel').textContent = '任务：—';
+      $('successBadge').textContent = '成功状态：未知';
+      $('successBadge').className = 'badge';
+      $('partialBadge').hidden = true;
+      $('fileSize').textContent = '';
+      $('notice').textContent = '';
+      $('empty').hidden = false;
+      $('empty').textContent = '未发现 HDF5 记录。可在记录保存后刷新列表。';
+      return;
+    }
+    if (episodes.some(file => file.id === previous)) $('episodeSelect').value = previous;
+    await selectEpisode();
+  } catch (error) {
+    if (error.name !== 'AbortError' && generation === state.listGeneration) {
+      showError('无法读取记录列表：' + error.message);
+      if (!state.episode) { $('empty').hidden = false; $('empty').textContent = '读取失败，请检查服务端数据目录后刷新。'; }
+    }
+  } finally { if (generation === state.listGeneration) $('refresh').disabled = false; }
+}
+async function selectEpisode() {
+  const option = $('episodeSelect').selectedOptions[0];
+  if (!option) return;
+  resetEpisode();
+  const generation = state.generation;
+  const file = { id:option.value, partial:option.dataset.partial === 'true', bytes:Number(option.dataset.bytes) };
+  fileBadges(file);
+  showError('');
+  $('notice').textContent = '正在读取记录…';
+  $('empty').hidden = false;
+  $('empty').textContent = '加载中…';
+  state.episodeRequest = new AbortController();
+  try {
+    const episode = await requestJSON(apiUrl('/api/episode', { id:file.id }), state.episodeRequest.signal);
+    if (generation !== state.generation) return;
+    state.episode = episode;
+    fileBadges({ ...file, partial:episode.partial }, episode.attrs || {});
+    $('notice').textContent = episode.partial ? '此文件未完成，可能仅包含部分数据；不计为成功样本。' : '';
+    $('duration').textContent = episode.duration.toFixed(3);
+    $('timeline').max = String(episode.duration);
+    $('metadata').hidden = false;
+    for (const [key, value] of Object.entries(episode.attrs || {})) {
+      $('attributes').append(element('div', 'meta-item muted', `${key}：${typeof value === 'object' ? JSON.stringify(value) : String(value)}`));
+    }
+    for (const camera of episode.cameras || []) createCamera(camera);
+    for (const key of ['arms','hands']) {
+      const stream = episode.streams?.[key];
+      if (stream) createStream(key, stream);
+    }
+    const hasSamples = state.cameras.some(camera => camera.data.timestamps.length) || state.streams.some(stream => stream.data.timestamps.length);
+    $('empty').hidden = hasSamples;
+    $('empty').textContent = '此记录没有可回放的相机帧或关节样本。文件属性仍可查看。';
+    setControls(hasSamples);
+    render();
+  } catch (error) {
+    if (error.name !== 'AbortError' && generation === state.generation) {
+      showError('无法读取此记录：' + error.message);
+      $('notice').textContent = file.partial ? '未完成文件可能尚未写入有效 HDF5 结构；此记录不是成功样本。' : '可选择其他记录，或刷新后重试。';
+      $('empty').textContent = '记录读取失败；未显示其他 episode 的旧数据。';
+    }
+  }
+}
+function createCamera(data) {
+  const panel = element('article', 'panel camera');
+  const heading = element('div', 'row');
+  heading.append(element('h2', '', data.name), element('small', '', `${data.count} 帧${data.encoding ? ' · ' + data.encoding.toUpperCase() : ''}`));
+  const frame = element('div', 'camera-frame');
+  const message = element('div', 'camera-message', '等待记录帧');
+  frame.append(message);
+  const sample = element('div', 'camera-sample muted time');
+  panel.append(heading, frame, sample);
+  $('cameras').append(panel);
+  $('statistics').append(element('div', 'meta-item', `${data.name}：${samplingText(data.timestamps, data.count)}`));
+  state.cameras.push({ data, frame, message, sample, desired:-1, displayed:-1, busy:false, failed:-2, image:null, url:null, generation:state.generation });
+}
+function presentCamera(camera) {
+  const index = camera.desired;
+  const visible = camera.image !== null && camera.displayed >= 0 && camera.displayed <= index;
+  if (camera.image) camera.image.hidden = !visible;
+  camera.message.hidden = visible;
+  if (visible) {
+    const stamp = camera.data.timestamps[camera.displayed];
+    const pending = camera.displayed !== index
+      ? (camera.failed === index ? ' · 新帧读取失败，保留上一帧' : ' · 等待新帧')
+      : '';
+    camera.sample.textContent = `画面采样 ${seconds(stamp)} · 年龄 ${seconds(state.time - stamp)}${pending}`;
+  } else {
+    camera.sample.textContent = index < 0 ? '无已发生的样本' : `目标采样 ${seconds(camera.data.timestamps[index])} · 尚未显示`;
+    if (index < 0) camera.message.textContent = camera.data.timestamps.length ? '当前时间尚无画面（不显示未来帧）' : '此相机没有记录帧';
+    else if (camera.failed !== index) camera.message.textContent = '正在加载对应帧…';
+  }
+}
+function updateCameras() {
+  for (const camera of state.cameras) {
+    const index = sampleAt(camera.data.timestamps, state.time);
+    if (index !== camera.desired) camera.failed = -2;
+    camera.desired = index;
+    presentCamera(camera);
+  }
+  pumpImages();
+}
+function pumpImages() {
+  // A bounded queue: one outstanding request per camera, at most three globally.
+  // Seeking replaces only the desired index, never queues intermediate frames.
+  const count = state.cameras.length;
+  for (let checked = 0; checked < count; checked++) {
+    if (state.imageActive >= 3) return;
+    const camera = state.cameras[state.imageCursor % count];
+    state.imageCursor = (state.imageCursor + 1) % count;
+    if (!camera.busy && camera.desired >= 0 && camera.desired !== camera.displayed && camera.desired !== camera.failed) void loadImage(camera);
+  }
+}
+async function loadImage(camera) {
+  const index = camera.desired;
+  const generation = camera.generation;
+  const revision = state.seekRevision;
+  const current = () => generation === state.generation && revision === state.seekRevision &&
+    index <= camera.desired;
+  const id = state.episode.id;
+  const signal = state.imageController.signal;
+  camera.busy = true;
+  state.imageActive++;
+  let url = null;
+  try {
+    const response = await fetch(apiUrl('/api/image', { id, camera:camera.data.name, index }), { signal, cache:'no-store' });
+    if (!response.ok) {
+      const data = await response.json();
+      throw new Error(data.error || `HTTP ${response.status}`);
+    }
+    const blob = await response.blob();
+    if (!current()) return;
+    url = URL.createObjectURL(blob);
+    const image = new Image();
+    image.alt = `${camera.data.name} · ${seconds(camera.data.timestamps[index])}`;
+    image.src = url;
+    await image.decode();
+    if (!current()) return;
+    if (camera.image) camera.image.replaceWith(image);
+    else camera.frame.append(image);
+    if (camera.url) URL.revokeObjectURL(camera.url);
+    camera.image = image;
+    camera.url = url;
+    url = null;
+    camera.displayed = index;
+    camera.failed = -2;
+    presentCamera(camera);
+  } catch (error) {
+    if (error.name !== 'AbortError' && current() && index === camera.desired) {
+      camera.failed = index;
+      camera.message.hidden = false;
+      camera.message.textContent = '画面读取失败：' + error.message + '（切换采样或刷新可重试）';
+      presentCamera(camera);
+    }
+  } finally {
+    if (url) URL.revokeObjectURL(url);
+    camera.busy = false;
+    state.imageActive--;
+    pumpImages();
+  }
+}
+function createStream(key, data) {
+  const title = key === 'arms' ? '双臂 · 14 关节' : '双手 · 40 关节';
+  const panel = element('article', 'panel');
+  const heading = element('div', 'row stream-head');
+  const sample = element('span', 'muted time');
+  heading.append(element('h2', '', title), sample);
+  const canvas = element('canvas', 'plot');
+  canvas.tabIndex = 0;
+  canvas.setAttribute('aria-label', `${title}轨迹；点击跳转时间，左右方向键移动到相邻采样`);
+  const empty = element('p', 'muted', data.timestamps.length ? '阶梯曲线：最后已知观测；点击图表可定位时间。' : '没有关节样本。');
+  const controls = element('details');
+  controls.open = true;
+  controls.append(element('summary', '', '选择轨迹曲线'));
+  const tools = element('div', 'row');
+  const clear = element('button', '', '清空曲线');
+  const defaults = element('button', '', '默认曲线');
+  tools.append(clear, defaults);
+  const group = element('select');
+  group.setAttribute('aria-label', '筛选手部关节');
+  if (key === 'hands') {
+    for (const [value, label] of [['all','全部手部关节'],['left','左手（前 20）'],['right','右手（后 20）']]) {
+      const option = element('option', '', label); option.value = value; group.append(option);
+    }
+    tools.append(group);
+  }
+  controls.append(tools);
+  const options = element('div', 'joint-options');
+  controls.append(options);
+  const values = element('details');
+  values.append(element('summary', '', `所有关节的当前观测值（${data.names.length}）`));
+  const valueGrid = element('div', 'values');
+  values.append(valueGrid);
+  panel.append(heading, empty, canvas, controls, values);
+  $('streams').append(panel);
+  const stream = { key, data, canvas, sample, selected:new Set(), checkboxes:[], valueOutputs:[], lastIndex:-2, cache:null, plot:null, observer:null };
+  const defaultIndices = key === 'arms' ? [0,3,7,10] : [0,20];
+  data.names.forEach((name, index) => {
+    const label = element('label', 'joint-option');
+    const checkbox = element('input'); checkbox.type = 'checkbox';
+    const swatch = element('span', 'swatch'); swatch.style.background = palette[index % palette.length];
+    label.append(checkbox, swatch, document.createTextNode(name));
+    options.append(label);
+    stream.checkboxes.push({ checkbox, label });
+    checkbox.addEventListener('change', () => { if (checkbox.checked) stream.selected.add(index); else stream.selected.delete(index); rebuildPlot(stream); });
+    const row = element('div', 'joint-value');
+    const output = element('output', 'time', '—');
+    row.append(element('span', 'joint-name', name), output);
+    valueGrid.append(row); stream.valueOutputs.push(output);
+  });
+  const setSelection = indices => {
+    stream.selected = new Set(indices.filter(index => index < data.names.length));
+    stream.checkboxes.forEach(({ checkbox }, index) => { checkbox.checked = stream.selected.has(index); });
+    rebuildPlot(stream);
+  };
+  clear.addEventListener('click', () => setSelection([]));
+  defaults.addEventListener('click', () => setSelection(defaultIndices));
+  group.addEventListener('change', () => {
+    stream.checkboxes.forEach(({ label }, index) => { label.hidden = group.value === 'left' ? index >= 20 : group.value === 'right' ? index < 20 : false; });
+  });
+  canvas.addEventListener('click', event => {
+    if (!stream.plot) return;
+    const bounds = canvas.getBoundingClientRect();
+    seek((event.clientX - bounds.left - stream.plot.left) / stream.plot.width * state.episode.duration);
+  });
+  canvas.addEventListener('keydown', event => {
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') { event.preventDefault(); pause(); step(event.key === 'ArrowLeft' ? -1 : 1); }
+  });
+  stream.observer = new ResizeObserver(() => rebuildPlot(stream));
+  stream.observer.observe(canvas);
+  state.streams.push(stream);
+  $('statistics').append(element('div', 'meta-item', `${key === 'arms' ? '双臂' : '双手'}：${samplingText(data.timestamps)}`));
+  setSelection(defaultIndices);
+}
+function rebuildPlot(stream) {
+  const canvas = stream.canvas;
+  const width = canvas.clientWidth;
+  const height = canvas.clientHeight;
+  if (!width || !height || !state.episode) return;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.round(width * dpr); canvas.height = Math.round(height * dpr);
+  const cache = document.createElement('canvas'); cache.width = canvas.width; cache.height = canvas.height;
+  const ctx = cache.getContext('2d'); ctx.scale(dpr, dpr);
+  const left = 65, top = 20, plotWidth = Math.max(1, width - left - 18), plotHeight = height - top - 34;
+  const duration = state.episode.duration || 1;
+  const { timestamps, qpos } = stream.data;
+  const scale = jointScale();
+  let min = Infinity, max = -Infinity;
+  for (const index of stream.selected) {
+    for (const row of qpos) {
+      const value = row[index];
+      if (numeric(value)) { min = Math.min(min, value * scale); max = Math.max(max, value * scale); }
+    }
+  }
+  if (!Number.isFinite(min)) { min = -1; max = 1; }
+  const padding = (max - min) * .08 || .1;
+  min -= padding; max += padding;
+  const x = time => left + time / duration * plotWidth;
+  const y = value => top + (max - value) / (max - min) * plotHeight;
+  ctx.font = '11px system-ui'; ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const yy = top + plotHeight * i / 4;
+    ctx.strokeStyle = '#324258'; ctx.beginPath(); ctx.moveTo(left, yy); ctx.lineTo(left + plotWidth, yy); ctx.stroke();
+    ctx.fillStyle = '#aebdd0'; ctx.textAlign = 'right'; ctx.fillText((max - (max - min) * i / 4).toFixed(2), left - 8, yy + 4);
+    const xx = left + plotWidth * i / 4;
+    ctx.textAlign = i === 4 ? 'right' : i === 0 ? 'left' : 'center';
+    ctx.fillText((state.episode.duration * i / 4).toFixed(2) + ' s', xx, height - 9);
+  }
+  ctx.fillStyle = '#aebdd0'; ctx.textAlign = 'left'; ctx.fillText(jointUnit(), 8, 12);
+  ctx.save(); ctx.beginPath(); ctx.rect(left, top, plotWidth, plotHeight); ctx.clip();
+  for (const index of stream.selected) {
+    ctx.strokeStyle = palette[index % palette.length]; ctx.lineWidth = 1.4; ctx.beginPath();
+    let previous = null;
+    for (let i = 0; i < timestamps.length; i++) {
+      // Only the last sample at a duplicated timestamp is visible.
+      if (i + 1 < timestamps.length && timestamps[i + 1] === timestamps[i]) continue;
+      const value = qpos[i]?.[index];
+      if (!numeric(value)) { previous = null; continue; }
+      const xx = x(timestamps[i]), yy = y(value * scale);
+      if (previous === null) ctx.moveTo(xx, yy);
+      else { ctx.lineTo(xx, previous); ctx.lineTo(xx, yy); }
+      previous = yy;
+    }
+    ctx.stroke();
+    if (timestamps.length === 1 && numeric(qpos[0]?.[index])) {
+      ctx.fillStyle = ctx.strokeStyle; ctx.beginPath(); ctx.arc(x(timestamps[0]), y(qpos[0][index] * scale), 3, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+  ctx.restore();
+  if (!stream.selected.size) { ctx.fillStyle = '#aebdd0'; ctx.textAlign = 'center'; ctx.fillText('请选择要显示的关节曲线', left + plotWidth / 2, top + plotHeight / 2); }
+  stream.cache = cache;
+  stream.plot = { left, top, width:plotWidth, height:plotHeight, duration, dpr };
+  drawCursor(stream);
+}
+function drawCursor(stream) {
+  if (!stream.cache || !stream.plot) return;
+  const ctx = stream.canvas.getContext('2d');
+  ctx.setTransform(1,0,0,1,0,0); ctx.clearRect(0,0,stream.canvas.width,stream.canvas.height); ctx.drawImage(stream.cache,0,0);
+  const p = stream.plot;
+  ctx.setTransform(p.dpr,0,0,p.dpr,0,0);
+  const x = p.left + state.time / p.duration * p.width;
+  ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.5; ctx.setLineDash([4,3]);
+  ctx.beginPath(); ctx.moveTo(x,p.top); ctx.lineTo(x,p.top+p.height); ctx.stroke(); ctx.setLineDash([]);
+}
+function render(forceValues = false) {
+  if (!state.episode) return;
+  $('current').textContent = state.time.toFixed(3);
+  $('timeline').value = String(state.time);
+  for (const stream of state.streams) {
+    const index = sampleAt(stream.data.timestamps, state.time);
+    stream.sample.textContent = index < 0 ? '无已发生的样本' : `采样 ${seconds(stream.data.timestamps[index])} · 年龄 ${seconds(state.time - stream.data.timestamps[index])}`;
+    if (index !== stream.lastIndex || forceValues) {
+      const row = index >= 0 ? stream.data.qpos[index] : null;
+      stream.valueOutputs.forEach((output, joint) => { output.textContent = numeric(row?.[joint]) ? `${(row[joint] * jointScale()).toFixed(4)} ${jointUnit()}` : '—'; });
+      stream.lastIndex = index;
+    }
+    drawCursor(stream);
+  }
+  updateCameras();
+}
+function seek(time) {
+  if (!state.episode) return;
+  state.seekRevision++;
+  state.time = Math.max(0, Math.min(state.episode.duration, time));
+  state.lastTick = performance.now();
+  if (state.time >= state.episode.duration) pause();
+  render();
+}
+function step(direction) {
+  if (!state.episode) return;
+  const lists = [...state.streams.map(stream => stream.data.timestamps), ...state.cameras.map(camera => camera.data.timestamps)];
+  let target = direction > 0 ? Infinity : -Infinity;
+  for (const times of lists) {
+    const index = direction > 0 ? sampleAt(times, state.time) + 1 : firstAt(times, state.time) - 1;
+    if (index >= 0 && index < times.length) target = direction > 0 ? Math.min(target, times[index]) : Math.max(target, times[index]);
+  }
+  seek(Number.isFinite(target) ? target : direction > 0 ? state.episode.duration : 0);
+}
+function tick(now) {
+  if (!state.playing || !state.episode) return;
+  // A queued animation frame can predate the click/seek that started playback.
+  const elapsed = Math.max(0, now - state.lastTick) / 1000;
+  state.lastTick = Math.max(state.lastTick, now);
+  state.time = Math.min(state.episode.duration, state.time + elapsed * Number($('speed').value));
+  render();
+  if (state.time >= state.episode.duration) pause();
+  else state.raf = requestAnimationFrame(tick);
+}
+$('refresh').addEventListener('click', loadEpisodes);
+$('episodeSelect').addEventListener('change', selectEpisode);
+$('play').addEventListener('click', () => {
+  if (state.playing) { pause(); return; }
+  if (!state.episode || !state.episode.duration) return;
+  if (state.time >= state.episode.duration) seek(0);
+  state.playing = true; state.lastTick = performance.now(); $('play').textContent = '暂停';
+  state.raf = requestAnimationFrame(tick);
+});
+$('start').addEventListener('click', () => { pause(); seek(0); });
+$('previous').addEventListener('click', () => { pause(); step(-1); });
+$('next').addEventListener('click', () => { pause(); step(1); });
+$('timeline').addEventListener('input', () => { pause(); seek(Number($('timeline').value)); });
+$('unit').addEventListener('change', () => { for (const stream of state.streams) rebuildPlot(stream); render(true); });
+$('speed').addEventListener('change', () => { state.lastTick = performance.now(); });
+window.addEventListener('pagehide', () => { pause(); state.episodeRequest?.abort(); state.listRequest?.abort(); state.imageController?.abort(); state.generation++; disposeViews(); });
+void loadEpisodes();
+</script>
+</body>
+</html>

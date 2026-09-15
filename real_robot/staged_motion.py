@@ -1,0 +1,254 @@
+"""Staged enable/teleop/home state machine on top of the MotionGate guards.
+
+The base gate enables a device and immediately follows the live input. This
+staged gate instead authorizes an explicit operator sequence:
+
+    WAITING --arm()--> ALIGNING --settled--> READY --start_teleop()--> TELEOP
+                                                              |
+                                              start_homing()  v
+                                    HOMING --settled--> HOME_REACHED
+
+Every inherited source/feedback/bounds/epoch guard stays active in every armed
+phase; this module only changes where setpoints come from and when the operator
+is told the robot is ready. It never fabricates a command frame to satisfy a
+guard, never substitutes zero for Home, and never homes after a fault.
+"""
+from __future__ import annotations
+
+import math
+
+from .safety import MotionGate, SafetyFault, _finite_vector, _slew
+
+WAITING = "WAITING"
+ALIGNING = "ALIGNING"
+READY = "READY"
+TELEOP = "TELEOP"
+HOMING = "HOMING"
+HOME_REACHED = "HOME_REACHED"
+
+# Phases whose setpoints are capped by the slow staged speed.
+_SLOW_PHASES = (ALIGNING, READY, HOMING, HOME_REACHED)
+# A setpoint this close to its target counts as "the commanded target reached".
+_COMMAND_EPSILON = 1e-9
+
+
+def _home_vector(values, label):
+    if not isinstance(values, (list, tuple)):
+        raise ValueError(f"staged_motion {label}: expected a list of 7 joint values")
+    try:
+        return _finite_vector(values, 7, f"staged_motion {label}")
+    except (SafetyFault, TypeError) as error:
+        raise ValueError(str(error)) from error
+
+
+class StagedMotionGate(MotionGate):
+    def __init__(self, configuration: dict, devices: tuple[str, ...], settings: dict):
+        super().__init__(configuration, devices)
+        if "arms" not in self.devices:
+            raise ValueError("staged motion requires the arms device")
+        if not isinstance(settings, dict):
+            raise ValueError("staged_motion settings must be a mapping")
+        left = _home_vector(settings.get("home_left_rad"), "home_left_rad")
+        right = _home_vector(settings.get("home_right_rad"), "home_right_rad")
+        home = left + right
+        # Validate the supplied Home against the safety bounds here, long before
+        # any SDK is loaded; Home is never silently replaced by zero or startup.
+        for index, (value, lower, upper) in enumerate(zip(
+                home, self.configuration["arms"]["lower_rad"], self.configuration["arms"]["upper_rad"])):
+            if not lower <= value <= upper:
+                raise ValueError(f"staged_motion home joint {index}: {value:.6f} rad "
+                                 f"outside [{lower}, {upper}]")
+        speed = settings.get("maximum_speed_rad_s")
+        if type(speed) not in (int, float) or not math.isfinite(speed) or speed <= 0:
+            raise ValueError("staged_motion maximum_speed_rad_s must be positive and finite")
+        timeout = settings.get("timeout_s")
+        if type(timeout) not in (int, float) or not math.isfinite(timeout) or timeout <= 0:
+            raise ValueError("staged_motion timeout_s must be positive and finite")
+        settle = settings.get("settle_time_s")
+        if type(settle) not in (int, float) or not math.isfinite(settle) or settle < 0:
+            raise ValueError("staged_motion settle_time_s must be finite and nonnegative")
+        self._home = home
+        self._slow_speed = float(speed)
+        self._timeout_ns = float(timeout) * 1e9
+        self._settle_ns = float(settle) * 1e9
+        # The inherited per-device _phase dict drives the zero/ramp enable
+        # sequence; the staged gate overrides arm/step/check_enable_ready, so its
+        # single operator-visible phase lives here instead.
+        self._staged_phase = WAITING
+        self._settle_since_ns = None
+        self._targets = {}
+
+    @property
+    def phase(self) -> str:
+        """Operator-visible phase: WAITING/ALIGNING/READY/TELEOP/HOMING/HOME_REACHED."""
+        return self._staged_phase
+
+    @property
+    def display_targets(self) -> dict:
+        """Snapshot of the active target per device.
+
+        Alignment/READY report the frozen goal, TELEOP the latest input target,
+        HOMING/HOME_REACHED the locked Home and the held hand poses, and WAITING
+        an empty mapping (no target is active yet). The returned dict and its
+        tuples are fresh copies: mutating them cannot change gate state.
+        """
+        return {device: tuple(self._targets[device]) for device in self.devices
+                if device in self._targets}
+
+    def check_enable_ready(self, frame, feedback, now_ns):
+        """Pre-Enter gate: fresh sources plus healthy, disabled, in-bounds feedback.
+
+        There is deliberately no start-pose match here: the first Enter authorizes
+        bounded alignment to the frozen target instead of direct teleop.
+        This bounds setpoint speed; it does not certify a collision-free path.
+        """
+        self.validate_targets(frame, now_ns)
+        for device in self.devices:
+            self.check_feedback(device, feedback[device], now_ns)
+            if feedback[device].enabled:
+                raise SafetyFault(f"{device}: servo already enabled; "
+                                  f"refusing to take over another control session")
+
+    def arm(self, frame, feedback, now_ns):
+        if self.armed or self.fault:
+            raise SafetyFault("session already armed/faulted; restart is required")
+        self.check_enable_ready(frame, feedback, now_ns)
+        self._epoch = frame.tracking_epoch
+        self._last_step_ns = now_ns
+        self._targets = {device: tuple(float(value) for value in frame.positions(device))
+                         for device in self.devices}
+        for device in self.devices:
+            # Never command a jump: the setpoint starts at the measured pose and
+            # only the bounded slew moves it toward the frozen target. Hands go
+            # straight there too, without the base class's zero/ramp detour.
+            self._last_commands[device] = tuple(float(value) for value in feedback[device].position_rad)
+        self.armed = True
+        self._enter_phase(ALIGNING, now_ns)
+
+
+    def start_teleop(self, frame, feedback, now_ns):
+        """Switch a settled READY alignment to continuous teleop without a jump."""
+        if self.fault:
+            raise SafetyFault(self.fault)
+        if not self.armed or self._staged_phase != READY:
+            raise SafetyFault("continuous teleop requires a settled READY alignment; "
+                              "press ENTER only after READY")
+        try:
+            self.observe_source(frame, now_ns)
+            measured = {
+                device: self.check_feedback(device, feedback[device], now_ns, require_enabled=True)
+                for device in self.devices
+            }
+        except SafetyFault as error:
+            self.fault = str(error)
+            raise
+        for device in self.devices:
+            tolerance = self.configuration[device]["alignment_rad"]
+            error = max(abs(value - goal) for value, goal in zip(measured[device], self._targets[device]))
+            if error > tolerance:
+                self._enter_phase(ALIGNING, now_ns)
+                raise SafetyFault(f"{device}: drifted {error:.4f} rad from the frozen "
+                                  f"alignment target; wait for READY")
+        # The last commanded pose is already the frozen target, so the TELEOP
+        # setpoint continues from it and the bounded slew provides the handoff.
+        self._enter_phase(TELEOP, now_ns)
+
+    def start_homing(self, frame, feedback, now_ns):
+        """Lock the configured Home for the arms and hold the hands where they are."""
+        if self.fault:
+            raise SafetyFault(self.fault)
+        if not self.armed or self._staged_phase != TELEOP:
+            raise SafetyFault("homing requires an active TELEOP session")
+        try:
+            self.observe_source(frame, now_ns)
+            for device in self.devices:
+                self.check_feedback(device, feedback[device], now_ns, require_enabled=True)
+        except SafetyFault as error:
+            self.fault = str(error)
+            raise
+        self._targets["arms"] = self._home
+        for device in self.devices:
+            if device != "arms":
+                # Hold the exact last commanded hand pose; no open/zero shortcut.
+                self._targets[device] = self._last_commands[device]
+        self._enter_phase(HOMING, now_ns)
+
+    def step(self, frame, feedback, now_ns):
+        if not self.armed or self.fault:
+            raise SafetyFault(self.fault or "hardware output requires explicit arming")
+        try:
+            self.observe_source(frame, now_ns)
+            if now_ns <= self._last_step_ns:
+                raise SafetyFault("execution monotonic clock did not advance")
+            # Cap the tick like the base gate: a stalled loop must not produce a
+            # large catch-up step.
+            dt = min((now_ns - self._last_step_ns) / 1e9, 1.0 / self.rate_hz)
+            phase = self._staged_phase
+            measured = {device: self.check_feedback(device, feedback[device], now_ns, require_enabled=True)
+                        for device in self.devices}
+            result = {}
+            for device in self.devices:
+                settings = self.configuration[device]
+                previous = self._last_commands[device]
+                self._check_tracking(device, previous, measured[device], now_ns,
+                                     feedback[device].received_monotonic_ns)
+                if phase == TELEOP:
+                    limit = settings["maximum_speed_rad_s"]
+                    target = frame.positions(device)
+                    self._targets[device] = tuple(float(value) for value in target)
+                else:
+                    limit = min(settings["maximum_speed_rad_s"], self._slow_speed)
+                    target = self._targets[device]
+                result[device] = _slew(previous, target, limit * dt)
+            self._last_commands = result
+            self._last_step_ns = now_ns
+            self._advance_staged(phase, result, measured, now_ns)
+            return result
+        except SafetyFault as error:
+            self.fault = str(error)
+            raise
+
+    def _enter_phase(self, phase, now_ns):
+        self._staged_phase = phase
+        self._phase_start_ns = now_ns
+        self._settle_since_ns = None
+
+    def _device_settled(self, device, command, measured):
+        target = self._targets[device]
+        if max(abs(value - goal) for value, goal in zip(command, target)) > _COMMAND_EPSILON:
+            return False
+        return max(abs(value - goal)
+                   for value, goal in zip(measured, target)) <= self.configuration[device]["alignment_rad"]
+
+    def _timeout_detail(self, label, measured, devices):
+        worst = max((abs(value - goal), device)
+                    for device in devices
+                    for value, goal in zip(measured[device], self._targets[device]))
+        return (f"{label} did not settle within {self._timeout_ns / 1e9:g} s "
+                f"({worst[1]} is still {worst[0]:.4f} rad from its target)")
+
+    def _advance_staged(self, phase, commands, measured, now_ns):
+        if phase not in _SLOW_PHASES:
+            self._settle_since_ns = None
+            return
+        # HOME is an arm destination. Hands keep their commanded grip and all
+        # health/tracking guards, but contact need not satisfy a new pose match.
+        settling_devices = ("arms",) if phase in (HOMING, HOME_REACHED) else self.devices
+        settled = all(self._device_settled(device, commands[device], measured[device])
+                      for device in settling_devices)
+        if phase in (ALIGNING, HOMING):
+            if settled:
+                if self._settle_since_ns is None:
+                    self._settle_since_ns = now_ns
+                elif now_ns - self._settle_since_ns >= self._settle_ns:
+                    self._enter_phase(READY if phase == ALIGNING else HOME_REACHED, now_ns)
+                    return
+            else:
+                self._settle_since_ns = None
+            if now_ns - self._phase_start_ns > self._timeout_ns:
+                raise SafetyFault(self._timeout_detail(
+                    "alignment" if phase == ALIGNING else "homing", measured, settling_devices))
+        elif phase == READY and not settled:
+            # Physical drift after settling revokes READY rather than authorizing
+            # a teleop handoff from an unverified pose.
+            self._enter_phase(ALIGNING, now_ns)

@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68,<80", "pybind11>=2.13,<4"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tianji-teleop"
+version = "0.2.0"
+description = "Collection-centered Tianji teleoperation, calibration and retargeting"
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.26,<3", "PyYAML>=6,<7"]
+
+[project.optional-dependencies]
+collection = ["h5py>=3.11,<4", "opencv-python>=4.11,<5", "mujoco>=3.3.2,<4", "pyrealsense2>=2.58,<3"]
+retargeting = ["nlopt>=2.9,<3", "pin==3.8.0", "cmeel-urdfdom>=4,<5", "cmeel-tinyxml2>=10,<11", "scipy>=1.11,<2", "wuji-sdk>=0.10", "mujoco>=3.3.2,<4"]
+test = ["pytest>=8,<9"]
+tracking = ["colcon-common-extensions", "setuptools>=68,<80", "empy>=3.3.4,<4", "matplotlib>=3.8,<4"]
+
+[project.scripts]
+tianji = "tianji.cli:main"
+
+[tool.setuptools]
+py-modules = ["teleop_profile"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["tianji*", "real_robot*", "data_collection*", "sim*", "manus*", "retargeting*"]
+exclude = ["*.tests*", "*.test*", "*.build*", "*.wuji-description*", "*.mujoco-sim*"]
+namespaces = false
+
+[tool.setuptools.package-data]
+data_collection = ["visualize.html"]
+retargeting = ["LICENSE"]
+"retargeting.wuji_retargeting" = ["wuji-description/**/*"]
+"retargeting.example" = ["config/*.yaml", "config/**/*.yaml", "data/*", "data/**/*", "utils/mujoco-sim/**/*"]
+manus = ["calibration/*.mcal"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "real_robot/tests", "data_collection/tests", "sim/tests", "manus/tests", "retargeting/tests", "tracking/src/pico_bridge/test"]

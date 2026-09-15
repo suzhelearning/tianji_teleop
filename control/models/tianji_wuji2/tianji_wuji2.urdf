@@ -1,0 +1,2168 @@
+<robot name="Marvin M6-S-CCS-696-V4.0_Base_and_Stand_Asm urdf">
+  <link name="Link_Base">
+    <inertial>
+      <origin xyz="0 1.33E-06 0.1597" rpy="0 0 0" />
+      <mass value="74.515" />
+      <inertia ixx="8.67491803" ixy="0.07182226" ixz="0" iyy="8.67495749" iyz="0.00008096" izz="4.32871357" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/Link_Base.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0 1 0 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/Link_Base.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="Link_Stand">
+    <inertial>
+      <origin xyz="1.321E-05 -4.225E-05 0.06485" rpy="0 0 0" />
+      <mass value="3.52" />
+      <inertia ixx="0.01763033" ixy="-0.00000075" ixz="0.00000045" iyy="0.02001856" iyz="7.41E-06" izz="0.01060882" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/Link_Stand.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0 0 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/Link_Stand.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="Joint_Stand" type="fixed">
+    <origin xyz="0 0 0.981" rpy="0 0 0" />
+    <parent link="Link_Base" />
+    <child link="Link_Stand" />
+    <axis xyz="0 0 0" />
+  </joint>
+  <link name="Base_L">
+    <inertial>
+      <origin xyz="0.00032267 4.798E-05 0.04066353" rpy="0 0 0" />
+      <mass value="1.1962" />
+      <inertia ixx="0.00107329" ixy="-1.68E-06" ixz="-1.05E-05" iyy="0.00107003" iyz="-3.43E-06" izz="0.00127315" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/Base_L.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 0 0 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/Base_L.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="Joint0_L" type="fixed">
+    <origin xyz="0 0.037 0.140" rpy="-1.5708 0 0" />
+    <parent link="Link_Stand" />
+    <child link="Base_L" />
+    <axis xyz="0 0 0" />
+  </joint>
+  <link name="Link1_L">
+    <inertial>
+      <origin xyz="0.00002347 0.00557150 -0.03075998" rpy="0 0 0" />
+      <mass value="1.9705" />
+      <inertia ixx="0.00492293" ixy="0.00000550" ixz="0.00000193" iyy="0.00526513" iyz="0.00033232" izz="0.00188107" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/Link1_L.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0 1 0 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/Link1_L.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="Joint1_L" type="revolute">
+    <origin xyz="0 0 0.1745" rpy="0 0 0" />
+    <parent link="Base_L" />
+    <child link="Link1_L" />
+    <axis xyz="0 0 1" />
+    <limit lower="-1.5708" upper="3.1067" effort="108" velocity="4.0" />
+  </joint>
+  <link name="Link2_L">
+    <inertial>
+      <origin xyz="0.00013483 0.06170460 0.00950639" rpy="0 0 0" />
+      <mass value="2.24398" />
+      <inertia ixx="0.01194933" ixy="0.00000336" ixz="0.00000091" iyy="0.00361581" iyz="-0.00132804" izz="0.01098356" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/Link2_L.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0 0 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/Link2_L.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="Joint2_L" type="revolute">
+    <origin xyz="0 0 0" rpy="1.5708 0 0" />
+    <parent link="Link1_L" />
+    <child link="Link2_L" />
+    <axis xyz="0 0 1" />
+    <limit lower="-2.0944" upper="2.0944" effort="108" velocity="4.0" />
+  </joint>
+  <link name="Link3_L">
+    <inertial>
+      <origin xyz="0.00968562 0.00246599 -0.04627302" rpy="0 0 0" />
+      <mass value="1.9242" />
+      <inertia ixx="0.00718224" ixy="0.00004413" ixz="0.00089552" iyy="0.00762563" iyz="0.00022096" izz="0.00178597" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/Link3_L.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 0 0 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/Link3_L.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="Joint3_L" type="revolute">
+    <origin xyz="0 0.287 0" rpy="-1.5708 0 0" />
+    <parent link="Link2_L" />
+    <child link="Link3_L" />
+    <axis xyz="0 0 1" />
+    <limit lower="-3.1067" upper="0" effort="66" velocity="4.0" />
+  </joint>
+  <link name="Link4_L">
+    <inertial>
+      <origin xyz="0.00850411 -0.04718223 0.00941509" rpy="0 0 0" />
+      <mass value="1.6085" />
+      <inertia ixx="0.00580480" ixy="-0.00066669" ixz="-0.00012722" iyy="0.00223807" iyz="0.00070523" izz="0.00533060" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/Link4_L.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0 1 0 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/Link4_L.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="Joint4_L" type="revolute">
+    <origin xyz="0.018 0 0" rpy="-1.5708 0 3.1416" />
+    <parent link="Link3_L" />
+    <child link="Link4_L" />
+    <axis xyz="0 0 1" />
+    <limit lower="-2.5307" upper="0" effort="66" velocity="4.0" />
+  </joint>
+  <link name="Link5_L">
+    <inertial>
+      <origin xyz="0.00051127 0.00101064 -0.11271739" rpy="0 0 0" />
+      <mass value="2.0883" />
+      <inertia ixx="0.00626603" ixy="0.00004009" ixz="0.00005338" iyy="0.00564387" iyz="-0.00006193" izz="0.00243632" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/Link5_L.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0 0 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/Link5_L.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="Joint5_L" type="revolute">
+    <origin xyz="0.018 -0.314 0" rpy="-1.5708 0 3.1416" />
+    <parent link="Link4_L" />
+    <child link="Link5_L" />
+    <axis xyz="0 0 1" />
+    <limit lower="-3.1067" upper="3.1067" effort="18" velocity="4.0" />
+  </joint>
+  <link name="Link6_L">
+    <inertial>
+      <origin xyz="0.00032659 0.00531336 -0.00030182" rpy="0 0 0" />
+      <mass value="0.72496" />
+      <inertia ixx="0.00046040" ixy="0.00000189" ixz="0.00000083" iyy="0.00051716" iyz="-0.00000346" izz="0.00042521" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/Link6_L.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 0 0 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/Link6_L.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="Joint6_L" type="revolute">
+    <origin xyz="0 0 0" rpy="1.5708 -1.5708 0" />
+    <parent link="Link5_L" />
+    <child link="Link6_L" />
+    <axis xyz="0 0 1" />
+    <limit lower="-1.0472" upper="1.0472" effort="18" velocity="4.0" />
+  </joint>
+  <link name="Link7_L">
+    <inertial>
+      <origin xyz="-0.00009108 -0.03153255 0.00889371" rpy="0 0 0" />
+      <mass value="0.68606" />
+      <inertia ixx="0.00173687" ixy="-0.00000345" ixz="-0.00000116" iyy="0.00089035" iyz="0.00030680" izz="0.00139406" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/Link7_L.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0 1 0 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/Link7_L.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="Joint7_L" type="revolute">
+    <origin xyz="0 0 0" rpy="1.5708 -1.5708 0" />
+    <parent link="Link6_L" />
+    <child link="Link7_L" />
+    <axis xyz="0 0 1" />
+    <limit lower="-1.5708" upper="1.5708" effort="18" velocity="4.0" />
+  </joint>
+  <link name="TCP_Link_L">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/TCP_Link_L.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <visual name="TCP_Link_L_axis_0">
+      <origin xyz="0.025 0 0" rpy="0 1.5707963267948966 0" />
+      <geometry>
+        <cylinder length="0.05" radius="0.003" />
+      </geometry>
+      <material>
+        <color rgba="1 0 0 1" />
+      </material>
+    </visual>
+    <visual name="TCP_Link_L_axis_1">
+      <origin xyz="0 0.025 0" rpy="1.5707963267948966 0 0" />
+      <geometry>
+        <cylinder length="0.05" radius="0.003" />
+      </geometry>
+      <material>
+        <color rgba="0 1 0 1" />
+      </material>
+    </visual>
+    <visual name="TCP_Link_L_axis_2">
+      <origin xyz="0 0 0.025" rpy="0 0 0" />
+      <geometry>
+        <cylinder length="0.05" radius="0.003" />
+      </geometry>
+      <material>
+        <color rgba="0 0 1 1" />
+      </material>
+    </visual>
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <mass value="0.05" />
+      <inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" />
+    </inertial>
+  </link>
+  <joint name="JointTCP_L" type="fixed">
+    <origin xyz="0 -0.095 0" rpy="1.5708 -1.5708 0" />
+    <parent link="Link7_L" />
+    <child link="TCP_Link_L" />
+    <axis xyz="0 0 0" />
+  </joint>
+  <link name="Base_R">
+    <inertial>
+      <origin xyz="0.00032267 4.798E-05 0.04066353" rpy="0 0 0" />
+      <mass value="1.1962" />
+      <inertia ixx="0.00107329" ixy="-1.68E-06" ixz="-1.05E-05" iyy="0.00107003" iyz="-3.43E-06" izz="0.00127315" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/Base_R.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 0 0 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/Base_R.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="Joint0_R" type="fixed">
+    <origin xyz="0 -0.037 0.140" rpy="1.5708 0 0" />
+    <parent link="Link_Stand" />
+    <child link="Base_R" />
+    <axis xyz="0 0 0" />
+  </joint>
+  <link name="Link1_R">
+    <inertial>
+      <origin xyz="0.00002347 0.00557150 -0.03075998" rpy="0 0 0" />
+      <mass value="1.9705" />
+      <inertia ixx="0.00492293" ixy="0.00000550" ixz="0.00000193" iyy="0.00526513" iyz="0.00033232" izz="0.00188107" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/Link1_R.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0 1 0 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/Link1_R.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="Joint1_R" type="revolute">
+    <origin xyz="0 0 0.1745" rpy="0 0 0" />
+    <parent link="Base_R" />
+    <child link="Link1_R" />
+    <axis xyz="0 0 1" />
+    <limit lower="-3.1067" upper="1.5708" effort="108" velocity="4.0" />
+  </joint>
+  <link name="Link2_R">
+    <inertial>
+      <origin xyz="0.00013483 0.06170460 0.00950639" rpy="0 0 0" />
+      <mass value="2.24398" />
+      <inertia ixx="0.01194933" ixy="0.00000336" ixz="0.00000091" iyy="0.00361581" iyz="-0.00132804" izz="0.01098356" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/Link2_R.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0 0 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/Link2_R.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="Joint2_R" type="revolute">
+    <origin xyz="0 0 0" rpy="1.5708 0 0" />
+    <parent link="Link1_R" />
+    <child link="Link2_R" />
+    <axis xyz="0 0 1" />
+    <limit lower="-2.0944" upper="2.0944" effort="108" velocity="4.0" />
+  </joint>
+  <link name="Link3_R">
+    <inertial>
+      <origin xyz="0.00968562 0.00246599 -0.04627302" rpy="0 0 0" />
+      <mass value="1.9242" />
+      <inertia ixx="0.00718224" ixy="0.00004413" ixz="0.00089552" iyy="0.00762563" iyz="0.00022096" izz="0.00178597" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/Link3_R.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 0 0 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/Link3_R.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="Joint3_R" type="revolute">
+    <origin xyz="0 0.287 0" rpy="-1.5708 0 0" />
+    <parent link="Link2_R" />
+    <child link="Link3_R" />
+    <axis xyz="0 0 1" />
+    <limit lower="0" upper="3.1067" effort="66" velocity="4.0" />
+  </joint>
+  <link name="Link4_R">
+    <inertial>
+      <origin xyz="0.00850411 -0.04718223 0.00941509" rpy="0 0 0" />
+      <mass value="1.6085" />
+      <inertia ixx="0.00580480" ixy="-0.00066669" ixz="-0.00012722" iyy="0.00223807" iyz="0.00070523" izz="0.00533060" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/Link4_R.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0 1 0 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/Link4_R.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="Joint4_R" type="revolute">
+    <origin xyz="0.018 0 0" rpy="-1.5708 0 3.1416" />
+    <parent link="Link3_R" />
+    <child link="Link4_R" />
+    <axis xyz="0 0 1" />
+    <limit lower="-2.5307" upper="0" effort="66" velocity="4.0" />
+  </joint>
+  <link name="Link5_R">
+    <inertial>
+      <origin xyz="-0.00051127 -0.00101064 -0.11271739" rpy="0 0 0" />
+      <mass value="2.0883" />
+      <inertia ixx="0.00626603" ixy="0.00004009" ixz="-0.00005338" iyy="0.00564387" iyz="0.00006193" izz="0.00243632" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/Link5_R.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0 0 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/Link5_R.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="Joint5_R" type="revolute">
+    <origin xyz="0.018 -0.314 0" rpy="-1.5708 0 3.1416" />
+    <parent link="Link4_R" />
+    <child link="Link5_R" />
+    <axis xyz="0 0 1" />
+    <limit lower="-3.1067" upper="3.1067" effort="18" velocity="4.0" />
+  </joint>
+  <link name="Link6_R">
+    <inertial>
+      <origin xyz="0.00032659 -0.00531336 0.00030182" rpy="0 0 0" />
+      <mass value="0.72496" />
+      <inertia ixx="0.00046040" ixy="-0.00000189" ixz="-0.00000083" iyy="0.00051716" iyz="-0.00000346" izz="0.00042521" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/Link6_R.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 0 0 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/Link6_R.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="Joint6_R" type="revolute">
+    <origin xyz="0 0 0" rpy="1.5708 -1.5708 0" />
+    <parent link="Link5_R" />
+    <child link="Link6_R" />
+    <axis xyz="0 0 1" />
+    <limit lower="-1.0472" upper="1.0472" effort="18" velocity="4.0" />
+  </joint>
+  <link name="Link7_R">
+    <inertial>
+      <origin xyz="-0.00009108 -0.03153255 0.00889371" rpy="0 0 0" />
+      <mass value="0.68606" />
+      <inertia ixx="0.00173687" ixy="-0.00000345" ixz="-0.00000116" iyy="0.00089035" iyz="0.00030680" izz="0.00139406" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/Link7_R.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0 1 0 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/Link7_R.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="Joint7_R" type="revolute">
+    <origin xyz="0 0 0" rpy="1.5708 -1.5708 0" />
+    <parent link="Link6_R" />
+    <child link="Link7_R" />
+    <axis xyz="0 0 1" />
+    <limit lower="-1.5708" upper="1.5708" effort="18" velocity="4.0" />
+  </joint>
+  <link name="TCP_Link_R">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/TCP_Link_R.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <visual name="TCP_Link_R_axis_0">
+      <origin xyz="0.025 0 0" rpy="0 1.5707963267948966 0" />
+      <geometry>
+        <cylinder length="0.05" radius="0.003" />
+      </geometry>
+      <material>
+        <color rgba="1 0 0 1" />
+      </material>
+    </visual>
+    <visual name="TCP_Link_R_axis_1">
+      <origin xyz="0 0.025 0" rpy="1.5707963267948966 0 0" />
+      <geometry>
+        <cylinder length="0.05" radius="0.003" />
+      </geometry>
+      <material>
+        <color rgba="0 1 0 1" />
+      </material>
+    </visual>
+    <visual name="TCP_Link_R_axis_2">
+      <origin xyz="0 0 0.025" rpy="0 0 0" />
+      <geometry>
+        <cylinder length="0.05" radius="0.003" />
+      </geometry>
+      <material>
+        <color rgba="0 0 1 1" />
+      </material>
+    </visual>
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <mass value="0.05" />
+      <inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" />
+    </inertial>
+  </link>
+  <joint name="JointTCP_R" type="fixed">
+    <origin xyz="0 -0.095 0" rpy="1.5708 -1.5708 0" />
+    <parent link="Link7_R" />
+    <child link="TCP_Link_R" />
+    <axis xyz="0 0 0" />
+  </joint>
+  <joint name="JointMarker_R" type="fixed">
+    <origin xyz="0 0 0" rpy="-1.5707963267948966 -1.5707963267948966 0.0" />
+    <parent link="TCP_Link_R" />
+    <child link="marker_tianji_r" />
+  </joint>
+  <joint name="JointWuji2_R" type="fixed">
+    <origin xyz="0 0 0" rpy="0 -1.5707963267948966 0" />
+    <parent link="marker_wuji2_r" />
+    <child link="r_mount" />
+  </joint>
+  <link name="marker_mocap_r">
+    <inertial>
+      <origin xyz="-2.12863929093497E-07 0.00124443190416646 0.00226906870235771" rpy="0 0 0" />
+      <mass value="0.0167124616872421" />
+      <inertia ixx="1.71023387500903E-05" ixy="-1.11405188669191E-11" ixz="-1.16988732093527E-11" iyy="8.92159156719571E-06" iyz="5.34437648077156E-07" izz="8.32668495865682E-06" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/marker_mocap.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 0.25 0.05 1" />
+      </material>
+    </visual>
+    <visual name="marker_mocap_r_axis_0">
+      <origin xyz="0.035 0 0" rpy="0 1.5707963267948966 0" />
+      <geometry>
+        <cylinder length="0.07" radius="0.004" />
+      </geometry>
+      <material>
+        <color rgba="1 0 0 1" />
+      </material>
+    </visual>
+    <visual name="marker_mocap_r_axis_1">
+      <origin xyz="0 0.035 0" rpy="1.5707963267948966 0 0" />
+      <geometry>
+        <cylinder length="0.07" radius="0.004" />
+      </geometry>
+      <material>
+        <color rgba="0 1 0 1" />
+      </material>
+    </visual>
+    <visual name="marker_mocap_r_axis_2">
+      <origin xyz="0 0 0.035" rpy="0 0 0" />
+      <geometry>
+        <cylinder length="0.07" radius="0.004" />
+      </geometry>
+      <material>
+        <color rgba="0 0 1 1" />
+      </material>
+    </visual>
+  </link>
+  <link name="marker_wuji2_r" />
+  <link name="marker_tianji_r" />
+  <joint name="marker_wuji2_r" type="fixed">
+    <parent link="marker_mocap_r" />
+    <child link="marker_wuji2_r" />
+    <origin xyz="0.004 0 0" rpy="0 0 0" />
+  </joint>
+  <joint name="marker_tianji_to_mocap_r" type="fixed">
+    <parent link="marker_tianji_r" />
+    <child link="marker_mocap_r" />
+    <origin xyz="0.004 0 0" rpy="0 0 0" />
+  </joint>
+  <link name="r_mount">
+    <inertial>
+      <origin xyz="-0.00285955798828514 -0.00108266456258402 -0.0169824080918136" rpy="0 0 0" />
+      <mass value="0.069" />
+      <inertia ixx="1.88383383719118e-05" ixy="-4.89630318986146e-07" ixz="-3.62094690649355e-06" iyy="2.51546999610975e-05" iyz="-6.20117672157845e-07" izz="2.40566043667912e-05" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_r_mount.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.627450980392157 0.627450980392157 0.627450980392157 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_r_mount.STL" />
+      </geometry>
+    </collision>
+    <visual name="r_mount_axis_0">
+      <origin xyz="0.03 0 0" rpy="0 1.5707963267948966 0" />
+      <geometry>
+        <cylinder length="0.06" radius="0.004" />
+      </geometry>
+      <material>
+        <color rgba="0 1 1 1" />
+      </material>
+    </visual>
+    <visual name="r_mount_axis_1">
+      <origin xyz="0 0.03 0" rpy="1.5707963267948966 0 0" />
+      <geometry>
+        <cylinder length="0.06" radius="0.004" />
+      </geometry>
+      <material>
+        <color rgba="1 0 1 1" />
+      </material>
+    </visual>
+    <visual name="r_mount_axis_2">
+      <origin xyz="0 0 0.03" rpy="0 0 0" />
+      <geometry>
+        <cylinder length="0.06" radius="0.004" />
+      </geometry>
+      <material>
+        <color rgba="1 1 0 1" />
+      </material>
+    </visual>
+  </link>
+  <link name="r_wrist">
+    <inertial>
+      <origin xyz="-0.00354289960216114 -0.00346747236064104 -0.0356950477107829" rpy="0 0 0" />
+      <mass value="0.2323" />
+      <inertia ixx="9.85805046027055e-05" ixy="-5.21545995919675e-07" ixz="4.69877332365686e-06" iyy="0.000154959113329145" iyz="-7.307300403419e-06" izz="7.88501370904413e-05" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_r_wrist.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_r_wrist.STL" />
+      </geometry>
+    </collision>
+    <visual name="r_wrist_axis_0">
+      <origin xyz="0.045 0 0" rpy="0 1.5707963267948966 0" />
+      <geometry>
+        <cylinder length="0.09" radius="0.005" />
+      </geometry>
+      <material>
+        <color rgba="1 0 0 1" />
+      </material>
+    </visual>
+    <visual name="r_wrist_axis_1">
+      <origin xyz="0 0.045 0" rpy="1.5707963267948966 0 0" />
+      <geometry>
+        <cylinder length="0.09" radius="0.005" />
+      </geometry>
+      <material>
+        <color rgba="0 1 0 1" />
+      </material>
+    </visual>
+    <visual name="r_wrist_axis_2">
+      <origin xyz="0 0 0.045" rpy="0 0 0" />
+      <geometry>
+        <cylinder length="0.09" radius="0.005" />
+      </geometry>
+      <material>
+        <color rgba="0 0 1 1" />
+      </material>
+    </visual>
+  </link>
+  <joint name="r_wrist_fixed" type="fixed">
+    <origin xyz="0.003 0.00025016 -0.0285" rpy="0 0 1.6399E-05" />
+    <parent link="r_mount" />
+    <child link="r_wrist" />
+  </joint>
+  <link name="r_thumb_proximal">
+    <inertial>
+      <origin xyz="0.000853657429950494 -0.00195618452655939 -0.0073180857322072" rpy="0 0 0" />
+      <mass value="0.011" />
+      <inertia ixx="8.07001987681193e-07" ixy="-2.76970722043947e-08" ixz="2.8571196010973e-08" iyy="8.07898105945808e-07" iyz="-8.77269995533649e-09" izz="6.37878016479553e-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_r_thumb_proximal.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.627450980392157 0.627450980392157 0.627450980392157 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_r_thumb_proximal.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="r_thumb_cmc_flex" type="revolute">
+    <origin xyz="0.0172101334567 0.00813795777212 -0.016457" rpy="-1.6617 -1.059 1.992083601" />
+    <parent link="r_wrist" />
+    <child link="r_thumb_proximal" />
+    <axis xyz="1 0 0" />
+    <limit lower="-1.1870" upper="1.2910" effort="0.6000" velocity="8.587" />
+  </joint>
+  <link name="r_thumb_proximal_abd">
+    <inertial>
+      <origin xyz="1.27934027458564e-05 6.47331010436739e-06 -0.0130543616151469" rpy="0 0 0" />
+      <mass value="0.0336" />
+      <inertia ixx="4.11671493729103e-06" ixy="-5.9929784662906e-08" ixz="1.30616608491388e-08" iyy="4.19675217766626e-06" iyz="8.09095132539748e-09" izz="1.23568384428672e-06" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_r_thumb_proximal_abd.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.627450980392157 0.627450980392157 0.627450980392157 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_r_thumb_proximal_abd.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="r_thumb_cmc_abd" type="revolute">
+    <origin xyz="0.00024788 -0.00053658 -0.014754" rpy="0.20529 0.70051 0.025238" />
+    <parent link="r_thumb_proximal" />
+    <child link="r_thumb_proximal_abd" />
+    <axis xyz="0 1 0" />
+    <limit lower="-1.4840" upper="0.6980" effort="0.6000" velocity="11.1" />
+  </joint>
+  <link name="r_thumb_middle">
+    <inertial>
+      <origin xyz="-4.92924283153409e-05 4.31168707134176e-08 -0.0143055726354766" rpy="0 0 0" />
+      <mass value="0.0358" />
+      <inertia ixx="4.81959717162669e-06" ixy="-2.57766425883297e-10" ixz="3.27141642541921e-10" iyy="4.92858743739004e-06" iyz="5.19951983287786e-12" izz="1.32688022322439e-06" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_r_thumb_middle.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.627450980392157 0.627450980392157 0.627450980392157 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_r_thumb_middle.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="r_thumb_mcp" type="revolute">
+    <origin xyz="0 0 -0.0325" rpy="0 0.087266 0.56723" />
+    <parent link="r_thumb_proximal_abd" />
+    <child link="r_thumb_middle" />
+    <axis xyz="1 0 0" />
+    <limit lower="-1.0470" upper="1.5700" effort="0.3000" velocity="12.86" />
+  </joint>
+  <link name="r_thumb_distal">
+    <inertial>
+      <origin xyz="-1.96899979162389e-05 0.000584113313185443 -0.0149296905328378" rpy="0 0 0" />
+      <mass value="0.0159" />
+      <inertia ixx="1.33389005598297e-06" ixy="-1.51187990210105e-09" ixz="9.97976948534658e-09" iyy="1.37313267819339e-06" iyz="-7.31345395380854e-08" izz="6.87850035199638e-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_r_thumb_distal.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_r_thumb_distal.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="r_thumb_ip" type="revolute">
+    <origin xyz="-5E-05 0 -0.035" rpy="0 0 0" />
+    <parent link="r_thumb_middle" />
+    <child link="r_thumb_distal" />
+    <axis xyz="1 0 0" />
+    <limit lower="-1.0470" upper="1.5700" effort="0.3000" velocity="13.5" />
+  </joint>
+  <link name="r_thumb_tip" />
+  <joint name="r_thumb_tip_fixed" type="fixed">
+    <origin xyz="0 0 -0.02978" rpy="0 0 0" />
+    <parent link="r_thumb_distal" />
+    <child link="r_thumb_tip" />
+  </joint>
+  <link name="r_index_finger_proximal">
+    <inertial>
+      <origin xyz="1.83161025002185e-09 -0.00178136940445361 -0.00760138673373379" rpy="0 0 0" />
+      <mass value="0.0116" />
+      <inertia ixx="9.19684021219303e-07" ixy="5.28247185749756e-13" ixz="2.26060089847088e-13" iyy="9.07912667640505e-07" iyz="-9.11687066972156e-09" izz="7.89107764311872e-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_r_index_finger_proximal.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_r_index_finger_proximal.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="r_index_finger_mcp_flex" type="revolute">
+    <origin xyz="0.0226609454742 -0.00332513161729 -0.069975" rpy="-0.039792 -0.13705 0.100403601" />
+    <parent link="r_wrist" />
+    <child link="r_index_finger_proximal" />
+    <axis xyz="1 0 0" />
+    <limit lower="-1.0470" upper="1.5700" effort="2.0000" velocity="8.203" />
+  </joint>
+  <link name="r_index_finger_proximal_abd">
+    <inertial>
+      <origin xyz="8.04675146186652e-08 7.3040368472784e-07 -0.0187993794550997" rpy="0 0 0" />
+      <mass value="0.0339" />
+      <inertia ixx="7.0158413388037e-06" ixy="1.13787856174592e-10" ixz="-1.19062498369979e-11" iyy="7.01558877903507e-06" iyz="-1.9723340220264e-10" izz="9.14480410679966e-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_r_index_finger_proximal_abd.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_r_index_finger_proximal_abd.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="r_index_finger_mcp_abd" type="revolute">
+    <origin xyz="0 -0.001201 -0.0145" rpy="0 0 0" />
+    <parent link="r_index_finger_proximal" />
+    <child link="r_index_finger_proximal_abd" />
+    <axis xyz="0 1 0" />
+    <limit lower="-0.6980" upper="0.6980" effort="0.2000" velocity="8.11" />
+  </joint>
+  <link name="r_index_finger_middle">
+    <inertial>
+      <origin xyz="-5.07335390505094e-08 -0.000247886788910862 -0.0190348353019456" rpy="0 0 0" />
+      <mass value="0.0212" />
+      <inertia ixx="2.40525408841305e-06" ixy="4.36771620897472e-11" ixz="-1.01321951276004e-11" iyy="2.47626497450938e-06" iyz="5.57378703986573e-08" izz="6.54181652504255e-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_r_index_finger_middle.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_r_index_finger_middle.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="r_index_finger_pip" type="revolute">
+    <origin xyz="0 0 -0.0376" rpy="0 0 0" />
+    <parent link="r_index_finger_proximal_abd" />
+    <child link="r_index_finger_middle" />
+    <axis xyz="1 0 0" />
+    <limit lower="-1.0470" upper="2.0940" effort="0.3000" velocity="12.86" />
+  </joint>
+  <link name="r_index_finger_distal">
+    <inertial>
+      <origin xyz="0.000273616411847607 -3.02074856552092e-05 -0.0121848684418609" rpy="0 0 0" />
+      <mass value="0.0078" />
+      <inertia ixx="5.38224802903959e-07" ixy="-2.79679442692154e-10" ixz="-2.5530464631837e-08" iyy="5.71398964851628e-07" iyz="-2.92327746439665e-08" izz="2.79172555327135e-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_r_index_finger_distal.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_r_index_finger_distal.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="r_index_finger_dip" type="revolute">
+    <origin xyz="0 0 -0.0295" rpy="0 0 0" />
+    <parent link="r_index_finger_middle" />
+    <child link="r_index_finger_distal" />
+    <axis xyz="1 0 0" />
+    <limit lower="-1.0470" upper="1.5700" effort="0.3000" velocity="13.5" />
+  </joint>
+  <link name="r_index_finger_tip" />
+  <joint name="r_index_finger_tip_fixed" type="fixed">
+    <origin xyz="0 0 -0.02475" rpy="0 0 0" />
+    <parent link="r_index_finger_distal" />
+    <child link="r_index_finger_tip" />
+  </joint>
+  <link name="r_middle_finger_proximal">
+    <inertial>
+      <origin xyz="1.83161025002185e-09 -0.0017813694044536 -0.00760138673373379" rpy="0 0 0" />
+      <mass value="0.0116" />
+      <inertia ixx="9.19684021219303e-07" ixy="5.28247185749756e-13" ixz="2.26060089849787e-13" iyy="9.07912667640505e-07" iyz="-9.11687066972167e-09" izz="7.89107764311872e-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_r_middle_finger_proximal.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_r_middle_finger_proximal.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="r_middle_finger_mcp_flex" type="revolute">
+    <origin xyz="0.000952063839631 -0.00830297561401 -0.07392" rpy="-0.03391 0.011037 -0.000715349" />
+    <parent link="r_wrist" />
+    <child link="r_middle_finger_proximal" />
+    <axis xyz="1 0 0" />
+    <limit lower="-1.0470" upper="1.5700" effort="2.0000" velocity="8.203" />
+  </joint>
+  <link name="r_middle_finger_proximal_abd">
+    <inertial>
+      <origin xyz="8.0467514618682e-08 7.3040368472784e-07 -0.0187993794550997" rpy="0 0 0" />
+      <mass value="0.0339" />
+      <inertia ixx="7.0158413388037e-06" ixy="1.13787856174592e-10" ixz="-1.19062498370086e-11" iyy="7.01558877903507e-06" iyz="-1.97233402202641e-10" izz="9.14480410679966e-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_r_middle_finger_proximal_abd.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_r_middle_finger_proximal_abd.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="r_middle_finger_mcp_abd" type="revolute">
+    <origin xyz="0 -0.001201 -0.0145" rpy="0 0 0" />
+    <parent link="r_middle_finger_proximal" />
+    <child link="r_middle_finger_proximal_abd" />
+    <axis xyz="0 1 0" />
+    <limit lower="-0.6980" upper="0.6980" effort="0.2000" velocity="8.11" />
+  </joint>
+  <link name="r_middle_finger_middle">
+    <inertial>
+      <origin xyz="-5.07335390506177e-08 -0.000247886788910862 -0.0190348353019456" rpy="0 0 0" />
+      <mass value="0.0212" />
+      <inertia ixx="2.40525408841305e-06" ixy="4.36771620897459e-11" ixz="-1.01321951275526e-11" iyy="2.47626497450938e-06" iyz="5.57378703986573e-08" izz="6.54181652504255e-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_r_middle_finger_middle.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_r_middle_finger_middle.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="r_middle_finger_pip" type="revolute">
+    <origin xyz="0 0 -0.0376" rpy="0 0 0" />
+    <parent link="r_middle_finger_proximal_abd" />
+    <child link="r_middle_finger_middle" />
+    <axis xyz="1 0 0" />
+    <limit lower="-1.0470" upper="2.0940" effort="0.3000" velocity="12.86" />
+  </joint>
+  <link name="r_middle_finger_distal">
+    <inertial>
+      <origin xyz="0.000273616411847607 -3.02074856552096e-05 -0.0121848684418609" rpy="0 0 0" />
+      <mass value="0.0078" />
+      <inertia ixx="5.38224802903959e-07" ixy="-2.79679442692155e-10" ixz="-2.5530464631837e-08" iyy="5.71398964851628e-07" iyz="-2.92327746439665e-08" izz="2.79172555327135e-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_r_middle_finger_distal.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_r_middle_finger_distal.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="r_middle_finger_dip" type="revolute">
+    <origin xyz="0 0 -0.0295" rpy="0 0 0" />
+    <parent link="r_middle_finger_middle" />
+    <child link="r_middle_finger_distal" />
+    <axis xyz="1 0 0" />
+    <limit lower="-1.0470" upper="1.5700" effort="0.3000" velocity="13.5" />
+  </joint>
+  <link name="r_middle_finger_tip" />
+  <joint name="r_middle_finger_tip_fixed" type="fixed">
+    <origin xyz="0 0 -0.02475" rpy="0 0 0" />
+    <parent link="r_middle_finger_distal" />
+    <child link="r_middle_finger_tip" />
+  </joint>
+  <link name="r_ring_finger_proximal">
+    <inertial>
+      <origin xyz="1.83161025031965e-09 -0.00178136940445361 -0.00760138673373379" rpy="0 0 0" />
+      <mass value="0.0116" />
+      <inertia ixx="9.19684021219303e-07" ixy="5.28247185742253e-13" ixz="2.26060089820829e-13" iyy="9.07912667640505e-07" iyz="-9.11687066972155e-09" izz="7.89107764311872e-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_r_ring_finger_proximal.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_r_ring_finger_proximal.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="r_ring_finger_mcp_flex" type="revolute">
+    <origin xyz="-0.0197440917212 -0.00559293621739 -0.0654" rpy="-0.016655 0.14163 -0.068319399" />
+    <parent link="r_wrist" />
+    <child link="r_ring_finger_proximal" />
+    <axis xyz="1 0 0" />
+    <limit lower="-1.0470" upper="1.5700" effort="2.0000" velocity="8.203" />
+  </joint>
+  <link name="r_ring_finger_proximal_abd">
+    <inertial>
+      <origin xyz="8.0467514618682e-08 7.30403684727838e-07 -0.0187993794550997" rpy="0 0 0" />
+      <mass value="0.0339" />
+      <inertia ixx="7.0158413388037e-06" ixy="1.13787856174592e-10" ixz="-1.19062498370086e-11" iyy="7.01558877903507e-06" iyz="-1.97233402202639e-10" izz="9.14480410679966e-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_r_ring_finger_proximal_abd.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_r_ring_finger_proximal_abd.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="r_ring_finger_mcp_abd" type="revolute">
+    <origin xyz="0 -0.001201 -0.0145" rpy="0 0 0" />
+    <parent link="r_ring_finger_proximal" />
+    <child link="r_ring_finger_proximal_abd" />
+    <axis xyz="0 1 0" />
+    <limit lower="-0.6980" upper="0.6980" effort="0.2000" velocity="8.11" />
+  </joint>
+  <link name="r_ring_finger_middle">
+    <inertial>
+      <origin xyz="-5.07335390505094e-08 -0.000247886788910862 -0.0190348353019456" rpy="0 0 0" />
+      <mass value="0.0212" />
+      <inertia ixx="2.40525408841305e-06" ixy="4.36771620897454e-11" ixz="-1.01321951276003e-11" iyy="2.47626497450938e-06" iyz="5.57378703986573e-08" izz="6.54181652504255e-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_r_ring_finger_middle.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_r_ring_finger_middle.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="r_ring_finger_pip" type="revolute">
+    <origin xyz="0 0 -0.0376" rpy="0 0 0" />
+    <parent link="r_ring_finger_proximal_abd" />
+    <child link="r_ring_finger_middle" />
+    <axis xyz="1 0 0" />
+    <limit lower="-1.0470" upper="2.0940" effort="0.3000" velocity="12.86" />
+  </joint>
+  <link name="r_ring_finger_distal">
+    <inertial>
+      <origin xyz="0.000273616411847607 -3.02074856552094e-05 -0.0121848684418609" rpy="0 0 0" />
+      <mass value="0.0078" />
+      <inertia ixx="5.38224802903959e-07" ixy="-2.79679442692155e-10" ixz="-2.5530464631837e-08" iyy="5.71398964851628e-07" iyz="-2.92327746439664e-08" izz="2.79172555327135e-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_r_ring_finger_distal.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_r_ring_finger_distal.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="r_ring_finger_dip" type="revolute">
+    <origin xyz="0 0 -0.0295" rpy="0 0 0" />
+    <parent link="r_ring_finger_middle" />
+    <child link="r_ring_finger_distal" />
+    <axis xyz="1 0 0" />
+    <limit lower="-1.0470" upper="1.5700" effort="0.3000" velocity="13.5" />
+  </joint>
+  <link name="r_ring_finger_tip" />
+  <joint name="r_ring_finger_tip_fixed" type="fixed">
+    <origin xyz="0 0 -0.02475" rpy="0 0 0" />
+    <parent link="r_ring_finger_distal" />
+    <child link="r_ring_finger_tip" />
+  </joint>
+  <link name="r_pinky_proximal">
+    <inertial>
+      <origin xyz="-2.12647665764062e-07 -0.00178135647039668 -0.00760144900209861" rpy="0 0 0" />
+      <mass value="0.0116" />
+      <inertia ixx="9.19664045720297e-07" ixy="1.97416924666018e-12" ixz="-5.47629031711395e-12" iyy="9.07907928441544e-07" iyz="-9.11609971605222e-09" izz="7.89108884463772e-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_r_pinky_proximal.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_r_pinky_proximal.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="r_pinky_mcp_flex" type="revolute">
+    <origin xyz="-0.0373510120379 -0.000733757480852 -0.055296" rpy="-0.029938 0.24886 -0.136016399" />
+    <parent link="r_wrist" />
+    <child link="r_pinky_proximal" />
+    <axis xyz="1 0 0" />
+    <limit lower="-1.0470" upper="1.5700" effort="2.0000" velocity="8.203" />
+  </joint>
+  <link name="r_pinky_proximal_abd">
+    <inertial>
+      <origin xyz="1.55646906608809e-06 5.45320202995785e-07 -0.0167849719552996" rpy="0 0 0" />
+      <mass value="0.0304" />
+      <inertia ixx="5.37945679675879e-06" ixy="1.12278427349778e-10" ixz="-1.64165357379841e-10" iyy="5.38012309356491e-06" iyz="-2.32489803821551e-10" izz="8.17709812022935e-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_r_pinky_proximal_abd.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_r_pinky_proximal_abd.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="r_pinky_mcp_abd" type="revolute">
+    <origin xyz="0 -0.001201 -0.0145" rpy="0 0 3.6273E-05" />
+    <parent link="r_pinky_proximal" />
+    <child link="r_pinky_proximal_abd" />
+    <axis xyz="0 1 0" />
+    <limit lower="-0.6980" upper="0.6980" effort="0.2000" velocity="8.11" />
+  </joint>
+  <link name="r_pinky_middle">
+    <inertial>
+      <origin xyz="-3.23236358886277e-07 -0.000264490618234346 -0.0178806678504514" rpy="0 0 0" />
+      <mass value="0.0188" />
+      <inertia ixx="1.98647409646703e-06" ixy="4.62365895207266e-11" ixz="4.73744493481682e-12" iyy="2.05807093165979e-06" iyz="4.70563185910699e-08" izz="5.86414432802369e-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_r_pinky_middle.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_r_pinky_middle.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="r_pinky_pip" type="revolute">
+    <origin xyz="0.0001 0 -0.0336" rpy="0 0 -3.6273E-05" />
+    <parent link="r_pinky_proximal_abd" />
+    <child link="r_pinky_middle" />
+    <axis xyz="1 0 0" />
+    <limit lower="-1.0470" upper="2.0940" effort="0.3000" velocity="12.86" />
+  </joint>
+  <link name="r_pinky_distal">
+    <inertial>
+      <origin xyz="0.000273616414030554 -3.02074827007308e-05 -0.0121848684429151" rpy="0 0 0" />
+      <mass value="0.0078" />
+      <inertia ixx="5.38224803026562e-07" ixy="-2.79678599157548e-10" ixz="-2.55304645983229e-08" iyy="5.71398964736008e-07" iyz="-2.92327743254535e-08" izz="2.79172555430584e-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_r_pinky_distal.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_r_pinky_distal.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="r_pinky_dip" type="revolute">
+    <origin xyz="0 0 -0.0275" rpy="0 0 0" />
+    <parent link="r_pinky_middle" />
+    <child link="r_pinky_distal" />
+    <axis xyz="1 0 0" />
+    <limit lower="-1.0470" upper="1.5700" effort="0.3000" velocity="13.5" />
+  </joint>
+  <link name="r_pinky_tip" />
+  <joint name="r_pinky_tip_fixed" type="fixed">
+    <origin xyz="0 0 -0.02475" rpy="0 0 0" />
+    <parent link="r_pinky_distal" />
+    <child link="r_pinky_tip" />
+  </joint>
+  <joint name="JointMarker_L" type="fixed">
+    <origin xyz="0 0 0" rpy="1.5707963267948966 -1.5707963267948966 0.0" />
+    <parent link="TCP_Link_L" />
+    <child link="marker_tianji_l" />
+  </joint>
+  <joint name="JointWuji2_L" type="fixed">
+    <origin xyz="0 0 0" rpy="0 -1.5707963267948966 0" />
+    <parent link="marker_wuji2_l" />
+    <child link="l_mount" />
+  </joint>
+  <link name="marker_mocap_l">
+    <inertial>
+      <origin xyz="-2.12863929093497E-07 0.00124443190416646 0.00226906870235771" rpy="0 0 0" />
+      <mass value="0.0167124616872421" />
+      <inertia ixx="1.71023387500903E-05" ixy="-1.11405188669191E-11" ixz="-1.16988732093527E-11" iyy="8.92159156719571E-06" iyz="5.34437648077156E-07" izz="8.32668495865682E-06" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/marker_mocap.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 0.25 0.05 1" />
+      </material>
+    </visual>
+    <visual name="marker_mocap_l_axis_0">
+      <origin xyz="0.035 0 0" rpy="0 1.5707963267948966 0" />
+      <geometry>
+        <cylinder length="0.07" radius="0.004" />
+      </geometry>
+      <material>
+        <color rgba="1 0 0 1" />
+      </material>
+    </visual>
+    <visual name="marker_mocap_l_axis_1">
+      <origin xyz="0 0.035 0" rpy="1.5707963267948966 0 0" />
+      <geometry>
+        <cylinder length="0.07" radius="0.004" />
+      </geometry>
+      <material>
+        <color rgba="0 1 0 1" />
+      </material>
+    </visual>
+    <visual name="marker_mocap_l_axis_2">
+      <origin xyz="0 0 0.035" rpy="0 0 0" />
+      <geometry>
+        <cylinder length="0.07" radius="0.004" />
+      </geometry>
+      <material>
+        <color rgba="0 0 1 1" />
+      </material>
+    </visual>
+  </link>
+  <link name="marker_wuji2_l" />
+  <link name="marker_tianji_l" />
+  <joint name="marker_wuji2_l" type="fixed">
+    <parent link="marker_mocap_l" />
+    <child link="marker_wuji2_l" />
+    <origin xyz="0.004 0 0" rpy="0 0 0" />
+  </joint>
+  <joint name="marker_tianji_to_mocap_l" type="fixed">
+    <parent link="marker_tianji_l" />
+    <child link="marker_mocap_l" />
+    <origin xyz="0.004 0 0" rpy="0 0 0" />
+  </joint>
+  <link name="l_mount">
+    <inertial>
+      <origin xyz="-0.00285741697914718 0.00108288053431767 -0.0169808713459416" rpy="0 0 0" />
+      <mass value="0.069" />
+      <inertia ixx="1.88365122313648e-05" ixy="4.89774353038097e-07" ixz="-3.61925327666321e-06" iyy="2.51530310830588e-05" iyz="6.19512991940014e-07" izz="2.40568066368163e-05" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_l_mount.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.627450980392157 0.627450980392157 0.627450980392157 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_l_mount.STL" />
+      </geometry>
+    </collision>
+    <visual name="l_mount_axis_0">
+      <origin xyz="0.03 0 0" rpy="0 1.5707963267948966 0" />
+      <geometry>
+        <cylinder length="0.06" radius="0.004" />
+      </geometry>
+      <material>
+        <color rgba="0 1 1 1" />
+      </material>
+    </visual>
+    <visual name="l_mount_axis_1">
+      <origin xyz="0 0.03 0" rpy="1.5707963267948966 0 0" />
+      <geometry>
+        <cylinder length="0.06" radius="0.004" />
+      </geometry>
+      <material>
+        <color rgba="1 0 1 1" />
+      </material>
+    </visual>
+    <visual name="l_mount_axis_2">
+      <origin xyz="0 0 0.03" rpy="0 0 0" />
+      <geometry>
+        <cylinder length="0.06" radius="0.004" />
+      </geometry>
+      <material>
+        <color rgba="1 1 0 1" />
+      </material>
+    </visual>
+  </link>
+  <link name="l_wrist">
+    <inertial>
+      <origin xyz="-0.00354846481180995 0.00346683963964194 -0.0356860644390601" rpy="0 0 0" />
+      <mass value="0.2323" />
+      <inertia ixx="9.85362395199503e-05" ixy="5.02770548562397e-07" ixz="4.68412077745037e-06" iyy="0.000154874664631607" iyz="7.29983706603558e-06" izz="7.88065213908458e-05" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_l_wrist.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_l_wrist.STL" />
+      </geometry>
+    </collision>
+    <visual name="l_wrist_axis_0">
+      <origin xyz="0.045 0 0" rpy="0 1.5707963267948966 0" />
+      <geometry>
+        <cylinder length="0.09" radius="0.005" />
+      </geometry>
+      <material>
+        <color rgba="1 0 0 1" />
+      </material>
+    </visual>
+    <visual name="l_wrist_axis_1">
+      <origin xyz="0 0.045 0" rpy="1.5707963267948966 0 0" />
+      <geometry>
+        <cylinder length="0.09" radius="0.005" />
+      </geometry>
+      <material>
+        <color rgba="0 1 0 1" />
+      </material>
+    </visual>
+    <visual name="l_wrist_axis_2">
+      <origin xyz="0 0 0.045" rpy="0 0 0" />
+      <geometry>
+        <cylinder length="0.09" radius="0.005" />
+      </geometry>
+      <material>
+        <color rgba="0 0 1 1" />
+      </material>
+    </visual>
+  </link>
+  <joint name="l_wrist_fixed" type="fixed">
+    <origin xyz="0.00300004769907811 -0.000300109233680431 -0.0284998261308158" rpy="0 0 0" />
+    <parent link="l_mount" />
+    <child link="l_wrist" />
+  </joint>
+  <link name="l_thumb_proximal">
+    <inertial>
+      <origin xyz="0.00079122509322412 0.00178311370157685 -0.0070198628440797" rpy="0 0 0" />
+      <mass value="0.011" />
+      <inertia ixx="8.42320385263259e-07" ixy="1.71664881640525e-08" ixz="2.74292134965297e-08" iyy="8.35979572393146e-07" iyz="2.26547787793189e-08" izz="6.60613148403527e-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_l_thumb_proximal.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.627450980392157 0.627450980392157 0.627450980392157 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_l_thumb_proximal.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="l_thumb_cmc_flex" type="revolute">
+    <origin xyz="0.0172079523009 -0.00813799076632 -0.0164591738692" rpy="1.6615 -1.0591 -1.9919" />
+    <parent link="l_wrist" />
+    <child link="l_thumb_proximal" />
+    <axis xyz="-1 0 0" />
+    <limit lower="-1.1870" upper="1.2910" effort="0.6000" velocity="8.587" />
+  </joint>
+  <link name="l_thumb_proximal_abd">
+    <inertial>
+      <origin xyz="1.22552420694907e-05 -4.92144649815677e-06 -0.01356047482551" rpy="0 0 0" />
+      <mass value="0.0336" />
+      <inertia ixx="4.27386487958068e-06" ixy="5.51078127606528e-08" ixz="1.33429353972764e-08" iyy="4.36205472545732e-06" iyz="-7.49032109284105e-09" izz="1.23734737236337e-06" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_l_thumb_proximal_abd.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.627450980392157 0.627450980392157 0.627450980392157 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_l_thumb_proximal_abd.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="l_thumb_cmc_abd" type="revolute">
+    <origin xyz="0.00025789 0.00063167 -0.014161" rpy="-0.20529 0.70051 -0.025238" />
+    <parent link="l_thumb_proximal" />
+    <child link="l_thumb_proximal_abd" />
+    <axis xyz="0 1 0" />
+    <limit lower="-1.4840" upper="0.6980" effort="0.6000" velocity="11.1" />
+  </joint>
+  <link name="l_thumb_middle">
+    <inertial>
+      <origin xyz="7.07487381503337e-07 4.31164926163312e-08 -0.0143055726350453" rpy="0 0 0" />
+      <mass value="0.0358" />
+      <inertia ixx="4.81959717165607e-06" ixy="-2.57766495533275e-10" ixz="3.27141649197626e-10" iyy="4.9285874374998e-06" iyz="5.19940321321675e-12" izz="1.32688022313704e-06" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_l_thumb_middle.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.627450980392157 0.627450980392157 0.627450980392157 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_l_thumb_middle.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="l_thumb_mcp" type="revolute">
+    <origin xyz="-4.3136E-05 2.4905E-05 -0.033496" rpy="0 0.087266 -0.5236" />
+    <parent link="l_thumb_proximal_abd" />
+    <child link="l_thumb_middle" />
+    <axis xyz="-1 0 0" />
+    <limit lower="-1.0470" upper="1.5700" effort="0.3000" velocity="12.86" />
+  </joint>
+  <link name="l_thumb_distal">
+    <inertial>
+      <origin xyz="1.96900037632988e-05 -0.000512400570084528 -0.0149323237910033" rpy="0 0 0" />
+      <mass value="0.0159" />
+      <inertia ixx="1.33389005856336e-06" ixy="-1.46393131498398e-09" ixz="-9.98691468305934e-09" iyy="1.3724143632953e-06" iyz="7.64224737597816e-08" izz="6.88568352689632e-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_l_thumb_distal.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_l_thumb_distal.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="l_thumb_ip" type="revolute">
+    <origin xyz="0 0 -0.035" rpy="0 0 0" />
+    <parent link="l_thumb_middle" />
+    <child link="l_thumb_distal" />
+    <axis xyz="-1 0 0" />
+    <limit lower="-1.0470" upper="1.5700" effort="0.3000" velocity="13.5" />
+  </joint>
+  <link name="l_thumb_tip" />
+  <joint name="l_thumb_tip_fixed" type="fixed">
+    <origin xyz="0 0 -0.029787" rpy="0 0 0" />
+    <parent link="l_thumb_distal" />
+    <child link="l_thumb_tip" />
+  </joint>
+  <link name="l_index_finger_proximal">
+    <inertial>
+      <origin xyz="-1.83183779682833e-09 0.00178136940467112 -0.00760138673359316" rpy="0 0 0" />
+      <mass value="0.0116" />
+      <inertia ixx="9.19684021204771e-07" ixy="5.28263310201174e-13" ixz="-2.26050912639507e-13" iyy="9.07912667632641e-07" iyz="9.11687065077694e-09" izz="7.89107764317312e-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_l_index_finger_proximal.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_l_index_finger_proximal.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="l_index_finger_mcp_flex" type="revolute">
+    <origin xyz="0.0226519523009 0.00332510923368 -0.0699781738692" rpy="0.03978 -0.13693 -0.1004" />
+    <parent link="l_wrist" />
+    <child link="l_index_finger_proximal" />
+    <axis xyz="-1 0 0" />
+    <limit lower="-1.0470" upper="1.5700" effort="2.0000" velocity="8.203" />
+  </joint>
+  <link name="l_index_finger_proximal_abd">
+    <inertial>
+      <origin xyz="-8.04676577889812e-08 -7.30404335338175e-07 -0.0187993794552261" rpy="0 0 0" />
+      <mass value="0.0339" />
+      <inertia ixx="7.01584133885442e-06" ixy="1.13787730544642e-10" ixz="1.19062449542943e-11" iyy="7.01558877908418e-06" iyz="1.97233465062954e-10" izz="9.14480410678107e-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_l_index_finger_proximal_abd.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_l_index_finger_proximal_abd.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="l_index_finger_mcp_abd" type="revolute">
+    <origin xyz="0 0.00120098019222331 -0.014499999983839" rpy="0 0 0" />
+    <parent link="l_index_finger_proximal" />
+    <child link="l_index_finger_proximal_abd" />
+    <axis xyz="0 1 0" />
+    <limit lower="-0.6980" upper="0.6980" effort="0.2000" velocity="8.11" />
+  </joint>
+  <link name="l_index_finger_middle">
+    <inertial>
+      <origin xyz="5.07335165382715e-08 0.000247886788908191 -0.0190348353019487" rpy="0 0 0" />
+      <mass value="0.0212" />
+      <inertia ixx="2.40525408841247e-06" ixy="4.36771597549511e-11" ixz="1.01321951809926e-11" iyy="2.47626497450666e-06" iyz="-5.5737870397636e-08" izz="6.54181652505219e-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_l_index_finger_middle.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_l_index_finger_middle.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="l_index_finger_pip" type="revolute">
+    <origin xyz="0 0 -0.0376" rpy="0 0 0" />
+    <parent link="l_index_finger_proximal_abd" />
+    <child link="l_index_finger_middle" />
+    <axis xyz="-1 0 0" />
+    <limit lower="-1.0470" upper="2.0940" effort="0.3000" velocity="12.86" />
+  </joint>
+  <link name="l_index_finger_distal">
+    <inertial>
+      <origin xyz="-0.000273616418613259 3.02074836965843e-05 -0.0121848684408513" rpy="0 0 0" />
+      <mass value="0.0078" />
+      <inertia ixx="5.38224803482851e-07" ixy="-2.79679305888823e-10" ixz="2.55304648023035e-08" iyy="5.7139896537188e-07" iyz="2.92327744662251e-08" izz="2.79172555340954e-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_l_index_finger_distal.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_l_index_finger_distal.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="l_index_finger_dip" type="revolute">
+    <origin xyz="0 0 -0.0295000000000001" rpy="0 0 0" />
+    <parent link="l_index_finger_middle" />
+    <child link="l_index_finger_distal" />
+    <axis xyz="-1 0 0" />
+    <limit lower="-1.0470" upper="1.5700" effort="0.3000" velocity="13.5" />
+  </joint>
+  <link name="l_index_finger_tip" />
+  <joint name="l_index_finger_tip_fixed" type="fixed">
+    <origin xyz="0 0 -0.02475" rpy="0 0 0" />
+    <parent link="l_index_finger_distal" />
+    <child link="l_index_finger_tip" />
+  </joint>
+  <link name="l_middle_finger_proximal">
+    <inertial>
+      <origin xyz="-1.83183779682832e-09 0.00178136940467112 -0.00760138673359316" rpy="0 0 0" />
+      <mass value="0.0116" />
+      <inertia ixx="9.1968402120477e-07" ixy="5.28263310199824e-13" ixz="-2.26050912643555e-13" iyy="9.07912667632641e-07" iyz="9.11687065077699e-09" izz="7.89107764317311e-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_l_middle_finger_proximal.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_l_middle_finger_proximal.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="l_middle_finger_mcp_flex" type="revolute">
+    <origin xyz="0.000943052300922 0.00830300923368 -0.0739201738692" rpy="0.033914 0.011158 0.00071528" />
+    <parent link="l_wrist" />
+    <child link="l_middle_finger_proximal" />
+    <axis xyz="-1 0 0" />
+    <limit lower="-1.0470" upper="1.5700" effort="2.0000" velocity="8.203" />
+  </joint>
+  <link name="l_middle_finger_proximal_abd">
+    <inertial>
+      <origin xyz="-8.04676577889812e-08 -7.30404335338175e-07 -0.0187993794552261" rpy="0 0 0" />
+      <mass value="0.0339" />
+      <inertia ixx="7.01584133885442e-06" ixy="1.13787730544642e-10" ixz="1.19062449543086e-11" iyy="7.01558877908418e-06" iyz="1.9723346506284e-10" izz="9.14480410678107e-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_l_middle_finger_proximal_abd.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_l_middle_finger_proximal_abd.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="l_middle_finger_mcp_abd" type="revolute">
+    <origin xyz="0 0.00120098019222334 -0.0144999999838389" rpy="0 0 0" />
+    <parent link="l_middle_finger_proximal" />
+    <child link="l_middle_finger_proximal_abd" />
+    <axis xyz="0 1 0" />
+    <limit lower="-0.6980" upper="0.6980" effort="0.2000" velocity="8.11" />
+  </joint>
+  <link name="l_middle_finger_middle">
+    <inertial>
+      <origin xyz="5.07335165383798e-08 0.000247886788908191 -0.0190348353019487" rpy="0 0 0" />
+      <mass value="0.0212" />
+      <inertia ixx="2.40525408841247e-06" ixy="4.36771597549517e-11" ixz="1.01321951809443e-11" iyy="2.47626497450666e-06" iyz="-5.57378703976359e-08" izz="6.54181652505219e-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_l_middle_finger_middle.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_l_middle_finger_middle.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="l_middle_finger_pip" type="revolute">
+    <origin xyz="0 0 -0.0376" rpy="0 0 0" />
+    <parent link="l_middle_finger_proximal_abd" />
+    <child link="l_middle_finger_middle" />
+    <axis xyz="-1 0 0" />
+    <limit lower="-1.0470" upper="2.0940" effort="0.3000" velocity="12.86" />
+  </joint>
+  <link name="l_middle_finger_distal">
+    <inertial>
+      <origin xyz="-0.000273616418613259 3.02074836965843e-05 -0.0121848684408513" rpy="0 0 0" />
+      <mass value="0.0078" />
+      <inertia ixx="5.38224803482851e-07" ixy="-2.79679305888823e-10" ixz="2.55304648023035e-08" iyy="5.7139896537188e-07" iyz="2.92327744662251e-08" izz="2.79172555340954e-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_l_middle_finger_distal.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_l_middle_finger_distal.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="l_middle_finger_dip" type="revolute">
+    <origin xyz="0 0 -0.0295000000000002" rpy="0 0 0" />
+    <parent link="l_middle_finger_middle" />
+    <child link="l_middle_finger_distal" />
+    <axis xyz="-1 0 0" />
+    <limit lower="-1.0470" upper="1.5700" effort="0.3000" velocity="13.5" />
+  </joint>
+  <link name="l_middle_finger_tip" />
+  <joint name="l_middle_finger_tip_fixed" type="fixed">
+    <origin xyz="0 0 -0.02475" rpy="0 0 0" />
+    <parent link="l_middle_finger_distal" />
+    <child link="l_middle_finger_tip" />
+  </joint>
+  <link name="l_ring_finger_proximal">
+    <inertial>
+      <origin xyz="-1.83183779712613e-09 0.00178136940467112 -0.00760138673359316" rpy="0 0 0" />
+      <mass value="0.0116" />
+      <inertia ixx="9.1968402120477e-07" ixy="5.28263310194345e-13" ixz="-2.26050912626742e-13" iyy="9.07912667632641e-07" iyz="9.11687065077699e-09" izz="7.89107764317311e-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_l_ring_finger_proximal.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_l_ring_finger_proximal.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="l_ring_finger_mcp_flex" type="revolute">
+    <origin xyz="-0.0197520476991 0.00559290923368 -0.0653971738692" rpy="0.016663 0.14175 0.068321" />
+    <parent link="l_wrist" />
+    <child link="l_ring_finger_proximal" />
+    <axis xyz="-1 0 0" />
+    <limit lower="-1.0470" upper="1.5700" effort="2.0000" velocity="8.203" />
+  </joint>
+  <link name="l_ring_finger_proximal_abd">
+    <inertial>
+      <origin xyz="-8.04676577889812e-08 -7.3040433533831e-07 -0.0187993794552261" rpy="0 0 0" />
+      <mass value="0.0339" />
+      <inertia ixx="7.01584133885442e-06" ixy="1.13787730544642e-10" ixz="1.19062449542943e-11" iyy="7.01558877908418e-06" iyz="1.97233465063041e-10" izz="9.14480410678107e-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_l_ring_finger_proximal_abd.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_l_ring_finger_proximal_abd.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="l_ring_finger_mcp_abd" type="revolute">
+    <origin xyz="0 0.00120098019222327 -0.014499999983839" rpy="0 0 0" />
+    <parent link="l_ring_finger_proximal" />
+    <child link="l_ring_finger_proximal_abd" />
+    <axis xyz="0 1 0" />
+    <limit lower="-0.6980" upper="0.6980" effort="0.2000" velocity="8.11" />
+  </joint>
+  <link name="l_ring_finger_middle">
+    <inertial>
+      <origin xyz="5.07335165382174e-08 0.000247886788908191 -0.0190348353019487" rpy="0 0 0" />
+      <mass value="0.0212" />
+      <inertia ixx="2.40525408841247e-06" ixy="4.36771597549504e-11" ixz="1.01321951810083e-11" iyy="2.47626497450666e-06" iyz="-5.5737870397636e-08" izz="6.54181652505219e-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_l_ring_finger_middle.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_l_ring_finger_middle.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="l_ring_finger_pip" type="revolute">
+    <origin xyz="0 0 -0.0376" rpy="0 0 0" />
+    <parent link="l_ring_finger_proximal_abd" />
+    <child link="l_ring_finger_middle" />
+    <axis xyz="-1 0 0" />
+    <limit lower="-1.0470" upper="2.0940" effort="0.3000" velocity="12.86" />
+  </joint>
+  <link name="l_ring_finger_distal">
+    <inertial>
+      <origin xyz="-0.000273616418613259 3.02074836965843e-05 -0.0121848684408513" rpy="0 0 0" />
+      <mass value="0.0078" />
+      <inertia ixx="5.38224803482851e-07" ixy="-2.79679305888823e-10" ixz="2.55304648023035e-08" iyy="5.7139896537188e-07" iyz="2.92327744662251e-08" izz="2.79172555340954e-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_l_ring_finger_distal.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_l_ring_finger_distal.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="l_ring_finger_dip" type="revolute">
+    <origin xyz="0 0 -0.0295000000000001" rpy="0 0 0" />
+    <parent link="l_ring_finger_middle" />
+    <child link="l_ring_finger_distal" />
+    <axis xyz="-1 0 0" />
+    <limit lower="-1.0470" upper="1.5700" effort="0.3000" velocity="13.5" />
+  </joint>
+  <link name="l_ring_finger_tip" />
+  <joint name="l_ring_finger_tip_fixed" type="fixed">
+    <origin xyz="0 0 -0.02475" rpy="0 0 0" />
+    <parent link="l_ring_finger_distal" />
+    <child link="l_ring_finger_tip" />
+  </joint>
+  <link name="l_pinky_proximal">
+    <inertial>
+      <origin xyz="2.12812591107442e-07 0.00178135727369686 -0.0076014493665863" rpy="0 0 0" />
+      <mass value="0.0116" />
+      <inertia ixx="9.19664071567262e-07" ixy="1.95991179054896e-12" ixz="5.4796128616458e-12" iyy="9.07907902756333e-07" iyz="9.11613217431931e-09" izz="7.89108892122655e-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_l_pinky_proximal.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_l_pinky_proximal.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="l_pinky_mcp_flex" type="revolute">
+    <origin xyz="-0.0373570476991 0.00073375923368 -0.0552921738692" rpy="0.009817 0.24898 0.13603" />
+    <parent link="l_wrist" />
+    <child link="l_pinky_proximal" />
+    <axis xyz="-1 0 0" />
+    <limit lower="-1.0470" upper="1.5700" effort="2.0000" velocity="8.203" />
+  </joint>
+  <link name="l_pinky_proximal_abd">
+    <inertial>
+      <origin xyz="-1.55648567798391e-06 -5.4540441831333e-07 -0.0167849719816953" rpy="0 0 0" />
+      <mass value="0.0304" />
+      <inertia ixx="5.37945677539697e-06" ixy="1.12253837519393e-10" ixz="1.64159690323259e-10" iyy="5.38012308975744e-06" iyz="2.32497167576713e-10" izz="8.1770981465718e-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_l_pinky_proximal_abd.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_l_pinky_proximal_abd.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="l_pinky_mcp_abd" type="revolute">
+    <origin xyz="0 0.00120098026250511 -0.0145000000235719" rpy="0 0 0" />
+    <parent link="l_pinky_proximal" />
+    <child link="l_pinky_proximal_abd" />
+    <axis xyz="0 1 0" />
+    <limit lower="-0.6980" upper="0.6980" effort="0.2000" velocity="8.11" />
+  </joint>
+  <link name="l_pinky_middle">
+    <inertial>
+      <origin xyz="3.23236154986141e-07 0.000264490618214145 -0.0178806678503094" rpy="0 0 0" />
+      <mass value="0.0188" />
+      <inertia ixx="1.98647409664573e-06" ixy="4.62366243544298e-11" ixz="-4.73747915317587e-12" iyy="2.05807093186236e-06" iyz="-4.70563185846108e-08" izz="5.86414432805737e-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_l_pinky_middle.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_l_pinky_middle.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="l_pinky_pip" type="revolute">
+    <origin xyz="-9.99999999990349E-05 0 -0.0336" rpy="0 0 0" />
+    <parent link="l_pinky_proximal_abd" />
+    <child link="l_pinky_middle" />
+    <axis xyz="-1 0 0" />
+    <limit lower="-1.0470" upper="2.0940" effort="0.3000" velocity="12.86" />
+  </joint>
+  <link name="l_pinky_distal">
+    <inertial>
+      <origin xyz="-0.000273616410176766 3.02074975575832e-05 -0.0121848694412284" rpy="0 0 0" />
+      <mass value="0.0078" />
+      <inertia ixx="5.3822480383925e-07" ixy="-2.79679073829008e-10" ixz="2.55304654701796e-08" iyy="5.71398964858656e-07" iyz="2.92327753214756e-08" izz="2.79172554985502e-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_l_pinky_distal.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/wuji2_l_pinky_distal.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="l_pinky_dip" type="revolute">
+    <origin xyz="0 0 -0.0274999990285796" rpy="0 0 0" />
+    <parent link="l_pinky_middle" />
+    <child link="l_pinky_distal" />
+    <axis xyz="-1 0 0" />
+    <limit lower="-1.0470" upper="1.5700" effort="0.3000" velocity="13.5" />
+  </joint>
+  <link name="l_pinky_tip" />
+  <joint name="l_pinky_tip_fixed" type="fixed">
+    <origin xyz="0 0 -0.02475" rpy="0 0 0" />
+    <parent link="l_pinky_distal" />
+    <child link="l_pinky_tip" />
+  </joint>
+</robot>

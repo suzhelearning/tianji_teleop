@@ -1,0 +1,7 @@
+# Request - set sensor mode
+uint8 mode  # 0=HDR 1=High Peak, 2=Low Peak 3=Adaptive
+---
+# Response
+bool success
+int32 error_code  # 0=OK, other values from OdinResult enum
+string message

@@ -1,0 +1,372 @@
+PICO 全身追踪完整测试指令
+===========================
+
+工程目录：
+cd /path/to/tianji_teleop/tracking
+
+说明：
+1. 本测试使用 pico_wholebody_stream.apk。
+2. 不要使用 pico_wholebody__wireless_teleop.apk 配合当前 pico_bridge；两者协议和连接方向不同。
+3. pico_bridge 和 pico_stream_record_receiver.py 都是 TCP 客户端，同一时间只能运行一个。
+4. 运行 ROS 命令前，建议先进入 根目录 .venv / ROS SDK 环境：source scripts/environment.sh
+
+
+一、环境和设备检查
+--------------------
+
+cd /path/to/tianji_teleop/tracking
+# Install the root .venv and ROS SDK as described in docs/install-guide.md
+source scripts/environment.sh 2>/dev/null || true
+
+adb devices -l
+
+# 预期能看到类似：
+# PA921DMGK8270082G    device
+
+
+二、安装并启动 PICO Streaming APK
+---------------------------------
+
+adb install -r ./pico_wholebody_stream.apk
+
+# 确认安装包
+adb shell pm list packages | grep -E 'wholebody|xrobotoolkit'
+
+# 启动应用
+adb shell monkey -p com.PICO.wholebody_stream.unity 1
+
+# 确认前台应用
+adb shell dumpsys activity activities | grep -m 3 -E 'mResumedActivity|topResumedActivity'
+
+# 查看应用进程
+adb shell pidof com.PICO.wholebody_stream.unity
+
+
+三、建立 ADB TCP 转发
+----------------------
+
+# 清理旧转发并重新建立 9999 端口映射
+adb forward --remove-all
+adb forward tcp:9999 tcp:9999
+
+# 确认转发
+adb forward --list
+
+# 预期类似：
+# PA921DMGK8270082G tcp:9999 tcp:9999
+
+
+四、启动 ROS2 PICO Bridge
+-------------------------
+
+# 终端 1
+cd /path/to/tianji_teleop/tracking
+source scripts/environment.sh
+ros2 launch pico_bridge start_pico_bridge.launch.py
+
+# 预期看到：
+# [pico_bridge] PicoBridge connecting to 127.0.0.1:9999 ...
+# [pico_bridge] Connected to 127.0.0.1:9999
+
+# 如果反复 Connected/Disconnected，通常表示：
+# - PICO 端运行的不是 pico_wholebody_stream.apk；或
+# - 另一个 TCP 客户端占用了数据流；或
+# - APK 尚未进入正常 Streaming 状态。
+
+
+五、检查 ROS 话题
+------------------
+
+# 终端 2
+cd /path/to/tianji_teleop/tracking
+source scripts/environment.sh
+
+ros2 topic list | grep '^/pico/'
+
+ros2 topic info -v /pico/smpl_raw
+ros2 topic info -v /pico/smpl
+
+# 预期：
+# Type: geometry_msgs/msg/PoseArray
+# Publisher count: 1
+# Reliability: BEST_EFFORT
+
+# 检查普通头部/手部数据
+ros2 topic hz /pico/pose/head
+ros2 topic hz /pico/pose/left_hand
+ros2 topic hz /pico/pose/right_hand
+
+# 检查 APK 原始24关节数据。body tracking 正常时应持续发布；其 Z 仍以头部为原点。
+ros2 topic hz /pico/smpl_raw
+
+# 按 PICO 右手柄 A，双脚平放并保持站立静止。节点会采集30帧稳定数据锁定地面。
+# 地面锁定前 /pico/smpl 故意不发布。
+# 检查脚底为 Z=0、frame_id 为 pico_ground 的标准24关节数据。
+ros2 topic hz /pico/smpl
+
+# 查看一条完整消息；当前 bridge 使用 BEST_EFFORT
+ros2 topic echo /pico/smpl --qos-reliability best_effort --once
+
+# 一条正常的 /pico/smpl 消息应该包含：
+# header.frame_id: pico_ground
+# poses: 共 24 个 Pose
+# 每个 Pose 包含 position.x/y/z 和 orientation.x/y/z/w
+# poses[10]/poses[11] 的脚板中心约高于地面 0.022 m，脚底约为 Z=0；
+# 站立时 poses[0] 骨盆和 poses[15] 头部的 Z 应为正数。
+
+
+六、验证 24 个关节数量和数据
+-----------------------------
+
+# 查看消息类型
+ros2 interface show geometry_msgs/msg/PoseArray
+ros2 interface show geometry_msgs/msg/Pose
+
+# 查看当前发布者和订阅者
+ros2 topic info /pico/smpl
+
+# 查看 body tracking 状态（PICO 端）
+adb logcat -d --pid=$(adb shell pidof com.PICO.wholebody_stream.unity | tr -d '\r') -v time | \
+  grep -i -E 'body|tracking|tracker|calib|error|exception' | tail -n 100
+
+# 如需确认应用是否持续发送数据，保持 bridge 运行至少 10 秒后再查看 ros2 topic hz。
+
+
+七、录制原始 PICO 数据（与 pico_bridge 二选一）
+------------------------------------------------
+
+# 先停止 pico_bridge（在其终端按 Ctrl-C）。
+# 终端 1：
+cd /path/to/tianji_teleop/tracking
+source scripts/environment.sh
+python pico_stream_record_receiver.py --adb-forward --out pc_stream_records
+
+# 在 PICO 中按右手柄 A 键开始/停止录制。
+# 录制结束后检查：
+find pc_stream_records -maxdepth 2 -type f | sort | tail -n 50
+
+# 检查 24 个 body CSV 是否有实际数据（行数应大于 1）：
+wc -l pc_stream_records/pico_stream_*/mav0/Pelvis/data.csv
+wc -l pc_stream_records/pico_stream_*/mav0/LEFT_ANKLE/data.csv
+wc -l pc_stream_records/pico_stream_*/mav0/RIGHT_ANKLE/data.csv
+wc -l pc_stream_records/pico_stream_*/mav0/LEFT_FOOT/data.csv
+wc -l pc_stream_records/pico_stream_*/mav0/RIGHT_FOOT/data.csv
+
+# 录制完成后退出接收器（Ctrl-C），才能重新启动 pico_bridge。
+
+
+八、启动 MuJoCo 几何骨架可视化
+------------------------------
+
+# 先确保 pico_bridge 正在运行并且 /pico/smpl 有数据。
+# 终端 3：
+cd /path/to/tianji_teleop/tracking
+source scripts/environment.sh
+
+# 重新构建可视化器（代码有修改时执行）
+colcon build \
+  --base-paths src \
+  --symlink-install \
+  --packages-select pico_bridge
+source scripts/environment.sh
+
+# 关闭旧的 MuJoCo 可视化器，避免多个窗口叠加
+pkill -f smpl_mujoco_visualizer || true
+
+# 启动一个可视化窗口
+ros2 run pico_bridge smpl_mujoco_visualizer \
+  --topic /pico/smpl \
+  --scale 1.0 \
+  --rate 60 \
+  --timeout 1.0
+
+# MuJoCo 中显示：
+# - 蓝色球：24 个关节
+# - 灰色胶囊：23 根骨骼
+# - 数据超时后骨架变灰
+
+
+九、可视化器无数据/黑屏排查
+----------------------------
+
+# 确认只运行了一个 MuJoCo 进程
+pgrep -af smpl_mujoco_visualizer
+
+# 确认 /pico/smpl 有发布者和消息
+ros2 topic info /pico/smpl
+ros2 topic hz /pico/smpl
+
+# 确认 MuJoCo 依赖
+python -c 'import mujoco; print(mujoco.__version__)'
+
+# 确认安装入口
+test -x install/pico_bridge/lib/pico_bridge/smpl_mujoco_visualizer && \
+  echo visualizer-installed
+
+# 如果窗口存在但看不到骨架：
+# 1. 关闭所有旧窗口；
+# 2. 确认 /pico/smpl 正在持续发布；
+# 3. 重新 source scripts/environment.sh；
+# 4. 只启动一个 MuJoCo 进程。
+
+
+十、完整测试停止顺序
+----------------------
+
+# 1. 关闭 MuJoCo
+# 在 MuJoCo 终端按 Ctrl-C，或执行：
+pkill -f smpl_mujoco_visualizer || true
+
+# 2. 关闭 ROS bridge
+# 在 bridge 终端按 Ctrl-C
+
+# 3. 清理 ADB 转发（可选）
+adb forward --remove-all
+
+
+十一、关键验收标准
+------------------
+
+1. adb devices 显示 PICO 为 device，而不是 offline/unauthorized。
+2. adb forward --list 显示 tcp:9999 tcp:9999。
+3. pico_bridge 能稳定连接，不反复断开。
+4. /pico/pose/head 和 /pico/pose/left_hand 有持续数据。
+5. /pico/smpl 的 PoseArray 包含 24 个 Pose。
+6. /pico/smpl 的每个 Pose 包含位置 xyz 和四元数 xyzw。
+7. MuJoCo 只运行一个窗口，并能显示连续更新的骨架。
+8. 录制模式下 24 个 body CSV 文件不应只有表头。
+
+
+十二、PICO + 双脚 IMU900 融合测试
+----------------------------------
+
+# 说明：两个 IMU900 是独立串口设备，不是旧下肢控制板的 LL/RL IMU。
+# 默认稳定设备名如下；实际名称不同可直接覆盖 launch 参数。
+ls -l /dev/ttyUSB0 /dev/ttyUSB1
+
+# 构建真实的 imu_ros2 驱动和 pico_bridge
+cd /path/to/tianji_teleop/tracking
+bash scripts/build.sh
+source scripts/environment.sh
+
+# 保持第四节的 PICO bridge 正在运行；新终端启动双脚驱动与融合节点
+cd /path/to/tianji_teleop/tracking
+source scripts/environment.sh
+ros2 launch pico_bridge start_pico_foot_fusion.launch.py \
+  left_port:=/dev/ttyUSB0 \
+  right_port:=/dev/ttyUSB1
+
+# 检查两路消息类型、频率和四元数
+ros2 topic info /imu/left_feet
+ros2 topic info /imu/right_feet
+ros2 topic hz /imu/left_feet
+ros2 topic hz /imu/right_feet
+ros2 topic echo /imu/left_feet --field orientation --once
+ros2 topic echo /imu/right_feet --field orientation --once
+ros2 topic echo /imu/left_feet/ready --once
+ros2 topic echo /imu/right_feet/ready --once
+
+# 推荐：站直、双脚平放并保持静止，按 PICO 右手柄 A 键。
+# A 事件会依次调用左右 IMU900 的 zero_z_axis，收到两路 ACK 后等待 1 秒让 AHRS 稳定，
+# 丢弃等待期间的缓存，再从两路新数据采集 60 帧标定样本。
+ros2 topic echo /pico/world_reset --once
+ros2 service list | grep zero_z_axis
+# 若需要手动标定（不复位 IMU900 Z 轴）：
+ros2 service call /pico_foot_imu_fusion/calibrate std_srvs/srv/Trigger "{}"
+
+# 检查融合骨架和脚踝相对姿态
+ros2 topic hz /pico/smpl_fused
+ros2 topic echo /pico/ankle_relative --once
+
+# MuJoCo 同坐标叠加显示融合结果和 PICO 原始骨架
+ros2 run pico_bridge smpl_mujoco_visualizer \
+  --topic /pico/smpl_fused \
+  --show-raw \
+  --raw-topic /pico/smpl \
+  --scale 1.0 \
+  --rate 60 \
+  --timeout 1.0
+
+# 颜色说明：
+# - 融合主骨架：蓝色关节、灰色骨骼、橙色脚板
+# - PICO 原始骨架：较细的半透明绿色关节、骨骼和脚板
+# 两套骨架使用同一坐标、缩放和 yaw；原始话题无数据不会阻塞融合骨架。
+# 如只看融合结果，删除 --show-raw 和 --raw-topic 两行。
+
+# 真机动作验收：左右脚分别做脚尖上翘、下压、内翻、外翻。
+# 如果左右运动对应反了，交换 left_port 和 right_port 后重启并重新标定。
+# 当前实机验证默认安装四元数 [0,0,0,1] 的 roll、pitch、yaw 轴和方向均正确；
+# 若以后改变传感器物理安装，可分别覆盖 left_mount_quaternion 和 right_mount_quaternion。
+
+
+十三、Odin Lite 到骨盆的一次性安装标定与运行
+--------------------------------------------------
+
+# 前提：PICO bridge 与 Odin Lite 的原始话题均正常发布。
+# 安装或移动 Odin Lite 后只需重新标定一次，结果默认保存到：
+# ~/.config/pico_tracker/odin_pelvis_extrinsics.yaml
+
+# 终端 1：启动 Odin Lite 原始驱动；标定期间必须关闭运行时骨盆修正。
+# 该 Lite 路径使用 odom-only 配置，只启动里程计通道，不启动点云、相机或 Odin IMU。
+cd /path/to/tianji_teleop/tracking
+source scripts/environment.sh
+ros2 launch pico_odin odin_select.launch.py \
+  odin_impl:=lite \
+  enable_pelvis_runtime:=false
+
+# 终端 2：启动 PICO bridge。
+cd /path/to/tianji_teleop/tracking
+source scripts/environment.sh
+adb forward tcp:9999 tcp:9999
+ros2 launch pico_bridge start_pico_bridge.launch.py
+
+# 终端 3：启动独立标定程序。
+cd /path/to/tianji_teleop/tracking
+source scripts/environment.sh
+ros2 run pico_odin odin_pelvis_calibrator
+
+# 看到 ready 后，按 PICO 手臂控制器 A 键启动（电脑键盘小写 a 也可作为备用）：
+# 1. 站直静止 2 秒；
+# 2. 身体前后俯仰一次；
+# 3. 身体向左、向右小幅转动一次；
+# 4. 回到直立状态并静止 2 秒。
+# 两段静止期间 PICO 骨盆和 Odin 必须同时保持静止。
+# 只有通过检查的结果才会保存；失败不会覆盖上一次有效标定。
+# 文件保存空间安装变换、动作相关性、质量指标和输入话题，不保存运行时延迟。
+
+# 检查标定文件存在且不为空。
+test -s ~/.config/pico_tracker/odin_pelvis_extrinsics.yaml && \
+  echo odin-pelvis-calibration-ready
+
+# 正常运行：停止上面的标定程序和 Odin launch，重新启动 Odin Lite。
+# auto 默认会为 Odin Lite 启动 odin_pelvis_runtime。
+ros2 launch pico_odin odin_select.launch.py odin_impl:=lite
+
+# PICO 和 Odin 保持静止，等待自动采集 30 个同步样本建立本次运行对齐。
+# 初始骨盆 xyz（包括相对地面真实高度）来自 pico_ground，后续运动变化来自 Odin。
+# PICO 与 Odin 的设备时间戳可以使用不同时间基准；C++ 节点按本机单调接收时间
+# 配对并对 Odin 高频里程计插值。本次运行的接收延迟会自动估计且不会写入标定文件。
+ros2 topic hz /calibrated/odom/pelvis
+ros2 topic hz /calibrated/odom/pelvis_highfreq
+ros2 topic hz /pico/smpl_odin
+
+# 如果同时运行第十二节的双脚 IMU900 融合，还会发布：
+ros2 topic hz /pico/smpl_fused_odin
+
+# 验收：
+# - /raw/odom/odin* 和 /pico/smpl_raw 保持设备原始数据；
+# - /pico/smpl 是脚底 Z=0 的 pico_ground 标准骨架；
+# - 修正里程计初始 z 与标准骨架的正数骨盆高度一致，不是 Odin 初始化的 0；
+# - 人向前、向左、向上运动时，修正结果分别沿 +X、+Y、+Z；
+# - 24 个骨架关节整体随 Odin 修正，而不是只替换骨盆根节点；
+# - PICO world reset 后修正话题短暂停止，静止 30 帧后自动恢复；
+# - Odin 时间戳回退、坐标帧变化、断流或原点跳变后同样停发并重新对齐；
+# - world reset 不删除一次性安装标定 YAML。
+
+# 可指定其他标定文件：
+ros2 launch pico_odin odin_select.launch.py \
+  odin_impl:=lite \
+  pelvis_extrinsics_file:=/path/to/odin_pelvis_extrinsics.yaml
+
+# 查看可配置的输入/输出话题、静止阈值和 Odin 重启检测阈值：
+ros2 launch pico_odin odin_select.launch.py --show-args

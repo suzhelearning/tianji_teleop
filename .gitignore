@@ -1,0 +1,38 @@
+# pixi environments
+.pixi/*
+!.pixi/config.toml
+**/.pixi/
+
+# Python/native build products and local environments
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+build/
+.pytest_cache/
+/retargeting/wuji_retargeting/_native*.so
+
+# Preserved local environments/recordings from before the source cutover.
+# No source or runtime launcher consumes these directories.
+/TJ_arm_control-feature-pico-manus-teleop/
+/PICO_tracker-feature-pico-manus-teleop/
+/wuji-retargeting/
+
+# unpublished calibration state and raw captures
+/profiles/*/pico/.draft/
+/profiles/*/pico/.seed-*/
+/profiles/*/.calibration.lock
+/profiles/*/.pico-publication
+/profiles/*/.*.tmp
+/profiles/*/recordings/
+
+# runtime diagnostics and raw hand recordings
+MUJOCO_LOG.TXT
+/manus/recordings/
+/logs/real/
+/dataset/
+/dataset_jpeg50/
+/logs/home/
+
+# provision Odin mTLS credentials separately; never commit private keys
+/tracking/src/odin/odin-sdk2/sdk/utils/http/certs/certs.h

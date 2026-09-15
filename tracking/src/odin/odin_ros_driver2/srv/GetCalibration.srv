@@ -1,0 +1,6 @@
+# Request - empty, just requesting calibration data
+---
+# Response
+bool success
+string yaml_content
+string message

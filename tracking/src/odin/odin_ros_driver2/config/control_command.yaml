@@ -1,0 +1,62 @@
+register_keys:
+
+  # ============================================================================
+  # SDK Data Channel Enable/Disable (1=enable, 0=disable)
+  # These control which data streams are requested from the device
+  # ============================================================================
+
+  # Raw point cloud stream
+  enable_raw_point: 1
+
+  # SLAM point cloud stream
+  enable_slam_point: 1
+
+  # Left camera (Image0) stream
+  enable_image0: 1
+
+  # Right camera (Image1) stream
+  enable_image1: 1
+
+  # IMU data stream
+  enable_imu: 1
+
+  # Odometry data stream
+  enable_odom: 1
+
+  # ============================================================================
+  # Post Processing Options
+  # ============================================================================
+
+  # overall post process node control. if 0, no post process will be done
+  post_process: 1
+
+  # send raw image to topic {topic_prefix}/camera0/raw, decoded from compressed image
+  send_image_raw: 1
+
+  # send raw image to topic {topic_prefix}/camera1/raw, decoded from compressed image
+  send_image2_raw: 1
+
+  # send cloud render to topic {topic_prefix}/cloud/render, processed with raw point cloud, rgb image, and calib.yaml from device
+  # reply on send_image_raw to be enabled
+  send_cloud_render: 1
+
+  # send ESS stereo rectified images to {topic_prefix}/stereo/left_rect, right_rect and camera_info
+  # requires send_image_raw and send_image2_raw to be enabled
+  send_ess_output: 1
+
+  # convert disparity image from ESS to depth pointcloud
+  # requires send_ess_output to be enabled
+  # outputs: {topic_prefix}/stereo/depth
+  send_depth_pointcloud: 1
+
+  # ============================================================================
+  # Point Cloud Reprojection Options
+  # ============================================================================
+
+  # Enable pointcloud_reprojector_node (1=enable, 0=disable)
+  enable_reprojection: 1
+
+  # Reprojection mode: "raw" or "slam"
+  #   raw : project per-frame cloud/raw onto camera0/raw with static extrinsic
+  #   slam: project cloud/slam onto camera0/raw using odometry pose
+  reprojection_mode: "raw"

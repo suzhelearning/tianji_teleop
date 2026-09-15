@@ -1,0 +1,69 @@
+data_dir: "./data"
+
+max_queue_size: 5
+max_age: 0.5
+collection_frequency: 30
+record_flag_topic: "/pico/record_flag"
+
+datasets:
+  "/observations/images/cam_left":
+    topic: "/pico/cam_left/compressed"
+    processor: "data_collector.data_processor.CompressedImageProcessor"
+    processor_config:
+      resize: [640, 480]
+      output_shape: [480, 640, 3]
+      dtype: "uint8"
+      description: "PICO left camera JPEG"
+
+  "/observations/images/cam_right":
+    topic: "/pico/cam_right/compressed"
+    processor: "data_collector.data_processor.CompressedImageProcessor"
+    processor_config:
+      resize: [640, 480]
+      output_shape: [480, 640, 3]
+      dtype: "uint8"
+      description: "PICO right camera JPEG"
+
+  "/states/pose_head":
+    topic: "/pico/pose/head"
+    processor: "data_collector.data_processor.PoseStampedProcessor"
+    processor_config:
+      description: "PICO head 6DOF"
+
+  "/states/pose_left_hand":
+    topic: "/pico/pose/left_hand"
+    processor: "data_collector.data_processor.PoseStampedProcessor"
+    processor_config:
+      description: "PICO left controller 6DOF"
+
+  "/states/pose_right_hand":
+    topic: "/pico/pose/right_hand"
+    processor: "data_collector.data_processor.PoseStampedProcessor"
+    processor_config:
+      description: "PICO right controller 6DOF"
+
+  "/states/smpl":
+    topic: "/pico/smpl"
+    processor: "data_collector.data_processor.SmplPoseArrayProcessor"
+    processor_config:
+      description: "PICO full 24-joint body pose [xyz + quaternion xyzw]"
+
+topics:
+  "/pico/cam_left/compressed":
+    msg_type: "sensor_msgs.msg.CompressedImage"
+    description: "PICO left camera"
+  "/pico/cam_right/compressed":
+    msg_type: "sensor_msgs.msg.CompressedImage"
+    description: "PICO right camera"
+  "/pico/pose/head":
+    msg_type: "geometry_msgs.msg.PoseStamped"
+    description: "PICO head 6DOF"
+  "/pico/pose/left_hand":
+    msg_type: "geometry_msgs.msg.PoseStamped"
+    description: "PICO left controller 6DOF"
+  "/pico/pose/right_hand":
+    msg_type: "geometry_msgs.msg.PoseStamped"
+    description: "PICO right controller 6DOF"
+  "/pico/smpl":
+    msg_type: "geometry_msgs.msg.PoseArray"
+    description: "PICO complete 24-joint BodyTrackerRole frame"

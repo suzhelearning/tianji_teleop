@@ -1,0 +1,35 @@
+{
+  "note": "Provenance only. Runtime uses these local copies, never the source paths.",
+  "files": [
+    {
+      "file": "marvin_sdk/fx_robot.py",
+      "source": "/home/current/syz/dexhand_deploy/vendor/python/marvin_sdk/fx_robot.py",
+      "sha256": "decd3c3443b5d2cbfe5a58f5dd18e5f5cec195fdd7834d405079a038c9731454"
+    },
+    {
+      "file": "marvin_sdk/__init__.py",
+      "source": "/home/current/syz/dexhand_deploy/vendor/python/marvin_sdk/__init__.py",
+      "sha256": "2bcf8e34b5ad4a46178e65a966335b7c3133cfe5faa55cd42d38798b95f31c9f"
+    },
+    {
+      "file": "marvin_sdk/libMarvinSDK.so",
+      "source": "/home/current/syz/dexhand_deploy/vendor/python/marvin_sdk/libMarvinSDK.so",
+      "sha256": "6f629973bfae4b592e6b5449b2452937210e61b9248129bed4f76cff2ef3f44c"
+    },
+    {
+      "file": "wuji-sdk/include/wuji_sdk.h",
+      "source": "/home/current/syz/dexhand_deploy/vendor/wuji-sdk/include/wuji_sdk.h",
+      "sha256": "10902cb8bf1a28ddbfad5f351dad224c0cedfa639e945dce5dc566712b4ab7bc"
+    },
+    {
+      "file": "wuji-sdk/lib/libwuji_sdk_c.so",
+      "source": "/home/current/syz/dexhand_deploy/vendor/wuji-sdk/lib/libwuji_sdk_c.so",
+      "sha256": "baf58d07a6b1d5d6475ba53cb3e99cad19fc8910953cff65606fdd5986f1bdff"
+    },
+    {
+      "file": "wuji-sdk/LICENSE",
+      "source": "/home/current/syz/dexhand_deploy/vendor/wuji-sdk/LICENSE",
+      "sha256": "463dfb867696523ae4f880fa6ee4b8155daa5a317a6d3162b5612d9ec4e00281"
+    }
+  ]
+}

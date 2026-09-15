@@ -1,0 +1,113 @@
+# Jerk-limited Cartesian OTG feeding an acceleration-level slack QP.
+controller:
+  rate_hz: 200.0
+control:
+  level: acceleration
+ik:
+  algorithm: hierarchical_qp
+cartesian_servo:
+  kp_position: [15.0, 15.0, 15.0]
+  kp_orientation: [10.0, 10.0, 10.0]
+  kff_linear: 0.0
+  kff_angular: 0.0
+  feedforward_filter_cutoff_hz: 15.0
+  prediction_horizon_seconds: 0.015
+  target_timeout_seconds: 0.075
+  max_linear_velocity: 1.0
+  max_angular_velocity: 3.0
+cartesian_otg:
+  enabled: true
+  translation_velocity_max: 2.0
+  translation_acceleration_max: 12.0
+  translation_jerk_max: 120.0
+  angular_velocity_max: 8.0
+  angular_acceleration_max: 40.0
+  angular_jerk_max: 400.0
+  orientation_gain: 10.0
+  orientation_settle_error_rad: 1.0e-5
+  angular_settle_velocity_rad_s: 1.0e-4
+  angular_settle_acceleration_rad_s2: 1.0e-3
+cartesian_acceleration:
+  kp_position: 100.0
+  kd_position: 20.0
+  kp_orientation: 70.0
+  kd_orientation: 16.0
+  linear_limit: 30.0
+  angular_limit: 100.0
+acceleration_qp:
+  slack_weight_position: 2.0e5
+  slack_weight_orientation: 3.0e3
+  slack_linear_scale: 5.0
+  slack_angular_scale: 15.0
+  regularization: 5.0e-4
+  jerk_weight: 2.0e-3
+  posture_weight: 5.0e-4
+  posture_kp: 0.5
+  posture_kd: 0.3
+  equality_tolerance: 1.0e-8
+joint_acceleration_limits:
+  margin_rad: 0.05
+  velocity_scale: 1.0
+  max_acceleration_rad_s2: 60.0
+  braking_acceleration_rad_s2: 45.0
+  hard_jerk_enabled: true
+  max_jerk_rad_s3: 6000.0
+qp:
+  solver: qpoases
+  position_weight: 1.0
+  orientation_weight: 0.5
+  regularization: 1.0e-5
+  nominal_weight: 1.0e-3
+  nominal_gain: 0.2
+hierarchical_qp:
+  lambda_reg: 1.0e-4
+  posture_weight: 1.0e-3
+  continuity_weight: 1.0e-3
+  nominal_gain: 0.2
+  slack_weight_position: 3.0e4
+  slack_weight_orientation: 3.0e3
+  slack_position_scale: 1.0
+  slack_orientation_scale: 2.0
+  equality_tolerance: 1.0e-8
+dls:
+  damping: 1.0e-3
+  nominal_gain: 0.2
+joint_limits:
+  margin_rad: 0.05
+  velocity_scale: 1.0
+  max_acceleration_rad_s2: 60.0
+  braking_acceleration_rad_s2: 45.0
+osqp:
+  max_iterations: 3000
+  absolute_tolerance: 1.0e-9
+  relative_tolerance: 1.0e-9
+  polishing: false
+qpoases:
+  max_working_set_recalculations: 50
+  cpu_time_limit_seconds: 0.00035
+safety:
+  bound_tolerance: 1.0e-8
+  hessian_eigenvalue_tolerance: 1.0e-10
+  max_target_position_step: 0.05
+  max_target_orientation_step: 0.20
+  reference_tracking_warn_rad: 0.10
+  reference_tracking_stop_rad: 0.20
+  velocity_reference_tracking_warn_rad_s: 0.50
+  velocity_reference_tracking_stop_rad_s: 1.00
+arm_angle:
+  enabled: true
+  kp_velocity: 32.0
+  max_velocity_rad_s: 24.0
+  kp_acceleration: 80.0
+  kd_acceleration: 18.0
+  max_acceleration_rad_s2: 60.0
+  minimum_radius_m: 0.015
+  full_weight_radius_m: 0.050
+  reference_rate_limit_rad_s: 8.0
+
+trajectories:
+  circle_radius: 0.06
+  figure_eight_width: 0.08
+  figure_eight_height: 0.05
+  angular_amplitude: 0.35
+  frequency_hz: 1.0

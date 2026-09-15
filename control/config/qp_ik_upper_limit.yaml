@@ -1,0 +1,74 @@
+# Simulation-only tuning profile for observing the IK velocity envelope.
+# This uses the model-declared joint velocity limits without the default 0.20 scale.
+
+controller:
+  rate_hz: 1000.0
+
+ik:
+  algorithm: hierarchical_qp
+
+cartesian_servo:
+  kp_position: [4.0, 4.0, 4.0]
+  kp_orientation: [3.0, 3.0, 3.0]
+  max_linear_velocity: 1.00
+  max_angular_velocity: 3.14
+
+qp:
+  solver: qpoases
+  position_weight: 1.0
+  orientation_weight: 0.5
+  regularization: 1.0e-5
+  nominal_weight: 1.0e-3
+  nominal_gain: 0.2
+
+hierarchical_qp:
+  lambda_reg: 1.0e-4
+  posture_weight: 1.0e-3
+  continuity_weight: 1.0e-3
+  nominal_gain: 0.2
+  slack_weight_position: 3.0e4
+  slack_weight_orientation: 3.0e3
+  equality_tolerance: 1.0e-8
+
+dls:
+  damping: 1.0e-3
+  nominal_gain: 0.2
+
+joint_limits:
+  margin_rad: 0.05
+  velocity_scale: 1.00
+
+osqp:
+  max_iterations: 3000
+  absolute_tolerance: 1.0e-9
+  relative_tolerance: 1.0e-9
+  polishing: false
+
+qpoases:
+  max_working_set_recalculations: 50
+  # Per-arm wall-time limit: two sequential solves use at most 700 us nominal budget.
+  cpu_time_limit_seconds: 0.00035
+
+safety:
+  bound_tolerance: 1.0e-8
+  hessian_eigenvalue_tolerance: 1.0e-10
+  max_target_position_step: 0.05
+  max_target_orientation_step: 0.20
+
+arm_angle:
+  enabled: true
+  kp_velocity: 32.0
+  max_velocity_rad_s: 24.0
+  kp_acceleration: 80.0
+  kd_acceleration: 18.0
+  max_acceleration_rad_s2: 60.0
+  minimum_radius_m: 0.015
+  full_weight_radius_m: 0.050
+  reference_rate_limit_rad_s: 8.0
+
+trajectories:
+  circle_radius: 0.06
+  figure_eight_width: 0.08
+  figure_eight_height: 0.05
+  angular_amplitude: 0.35
+  frequency_hz: 0.10

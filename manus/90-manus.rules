@@ -1,0 +1,3 @@
+# Manus VR 设备 USB 权限规则
+# 让所有用户（plugdev 组）可读写 Manus 设备，SDK 才能打开 dongle
+SUBSYSTEM=="usb", ATTRS{idVendor}=="3325", MODE="0666", GROUP="plugdev"
