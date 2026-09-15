@@ -10,6 +10,8 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import Mock
+import subprocess
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from real_robot.viewer import (
@@ -251,7 +253,54 @@ class WindowLifecycleTests(unittest.TestCase):
                            {"arms": ARMS}, "TELEOP")
         self.assertLess(time.monotonic() - started, 10.0)
         self.assertTrue(viewer.is_running())
+        with self.assertRaisesRegex(RuntimeError, "forced termination"):
+            viewer.close()
         viewer.close()
+
+    def test_nonzero_exit_during_close_is_reported_and_resources_released(self):
+        self.stub(suffix='sys.stdin.readline(); raise SystemExit(7)')
+        viewer = RealRobotViewer(self.model)
+        with self.assertRaisesRegex(RuntimeError, "status 7"):
+            viewer.close()
+        self.assertIsNone(viewer._process)
+        self.assertIsNone(viewer._state_fd)
+        self.assertIsNone(viewer._status_fd)
+        viewer.close()
+
+    def test_child_error_with_zero_exit_is_not_successful_cleanup(self):
+        self.stub(suffix='sys.stdin.readline(); print("ERROR render cleanup failed", flush=True); raise SystemExit(0)')
+        viewer = RealRobotViewer(self.model)
+        with self.assertRaisesRegex(RuntimeError, "render cleanup failed"):
+            viewer.close()
+        viewer.close()
+
+    def test_crash_already_exited_is_not_silently_accepted(self):
+        self.stub()
+        viewer = RealRobotViewer(self.model)
+        viewer.close()
+        process = Mock()
+        process.poll.return_value = -11
+        viewer._process = process
+        with self.assertRaisesRegex(RuntimeError, "status -11"):
+            viewer.close()
+        self.assertIsNone(viewer._process)
+
+    def test_kill_timeout_retains_process_for_cleanup_retry(self):
+        self.stub()
+        viewer = RealRobotViewer(self.model)
+        viewer.close()
+        process = Mock()
+        process.poll.return_value = None
+        process.wait.side_effect = subprocess.TimeoutExpired('viewer', 2)
+        viewer._process = process
+        with self.assertRaisesRegex(RuntimeError, "could not be confirmed after kill"):
+            viewer.close()
+        self.assertIs(viewer._process, process)
+        process.kill.assert_called_once()
+        process.poll.return_value = -9
+        with self.assertRaisesRegex(RuntimeError, "status -9"):
+            viewer.close()
+        self.assertIsNone(viewer._process)
 
     def test_publish_after_close_is_a_no_op_but_data_is_still_validated(self):
         self.stub()

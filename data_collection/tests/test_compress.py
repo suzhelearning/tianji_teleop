@@ -17,7 +17,9 @@ from data_collection import compress  # noqa: E402
 from data_collection.dataset import ensure_dataset_config, load_dataset_config, validate_episode  # noqa: E402
 
 
-def make_source(root: Path, name: str = 'day/episode.h5', *, success: bool = False) -> Path:
+def make_source(
+    root: Path, name: str = 'day/episode.h5', *, success: bool = False, jpeg_quality: int | None = None
+) -> Path:
     config = {
         'schema_version': 1,
         'robot_config': 'tianji_wuji2_v1',
@@ -27,9 +29,9 @@ def make_source(root: Path, name: str = 'day/episode.h5', *, success: bool = Fal
         'camera_names': ['top'],
         'image_width': 16,
         'image_height': 16,
-        'image_encoding': 'rgb',
+        'image_encoding': 'rgb' if jpeg_quality is None else 'jpeg',
         'decoded_color_order': 'RGB',
-        'jpeg_quality': None,
+        'jpeg_quality': jpeg_quality,
     }
     ensure_dataset_config(root, config)
     path = root / name
@@ -47,7 +49,17 @@ def make_source(root: Path, name: str = 'day/episode.h5', *, success: bool = Fal
         rgb = np.zeros((2, 16, 16, 3), dtype=np.uint8)
         rgb[0, :, :, 0] = 240
         rgb[1, :, :, 2] = 240
-        camera.create_dataset('rgb', data=rgb, chunks=(1, 16, 16, 3), maxshape=(None, 16, 16, 3))
+        if jpeg_quality is None:
+            camera.create_dataset('rgb', data=rgb, chunks=(1, 16, 16, 3), maxshape=(None, 16, 16, 3))
+        else:
+            frames = camera.create_dataset('jpeg', shape=(2,), dtype=h5py.vlen_dtype(np.uint8))
+            for index, frame in enumerate(rgb):
+                ok, encoded = cv2.imencode(
+                    '.jpg', cv2.cvtColor(frame, cv2.COLOR_RGB2BGR),
+                    [cv2.IMWRITE_JPEG_QUALITY, jpeg_quality],
+                )
+                assert ok
+                frames[index] = encoded.reshape(-1)
         episode.attrs['operator_note'] = 'preserve root metadata'
 
         def annotate(name: str, obj: h5py.Group | h5py.Dataset) -> None:
@@ -58,9 +70,12 @@ def make_source(root: Path, name: str = 'day/episode.h5', *, success: bool = Fal
     return path
 
 
-def test_preserves_rgb_order_observations_timestamps_and_all_attributes(tmp_path: Path) -> None:
+@pytest.mark.parametrize('jpeg_quality', [None, 90], ids=['raw-rgb', 'legacy-jpeg-q90'])
+def test_preserves_rgb_order_observations_timestamps_and_all_attributes(
+    tmp_path: Path, jpeg_quality: int | None
+) -> None:
     source, destination = tmp_path / 'raw', tmp_path / 'jpeg'
-    episode = make_source(source)
+    episode = make_source(source, jpeg_quality=jpeg_quality)
     original = episode.read_bytes()
     original_config = (source / 'dataset_config.json').read_bytes()
     assert compress.main([str(source), str(destination)]) == 0
@@ -81,7 +96,7 @@ def test_preserves_rgb_order_observations_timestamps_and_all_attributes(tmp_path
             for attribute in obj.attrs:
                 np.testing.assert_array_equal(result.attrs[attribute], obj.attrs[attribute])
                 assert result.attrs.get_id(attribute).dtype == obj.attrs.get_id(attribute).dtype
-            if isinstance(obj, h5py.Dataset) and not name.endswith('/rgb'):
+            if isinstance(obj, h5py.Dataset) and not name.endswith(('/rgb', '/jpeg')):
                 assert result.dtype == obj.dtype
                 np.testing.assert_array_equal(result[:], obj[:])
 
@@ -89,9 +104,16 @@ def test_preserves_rgb_order_observations_timestamps_and_all_attributes(tmp_path
         for index in range(2):
             encoded = jpeg['images/top/jpeg'][index]
             decoded_rgb = cv2.cvtColor(cv2.imdecode(encoded, cv2.IMREAD_COLOR), cv2.COLOR_BGR2RGB)
-            np.testing.assert_allclose(decoded_rgb, raw['images/top/rgb'][index], atol=5)
+            if jpeg_quality is None:
+                source_rgb = raw['images/top/rgb'][index]
+            else:
+                source_rgb = cv2.cvtColor(
+                    cv2.imdecode(raw['images/top/jpeg'][index], cv2.IMREAD_COLOR), cv2.COLOR_BGR2RGB
+                )
+            np.testing.assert_allclose(decoded_rgb, source_rgb, atol=5)
+            # JPEG quantization tables carry the actual Q50 output contract.
             _, expected_q50 = cv2.imencode(
-                '.jpg', cv2.cvtColor(raw['images/top/rgb'][index], cv2.COLOR_RGB2BGR),
+                '.jpg', cv2.cvtColor(source_rgb, cv2.COLOR_RGB2BGR),
                 [cv2.IMWRITE_JPEG_QUALITY, 50],
             )
             np.testing.assert_array_equal(encoded, expected_q50.reshape(-1))

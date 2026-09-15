@@ -1,15 +1,112 @@
 # 天机遥操数据采集
 
+2026-09-15 已合入 mapped-palm 路线及退出清理修复，保留本工程原生外骨骼输入。
+合并范围、当前环境和验证限制见 [合并记录](docs/merge-mapped-palm-2026-09-15.md)。
+
 以 **人员标定 → PICO／Manus 输入 → C++ 重定向与控制 → 安全执行 → 数据落盘** 为主链。
 标定、Hand2 retargeting、双臂控制、模型和必要的原生依赖源码均位于本仓库，不需要克隆其他业务仓库或初始化子模块。
 硬件 SDK、ROS、MuJoCo、Pinocchio 等通用库仍须安装；厂商二进制和私钥不由重构替代。
 
 > **三种模式必须区分，且不能同时占用相同输入端口。**
-> - `bash teleop.sh --sim`：双臂＋双 Hand2 的 MuJoCo 动力学，执行器驱动并调用 `mj_step`，窗口显示实际模拟姿态。
+> - `bash teleop.sh --sim`：默认直接显示双臂＋双 Hand2 的期望关节角，不经过 PD、动力学积分或重力下垂；添加 `--simulation-mode dynamics` 可切换为动力学仿真。
 > - `bash teleop.sh --real`：双臂＋双 Hand2 真机执行与实测／目标双模型窗口；三次 Enter 分别授权慢速对齐、实时遥操、回 HOME 后失能。直接运行 `real_robot/run_teleop.py` 不带使能参数仍为 dry-run。
 > - `bash teleop.sh --data --task TASK`：在相同真机安全门控下采集数据，默认写入根 `dataset/`；用 `--dataset PATH` 指定目录。
 > - 当前真机支持双臂与左右两只 Hand2；`all` 表示双臂＋双手，`hands` 表示仅双手。
 > - 已完成离线测试及设备身份读取；双手执行路径需重新做只读预检，尚未验证带运动的实机闭环。
+
+## PICO＋VR 手柄：mapped-palm IK＋对称骨架启动
+
+**仅运行 `bash teleop.sh --sim` 或 `bash teleop.sh --real`，仍默认使用 SPARK，
+不会自动改用 mapped-palm，也不会替 PICO 输入端选择对称骨长。** 两项需分别选择：
+
+| 选择项 | 入口与参数 | 不选择时 |
+| --- | --- | --- |
+| 左右对称骨长 | `start_mapped_palm_pico.sh --symmetric-geometry` | 使用人员原始骨长 |
+| 新 mapped-palm IK | `teleop.sh --ik-backend mapped-palm` | 使用 SPARK |
+| 现场末端 X/Z 对齐 | `teleop.sh --mapped-palm-xz-calibration` | 不要求 C，使用原映射 |
+
+骨长标定默认 `symmetric_max`：左右完整 TCP/腕心/骨长均通过校验后，自动生成对称快照，
+上臂、前臂分别取左右较大值；不改写原始测量。**自动生成不等于自动启用。**
+C 标定则是人体末端与机器人末端的 X/Z 对齐，不改变骨长，也不修改 Y 或姿态。
+
+### 1. 环境和构建
+
+在本工程根目录操作，各终端均设置已配置的 Python 环境，例如：
+
+```bash
+export TIANJI_PYTHON="$PWD/.pixi/envs/default/bin/python"
+```
+
+首次安装先按下文安装流程准备依赖；代码更新后构建新后端及 PICO ROS 包：
+
+```bash
+bash scripts/build_mapped_palm.sh
+bash tracking/scripts/build.sh --all
+```
+
+### 2. 终端一：启动对称骨架输入
+
+使用 VR 手柄路线的头显 APK。`YOUR_USER` 必须替换成实际佩戴者的已发布档案名。
+切换前先退出旧执行器及旧 PICO 输入会话，不能重复启动或同时占用端口。
+
+```bash
+bash pico.sh --list-users
+bash scripts/start_mapped_palm_pico.sh --user YOUR_USER --symmetric-geometry
+```
+
+此入口选择对称快照，bridge 的 PICO 世界 X 偏移为 +0.20 m。
+确认日志出现 `Explicit symmetric_max runtime geometry`；未生成或已过期的快照会被拒绝，
+不静默退回原配置。已有完整标定但没有快照时，可先离线生成（会新增快照与指针）：
+
+```bash
+PICO_PROFILE_DIR=$("$TIANJI_PYTHON" -m tianji profile --user YOUR_USER --component pico)
+"$TIANJI_PYTHON" scripts/pico_symmetric_profile.py --source "$PICO_PROFILE_DIR"
+```
+
+若需 A 键地面初始化，应在真机未使能前完成；执行中不要重置 PICO 坐标系。
+保持 PICO 输入运行，再从下面两种执行模式中选择一种。
+
+### 3A. 终端二：仿真（不连接真机）
+
+```bash
+bash teleop.sh --sim \
+  --ik-backend mapped-palm \
+  --mapped-palm-xz-calibration \
+  --simulation-mode direct
+```
+
+在 **MuJoCo 窗口**按 C，双臂向前水平伸直并稳定两秒；标定成功后按 S 接管。
+H 停止跟随并回配置 Home，到位静止且重新准备完成后可按 S 恢复；保留手动 R。
+回位期间拒绝 S，不自动接管。direct 显示期望关节角，不经过 PD/动力学；
+没有 Manus 输入时可先只测试双臂，仿真手部保持目标。
+
+### 3B. 终端二：真机仅双臂（无需 Manus）
+
+先停止仿真执行器，核对设备 IP、左右臂身份、人员标定并做只读预检：
+
+```bash
+"$TIANJI_PYTHON" -m tianji real --devices arms --inspect
+```
+
+预检失败不要继续。确认活动范围安全、负载妥善处理、硬件急停可用后单独执行：
+
+```bash
+bash teleop.sh --real \
+  --devices arms \
+  --ik-backend mapped-palm \
+  --mapped-palm-xz-calibration \
+  --mapped-palm-resync-policy stop
+```
+
+在 **启动终端**按 C（不用回车），水平前伸稳定两秒，确认标定成功；
+第一次 Enter 锁定标定并慢速对齐，等 READY 后第二次 Enter 才开始遥操。
+C 本身不使能、不驱动真机。TELEOP 中第三次 Enter 慢速回 Home，到位后失能退出；
+对齐/回位期间 Enter 或 Ctrl+C 直接停止并失能，不追加回位。失能可能失去支撑。
+真机这条入口使用 C/Enter，不能照搬仿真的 S/H/R；`--devices arms` 不启用真实灵巧手。
+
+本目录尚需现场验收，不能把合并前来源目录的成功测试当作当前目录的验收结果。
+更多边界见 [真机说明](docs/mapped-palm-real-readiness.md)，骨长策略与异常处理见
+[对称骨长说明](docs/mapped-palm-port.md#自动生成对称骨长配置)。
 
 ## 目录
 
@@ -276,7 +373,7 @@ bash compress_data.sh
 ```
 
 默认读取 `dataset`，输出到 `dataset_jpeg50`。
-**压缩质量固定为 50；原始 RGB 文件不删除、不覆盖。** 保持 episode 相对路径、所有关节值、时间戳、任务和成功标记。
+**压缩质量固定为 50；RGB 或已有 JPEG 源文件均不删除、不覆盖。** JPEG 输入先解码再编码为 Q50，会产生额外有损损失，程序启动时会提示源质量。保持 episode 相对路径、所有关节值、时间戳、任务和成功标记。
 脚本跳过 `.partial.h5` 与符号链接；已完成输出通过源身份和 JPEG 格式校验后跳过，之后新增的 episode 会在下次运行时处理。
 中断或失败不会发布半成品为完成文件；可重复运行继续，结束时显示 `converted/skipped/failed`，失败返回非零退出码。
 不要手动改写已压缩文件的源文件；身份不匹配或目标配置冲突时脚本拒绝覆盖。
@@ -286,6 +383,13 @@ bash compress_data.sh
 ```bash
 bash compress_data.sh /data/tianji_raw /data/tianji_jpeg50
 bash visualize_data.sh dataset_jpeg50
+```
+
+按日期处理 `$HOME/Documents/TianjiData` 中的数据：
+
+```bash
+bash compress.sh --date 20260914
+# 输出到 $HOME/Documents/TianjiData/20260914_compressed；不传 --date 时使用当天日期。
 ```
 
 源/目标不能相同或互相包含。建议在暂停录制时压缩，避免读盘、写盘和编码争抢采集资源。
@@ -531,8 +635,11 @@ cd /path/to/tianji_teleop
 # 参考运动可视化：检查 IK / 重定向结果，不模拟受力后的运动。
 .venv/bin/tianji view
 
-# 或：实际动力学积分，仍然不连接任何真机硬件。
+# 或：默认 direct，直接显示期望关节角，不经过 PD 或动力学积分。
 bash teleop.sh --sim
+
+# 显式选择动力学积分，仍然不连接任何真机硬件。
+bash teleop.sh --sim --simulation-mode dynamics
 ```
 
 检查顺序：先缓慢、小幅活动双臂，再保持手腕稳定，逐个活动手指。
@@ -541,7 +648,8 @@ bash teleop.sh --sim
 两者都使用上文的 PICO 和手部输入（Manus 或外骨骼二选一）。`--sim` 内部启动同一套无界面参考控制器，
 通过独占的动态 loopback UDP 端口接收 TJRC v2 目标，不占用真机输出端口 `17000`。
 不能再额外启动独立机器人 Viewer。没有输入时保持初始目标；某一路输入失效时保持
-该路最后目标，但物理积分继续，受力后仍可能运动。终端区分 `waiting`、`ready` 和 `stale-hold`。
+该路最后目标。仅 dynamics 模式继续物理积分，受力后仍可能运动；direct 模式没有重力下垂。
+终端区分 `waiting`、`ready` 和 `stale-hold`。
 
 动力学路径保留原模型惯性、重力、关节及力矩限制，增加 54 个有界位置／阻尼执行器，
 以 `1 ms` 步长和 `implicitfast` 积分。只在初始化设置关节姿态，后续目标仅写入执行器。
@@ -556,7 +664,7 @@ bash teleop.sh --sim
 无窗口验证使用同一动力学路径：
 
 ```bash
-bash teleop.sh --sim --headless --duration 10
+bash teleop.sh --sim --simulation-mode dynamics --headless --duration 10
 ```
 
 结束时输出 `SIM_SUMMARY`，包括实际物理时间、各路目标误差和输入状态。
@@ -781,6 +889,27 @@ bash teleop.sh --real
 不执行单独手部模式的回零／半秒插值。第二次 Enter 后，从上一条已发送指令连续限速跟随。
 READY 必须同时满足指令已到目标、所有选中设备实测误差在各自 `alignment_rad` 内并持续稳定，
 不是只凭模型或计时器判断；漂移会撤销 READY。
+静止速度由连续实测位置与反馈时间戳估算，须不超过
+`staged_motion.settle_speed_rad_s`（默认 `0.03 rad/s`），并在新反馈上持续
+`settle_time_s`。重复反馈不能累计到位时间；反馈回退、过长间隔或运动会重置静止窗口。
+第二次 Enter 也复查静止条件；独立回 HOME 入口使用相同判定。
+mapped-palm 可显式选择 `--mapped-palm-resync-policy bounded`，通过私有事件通道
+执行同 epoch 重同步的短时保持及限速衔接；默认仍为 `stop`。
+这是待实机验收的选项，不是取消失鲜/限位/反馈保护；详见
+[真机执行层说明](docs/mapped-palm-real-readiness.md)。
+仅新 mapped-palm 真机路线可选 `--mapped-palm-xz-calibration`：在启动终端按 **C**
+（无需回车）水平前伸标定 X/Z；成功后第一次 Enter 锁定标定并慢速对齐，
+到位静止后第二次 Enter 遥操。C 不使能/不驱动机械臂，执行期间禁止 C，epoch
+变化后标定失效。此选项不自动开启 bounded；未启用时仍使用固定映射，SPARK 不变。
+
+2026-09-15 已完成一次 PICO＋VR 手柄、mapped-palm、C 标定、`stop` 策略的真实双臂
+流程测试：标定 → 对齐 → 遥操 → 回 Home → 释放连接。该结果不覆盖 bounded、
+Manus/Hand2 联合真机或长期稳定性；完整命令和证据见
+[mapped-palm 真机说明](docs/mapped-palm-real-readiness.md)。
+
+只读 Viewer 清理时的非零退出、ERROR 或退出超时现在会计入会话 `cleanup_errors`，
+并使入口返回失败状态；硬件停止/释放先于 Viewer 清理。本修复经 170 项软件回归，
+尚未重新验收实际图形退出；此前观察到的 GLFW 警告根因仍待处理。
 
 正常回 HOME 时只移动双臂，双手保持最后指令姿态，不主动张开。
 HOME 到位判定只针对双臂；双手仍须通过健康和新鲜度检查，
@@ -915,6 +1044,12 @@ cd tracking
 bash scripts/start_pico_driver.sh
 ```
 
+驱动与标定器默认均使用 `ROS_DOMAIN_ID=120`、`ROS_LOCALHOST_ONLY=1`。
+驱动在加载 ROS SDK 前设置这些默认值，避免 SDK 将驱动改为非 localhost 模式。
+若显式覆盖，两个终端必须保持一致；旧进程不会因脚本更新而自动改变环境。
+TCP 标定订阅 `/pico/pose/{left,right}_hand` 并同时需要 `/pico/pose/head`。
+出现“未收到新鲜数据”时，先核对两个进程的 ROS 域和 localhost 设置，不要直接改话题名。
+
 按一次 A 并完成地面初始化后，在终端 2 按顺序执行，每一步成功后再继续：
 
 ```bash
@@ -952,6 +1087,7 @@ bash scripts/calibrate_pico_palm_orientation.sh right
 
 ## 进一步说明
 
+- [mapped-palm 独立后端：构建、PICO＋VR 仿真及迁移边界](docs/mapped-palm-port.md)
 - [PICO 工程中文说明](tracking/README.zh-CN.md)
 - [双臂控制器与遥测说明](control/README.md)
 - [Wuji 重定向说明](retargeting/README.md)

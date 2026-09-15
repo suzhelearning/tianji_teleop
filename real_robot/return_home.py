@@ -47,7 +47,7 @@ class ArmHomeGate(StagedMotionGate):
             command = _slew(previous, self._home, speed * dt)
             self._last_commands = {"arms": command}
             self._last_step_ns = now_ns
-            self._advance_staged(HOMING, self._last_commands, {"arms": measured}, now_ns)
+            self._advance_staged(HOMING, self._last_commands, {"arms": measured}, now_ns, {"arms": feedback})
             return command
         except SafetyFault as error:
             self.fault = str(error)

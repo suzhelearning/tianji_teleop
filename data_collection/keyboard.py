@@ -9,7 +9,8 @@ from real_robot.safety import SafetyFault
 
 
 class CollectionKeyboard:
-    def __init__(self, on_key):
+    def __init__(self, on_key, on_calibrate=None):
+        self._on_calibrate=on_calibrate
         self._fd = sys.stdin.fileno()
         self._original = termios.tcgetattr(self._fd)
         self._on_key = on_key
@@ -26,6 +27,9 @@ class CollectionKeyboard:
                 raise SafetyFault('operator terminal closed')
             if character in (b'\n', b'\r'):
                 return True
+            if character.lower()==b'c' and self._on_calibrate is not None:
+                self._on_calibrate()
+                continue
             if character.lower() in (b'r', b's', b'd'):
                 try:
                     self._on_key(character.decode('ascii').lower())

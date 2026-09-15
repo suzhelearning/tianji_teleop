@@ -4,8 +4,9 @@ cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
 
 usage() {
   printf 'Usage: bash compress.sh [--date YYYYMMDD]\n'
-  printf 'Compress $HOME/Documents/TianjiData/YYYYMMDD to YYYYMMDD_compressed (JPEG Q50).\n'
+  printf 'Convert RGB or JPEG in $HOME/Documents/TianjiData/YYYYMMDD to YYYYMMDD_compressed (JPEG Q50).\n'
   printf 'Default: today. Existing outputs are skipped only after validation.\n'
+  printf 'JPEG input is re-encoded lossily; source files remain unchanged.\n'
 }
 
 case "${1:-}" in

@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Run dual-arm and both Hand2 MuJoCo dynamics, without any hardware connection.
+"""Display dual-arm and both Hand2 targets in MuJoCo, without hardware connections.
 
 The existing controller supplies reference targets over loopback TJRC v2 UDP.
-Missing or stale input holds the last setpoint while physics keeps advancing.
-Simulation servo parameters are not real-hardware calibration.
+Direct display is the default: no PD, dynamics integration or gravity sag.
+Use --simulation-mode dynamics for actuator physics instead.
+Missing or stale input holds the last setpoint. Simulation servo parameters
+are not real-hardware calibration.
 """
 from __future__ import annotations
 
@@ -11,6 +13,7 @@ import argparse
 from contextlib import ExitStack, nullcontext
 import json
 import math
+import os
 from pathlib import Path
 import signal
 import subprocess
@@ -35,7 +38,7 @@ def command_is_fresh(frame, now_ns):
     return frame is not None and -CLOCK_TOLERANCE_NS <= now_ns - frame.timestamp_ns <= COMMAND_TIMEOUT_NS
 
 
-def run_loop(simulation, receiver, controller, viewer, duration, stop_requested):
+def run_loop(simulation, receiver, controller, viewer, duration, stop_requested, target_overlay=None, recovery_control=None):
     started = time.monotonic()
     timestep = float(simulation.model.opt.timestep)
     if not math.isfinite(timestep) or timestep <= 0:
@@ -60,6 +63,8 @@ def run_loop(simulation, receiver, controller, viewer, duration, stop_requested)
         if not command_is_fresh(frame, time.monotonic_ns()):
             stale_packets += 1
             return
+        if recovery_control is not None and not recovery_control.accept_frame(frame):
+            return
         # The engine updates READY groups only; no qpos is written here.
         simulation.set_targets(frame)
         for group, flag in DEVICE_READY_FLAGS.items():
@@ -79,6 +84,8 @@ def run_loop(simulation, receiver, controller, viewer, duration, stop_requested)
             indices = GROUP_SLICES[group]
             errors[group] = float(max(abs(positions[indices] - simulation.targets[indices])))
         payload = {
+            "simulation_mode": getattr(simulation, 'mode', 'dynamics'),
+            "clock_kind": 'display_only' if getattr(simulation, 'mode', 'dynamics') == 'direct' else 'physics',
             "wall_time_s": round(time.monotonic() - started, 6),
             "physics_time_s": float(simulation.data.time),
             "physics_steps": steps,
@@ -110,6 +117,10 @@ def run_loop(simulation, receiver, controller, viewer, duration, stop_requested)
                 reason = "viewer-closed"
                 break
             with viewer.lock() if viewer is not None else nullcontext():
+                if recovery_control is not None:
+                    recovery_control.update()
+                if target_overlay is not None:
+                    target_overlay.update()
                 receiver.drain(accept_frame)
                 # Bound recovery after scheduling/rendering stalls. Never enlarge
                 # the physics timestep or run an unbounded catch-up backlog.
@@ -124,6 +135,14 @@ def run_loop(simulation, receiver, controller, viewer, duration, stop_requested)
                 dropped_wall_time += now - next_step + timestep
                 next_step = now + timestep
             if viewer is not None and now >= next_render:
+                if recovery_control is not None:
+                    frame=receiver.latest
+                    arm_ready=command_is_fresh(frame,time.monotonic_ns()) and recovery_control.accept_frame(frame) and bool(frame.flags & DEVICE_READY_FLAGS['arms'])
+                    viewer.set_texts((None,None,
+                        'Mapped palm SIM | '+getattr(simulation,'mode','dynamics')+'\n'
+                        +'Arms: '+('READY' if arm_ready else 'WAIT / HOLD')+'\n'
+                        +'C: calibrate X/Z (hold forward 2s) | S: start\nH: smooth Home, then S | P: hold | R: manual rearm\n'
+                        +recovery_control.status,''))
                 viewer.sync()
                 next_render = time.monotonic() + 1.0 / 60.0
             if now >= next_report:
@@ -145,15 +164,25 @@ def run_loop(simulation, receiver, controller, viewer, duration, stop_requested)
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--headless", action="store_true", help="run the same physics without opening a viewer")
+    parser.add_argument("--headless", action="store_true", help="run the selected simulation mode without opening a viewer")
+    parser.add_argument('--simulation-mode', choices=('dynamics', 'direct'), default='direct',
+                        help='direct: joint-state display only (default); dynamics: actuator physics')
+    parser.add_argument("--ik-backend", choices=("spark", "mapped-palm"), default="spark")
+    parser.add_argument("--mapped-palm-xz-calibration", action="store_true",
+                        help="mapped-palm only: viewer C samples X/Z, S starts after success")
     parser.add_argument("--duration", type=float, default=0.0, help="stop after N wall-clock seconds (0: until stopped)")
     parser.add_argument("--pico-port", type=int, default=15000, help="loopback PICO input port (default: 15000)")
     parser.add_argument("--hand-port", type=int, default=16000, help="loopback hand input port (default: 16000)")
-    parser.add_argument("--config", type=Path, default=ARM_ROOT / "config/qp_ik_pico_teleop.yaml",
+    parser.add_argument("--config", type=Path,
                         help="controller YAML, also used for the initial arm pose")
-    parser.add_argument("--model", type=Path, default=ARM_ROOT / "models/marvin_m6_wuji2.xml",
+    parser.add_argument("--model", type=Path,
                         help="dual-arm and both Hand2 MuJoCo XML")
     args = parser.parse_args(argv)
+    mapped = args.ik_backend == "mapped-palm"
+    if args.mapped_palm_xz_calibration and (not mapped or args.headless):
+        parser.error("X/Z calibration requires the mapped-palm viewer")
+    args.config = args.config or ARM_ROOT / ("mapped_palm/config/deployment.yaml" if mapped else "config/qp_ik_pico_teleop.yaml")
+    args.model = args.model or ARM_ROOT / ("mapped_palm/assets/mapped_palm/marvin_m6_wuji2.xml" if mapped else "models/marvin_m6_wuji2.xml")
     if not math.isfinite(args.duration) or args.duration < 0:
         parser.error("--duration must be finite and non-negative")
     for name in ("pico_port", "hand_port"):
@@ -177,10 +206,19 @@ def main(argv=None):
             # without a graphics context or any simulation dependencies loaded.
             from sim.physics import PhysicsSimulation
 
-            simulation = PhysicsSimulation(model_path, config_path)
+            simulation_type = PhysicsSimulation
+            if args.simulation_mode == 'direct':
+                from sim.direct_state import DirectStateSimulation
+                simulation_type = DirectStateSimulation
+            simulation = simulation_type(model_path, config_path)
+            target_overlay = None
+            if mapped:
+                from sim.mapped_overlay import TargetOverlay
+                target_overlay = TargetOverlay(simulation)
+                cleanup.callback(target_overlay.close)
             if stop_requested.is_set():
                 return 0
-            executable = ARM_ROOT / "build/tianji_qp_ik_viewer"
+            executable = ARM_ROOT / ("build-mapped-palm/mapped_palm_tjrc_controller" if mapped else "build/tianji_qp_ik_viewer")
             if not executable.is_file():
                 raise RuntimeError("build the arm controller before starting --sim")
             receiver = CommandReceiver(0)
@@ -195,19 +233,39 @@ def main(argv=None):
                 "--hand-teleop", "--hand-bind", "127.0.0.1", "--hand-port", str(args.hand_port),
                 "--joint-command-host", "127.0.0.1", "--joint-command-port", str(receiver.port),
             ]
-            print("SIM: MuJoCo dynamics; no SDK, device connection, or hardware commands. "
+            print(f"SIM: mode={args.simulation_mode}; no SDK, device connection, or hardware commands. "
                   "Stale groups hold targets; simulation parameters are not hardware calibration.", flush=True)
+            if args.simulation_mode == 'direct':
+                print('SIM: direct joint-state display; no dynamics/contact response/gravity sag. Not hardware tracking validation.', flush=True)
             print(f"SIM: command receiver 127.0.0.1:{receiver.port}; "
                   f"PICO={args.pico_port}, hands={args.hand_port}", flush=True)
+            if args.mapped_palm_xz_calibration:
+                command.append("--mapped-palm-xz-calibration")
+            if target_overlay is not None:
+                command.extend(["--target-overlay-port", str(target_overlay.port)])
+            if mapped:
+                command.append('--simulation-recovery')
             controller = subprocess.Popen(command, cwd=ARM_ROOT, start_new_session=True,
-                                          stdin=subprocess.DEVNULL)
+                                          stdout=subprocess.PIPE if mapped else None,
+                                          stdin=subprocess.PIPE if mapped else subprocess.DEVNULL)
+            if controller.stdout is not None:
+                os.set_blocking(controller.stdout.fileno(), False)
+                cleanup.callback(controller.stdout.close)
+            if controller.stdin is not None:
+                os.set_blocking(controller.stdin.fileno(), False)
+                cleanup.callback(controller.stdin.close)
             cleanup.callback(stop_controller, controller)
+            recovery_control = None
+            if mapped:
+                from sim.mapped_recovery import MappedRecovery
+                recovery_control = MappedRecovery(simulation, controller)
             viewer = None
             if not args.headless and not stop_requested.is_set():
                 import mujoco.viewer
 
                 viewer = mujoco.viewer.launch_passive(
                     simulation.model, simulation.data, show_left_ui=False, show_right_ui=False,
+                    key_callback=recovery_control.key if recovery_control is not None else None,
                 )
                 cleanup.callback(viewer.close)
                 with viewer.lock():
@@ -215,10 +273,10 @@ def main(argv=None):
                     viewer.cam.distance = 2.5
                     viewer.cam.azimuth = 135.0
                     viewer.cam.elevation = -15.0
-                print("SIM_READY: viewer opened; displaying actual MuJoCo dynamics state", flush=True)
+                print(f"SIM_READY: viewer opened; mode={args.simulation_mode}", flush=True)
             elif args.headless:
-                print("SIM_READY: headless MuJoCo dynamics", flush=True)
-            run_loop(simulation, receiver, controller, viewer, args.duration, stop_requested)
+                print(f"SIM_READY: headless MuJoCo; mode={args.simulation_mode}", flush=True)
+            run_loop(simulation, receiver, controller, viewer, args.duration, stop_requested, target_overlay, recovery_control)
     except Exception as error:
         print(f"SIM ERROR: {error}", file=sys.stderr, flush=True)
         return 1

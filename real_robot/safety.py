@@ -84,11 +84,14 @@ class MotionGate:
             raise SafetyFault("controller command is stale or its monotonic clock is invalid")
         for device in self.devices:
             flag = DEVICE_READY_FLAGS[device]
-            if not frame.flags & flag:
+            if not frame.flags & flag and not self.allow_unready_hold(device,frame,now_ns):
                 raise SafetyFault(f"{device}: source input is not fresh/ready")
             if device == "arms" and frame.tracking_epoch <= 0:
                 raise SafetyFault("arms: missing PICO tracking epoch")
             self._check_bounds(device, frame.positions(device), "target")
+
+    def allow_unready_hold(self, device, frame, now_ns):
+        return False
 
     def observe_source(self, frame, now_ns):
         """Latch every unsafe source event, before a receiver coalesces positions."""

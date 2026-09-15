@@ -18,6 +18,7 @@ from __future__ import annotations
 import math
 
 from .safety import MotionGate, SafetyFault, _finite_vector, _slew
+from .settling import FeedbackRest
 
 WAITING = "WAITING"
 ALIGNING = "ALIGNING"
@@ -71,12 +72,60 @@ class StagedMotionGate(MotionGate):
         self._slow_speed = float(speed)
         self._timeout_ns = float(timeout) * 1e9
         self._settle_ns = float(settle) * 1e9
+        speed_limit = settings.get('settle_speed_rad_s', .03)
+        if type(speed_limit) not in (int, float):
+            raise ValueError('settle_speed_rad_s must be positive and finite')
+        self._rest_speed = float(speed_limit)
+        self._rest = {device: FeedbackRest(self._rest_speed, self._settle_ns, self.feedback_timeout_ns)
+                      for device in self.devices}
         # The inherited per-device _phase dict drives the zero/ramp enable
         # sequence; the staged gate overrides arm/step/check_enable_ready, so its
         # single operator-visible phase lives here instead.
         self._staged_phase = WAITING
         self._settle_since_ns = None
         self._targets = {}
+        self.bounded_resync = False
+        self.calibration_guard = None
+        self._resync_since = None
+        self._resync_generation = None
+        self._event_sequence = 0
+
+    def allow_unready_hold(self, device, frame, now_ns):
+        return (self.bounded_resync and device=='arms' and self.armed and
+                self.phase==TELEOP and getattr(frame,'event_state',None)==2 and
+                frame.tracking_epoch==self._epoch and self._resync_since is not None and
+                0<=now_ns-self._resync_since<=100_000_000)
+
+    def validate_targets(self, frame, now_ns):
+        if self.calibration_guard is not None:
+            self.calibration_guard.check(frame,now_ns,locked=self.armed)
+        if self.bounded_resync:
+            from .mapped_events import EventFrame,FAULTS
+            if not isinstance(frame,EventFrame):
+                raise SafetyFault('bounded policy requires matched private native events')
+            if not self.armed:
+                self._resync_since=None
+                if frame.event_state==2:
+                    raise SafetyFault('cannot enable during source resynchronization')
+            if frame.event_state in FAULTS:
+                raise SafetyFault('native '+FAULTS[frame.event_state])
+            if self._resync_since is not None and now_ns-self._resync_since>100_000_000:
+                raise SafetyFault('resynchronization hold timeout')
+            if frame.sequence>self._event_sequence:
+                if frame.event_state==2:
+                    if self._resync_since is None:
+                        self._resync_since=frame.timestamp_ns
+                        self._resync_generation=frame.generation
+                    elif frame.generation!=self._resync_generation:
+                        raise SafetyFault('generation changed during unconfirmed jump')
+                elif self._resync_since is not None:
+                    # Either confirmation (generation advances) or return to
+                    # original accepted stream (generation unchanged).
+                    if frame.generation<self._resync_generation:
+                        raise SafetyFault('resynchronization generation rollback')
+                    self._resync_since=None
+                self._event_sequence=frame.sequence
+        super().validate_targets(frame,now_ns)
 
     @property
     def phase(self) -> str:
@@ -113,6 +162,8 @@ class StagedMotionGate(MotionGate):
         if self.armed or self.fault:
             raise SafetyFault("session already armed/faulted; restart is required")
         self.check_enable_ready(frame, feedback, now_ns)
+        if self.calibration_guard is not None:
+            self.calibration_guard.check(frame,now_ns,locked=True)
         self._epoch = frame.tracking_epoch
         self._last_step_ns = now_ns
         self._targets = {device: tuple(float(value) for value in frame.positions(device))
@@ -149,6 +200,12 @@ class StagedMotionGate(MotionGate):
                 self._enter_phase(ALIGNING, now_ns)
                 raise SafetyFault(f"{device}: drifted {error:.4f} rad from the frozen "
                                   f"alignment target; wait for READY")
+            rest = self._rest[device]
+            stamp = feedback[device].received_monotonic_ns
+            rest.observe(measured[device], stamp, True)
+            if not rest.resting:
+                self._enter_phase(ALIGNING, now_ns)
+                raise SafetyFault(f'{device}: no longer stationary; alignment required')
         # The last commanded pose is already the frozen target, so the TELEOP
         # setpoint continues from it and the bounded slew provides the handoff.
         self._enter_phase(TELEOP, now_ns)
@@ -194,7 +251,8 @@ class StagedMotionGate(MotionGate):
                                      feedback[device].received_monotonic_ns)
                 if phase == TELEOP:
                     limit = settings["maximum_speed_rad_s"]
-                    target = frame.positions(device)
+                    target = (previous if self.bounded_resync and getattr(frame,'event_state',None)==2
+                              else frame.positions(device))
                     self._targets[device] = tuple(float(value) for value in target)
                 else:
                     limit = min(settings["maximum_speed_rad_s"], self._slow_speed)
@@ -202,7 +260,7 @@ class StagedMotionGate(MotionGate):
                 result[device] = _slew(previous, target, limit * dt)
             self._last_commands = result
             self._last_step_ns = now_ns
-            self._advance_staged(phase, result, measured, now_ns)
+            self._advance_staged(phase, result, measured, now_ns, feedback)
             return result
         except SafetyFault as error:
             self.fault = str(error)
@@ -212,6 +270,9 @@ class StagedMotionGate(MotionGate):
         self._staged_phase = phase
         self._phase_start_ns = now_ns
         self._settle_since_ns = None
+        if phase in (ALIGNING, HOMING):
+            self._rest = {device: FeedbackRest(self._rest_speed, self._settle_ns, self.feedback_timeout_ns)
+                          for device in self.devices}
 
     def _device_settled(self, device, command, measured):
         target = self._targets[device]
@@ -227,28 +288,28 @@ class StagedMotionGate(MotionGate):
         return (f"{label} did not settle within {self._timeout_ns / 1e9:g} s "
                 f"({worst[1]} is still {worst[0]:.4f} rad from its target)")
 
-    def _advance_staged(self, phase, commands, measured, now_ns):
+    def _advance_staged(self, phase, commands, measured, now_ns, feedback):
         if phase not in _SLOW_PHASES:
             self._settle_since_ns = None
             return
         # HOME is an arm destination. Hands keep their commanded grip and all
         # health/tracking guards, but contact need not satisfy a new pose match.
         settling_devices = ("arms",) if phase in (HOMING, HOME_REACHED) else self.devices
-        settled = all(self._device_settled(device, commands[device], measured[device])
-                      for device in settling_devices)
+        results = [self._rest[device].observe(
+            measured[device], feedback[device].received_monotonic_ns,
+            self._device_settled(device, commands[device], measured[device]))
+            for device in settling_devices]
+        settled = all(results)
         if phase in (ALIGNING, HOMING):
             if settled:
-                if self._settle_since_ns is None:
-                    self._settle_since_ns = now_ns
-                elif now_ns - self._settle_since_ns >= self._settle_ns:
-                    self._enter_phase(READY if phase == ALIGNING else HOME_REACHED, now_ns)
-                    return
+                self._enter_phase(READY if phase == ALIGNING else HOME_REACHED, now_ns)
+                return
             else:
                 self._settle_since_ns = None
             if now_ns - self._phase_start_ns > self._timeout_ns:
                 raise SafetyFault(self._timeout_detail(
                     "alignment" if phase == ALIGNING else "homing", measured, settling_devices))
-        elif phase == READY and not settled:
+        elif phase == READY and not all(self._rest[device].resting for device in settling_devices):
             # Physical drift after settling revokes READY rather than authorizing
             # a teleop handoff from an unverified pose.
             self._enter_phase(ALIGNING, now_ns)

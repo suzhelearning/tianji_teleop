@@ -6,6 +6,7 @@ session_name="pico_tianji_teleop"
 mode="attach"
 mode_option=""
 calibration_dir=""
+pico_world_x_offset=""
 
 usage() {
   cat <<'EOF'
@@ -19,6 +20,8 @@ Options:
   --detach  Start the session without attaching to it.
   --calibration-dir ABS_DIR
             Require both arm calibrations from this directory; never use globals.
+  --pico-world-x-offset METERS
+            Explicit bridge X offset; omitted preserves the original 0.10 m.
   --status  Show the managed tmux session and its windows.
   --stop    Stop only the managed pico_tianji_teleop session.
   --help    Show this help text.
@@ -27,6 +30,13 @@ EOF
 
 while (($#)); do
   case "$1" in
+    --pico-world-x-offset)
+      if [[ -n "$pico_world_x_offset" ]] || (($# < 2)) || [[ ! "$2" =~ ^-?[0-9]+([.][0-9]+)?$ ]]; then
+        echo "--pico-world-x-offset requires one decimal value (no duplicates)." >&2; exit 2
+      fi
+      pico_world_x_offset="$2"
+      shift 2
+      ;;
     --detach|--status|--stop|--help|-h)
       if [[ -n "$mode_option" ]]; then
         echo "Duplicate or conflicting options: $mode_option and $1" >&2
@@ -57,7 +67,7 @@ while (($#)); do
   esac
 done
 
-if [[ -n "$calibration_dir" && "$mode" != "attach" && "$mode" != "detach" ]]; then
+if [[ ( -n "$calibration_dir" || -n "$pico_world_x_offset" ) && "$mode" != "attach" && "$mode" != "detach" ]]; then
   echo "--calibration-dir cannot be combined with --$mode." >&2
   exit 2
 fi
@@ -147,6 +157,9 @@ if [[ -n "$calibration_dir" ]]; then
   m0_inner+=" --calibration-dir $calibration_dir_quoted"
 fi
 bridge_inner="cd $repo_quoted && $ros_environment && source scripts/environment.sh && exec ros2 launch pico_bridge start_tianji_mujoco_teleop.launch.py destination_address:=127.0.0.1 destination_port:=15000 position_retargeting_mode:=robot_arm_segments robot_arm_reach_scale:=0.95"
+if [[ -n "$pico_world_x_offset" ]]; then
+  bridge_inner+=" pico_world_x_offset_m:=$pico_world_x_offset"
+fi
 printf -v driver_inner_quoted '%q' "$driver_inner"
 printf -v m0_inner_quoted '%q' "$m0_inner"
 printf -v bridge_inner_quoted '%q' "$bridge_inner"

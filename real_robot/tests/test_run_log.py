@@ -150,6 +150,23 @@ class FlightRecorderTests(unittest.TestCase):
 
 
 class EnvironmentTests(unittest.TestCase):
+    def test_viewer_cleanup_crash_marks_interrupted_session_failed(self):
+        with tempfile.TemporaryDirectory() as folder:
+            with patch.dict(os.environ, {run_log.LOG_DIR_ENV: folder}), \
+                    patch("real_robot.run_teleop.sys.stdin.isatty", return_value=True), \
+                    patch("real_robot.run_teleop.Path.is_file", return_value=True), \
+                    patch("real_robot.run_teleop.CommandReceiver"), \
+                    patch("real_robot.run_teleop.RealRobotViewer") as viewer, \
+                    patch("real_robot.run_teleop.make_hardware", side_effect=KeyboardInterrupt), \
+                    redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                viewer.return_value.close.side_effect = RuntimeError("viewer process exited with status -11")
+                self.assertEqual(main(["--confirm-real", "--devices", "arms"]), 1)
+            session = read_session(folder)
+            self.assertEqual(session["result"], 1)
+            self.assertNotEqual(session["outcome"], "completed")
+            self.assertTrue(any("visualization cleanup failed" in error and "-11" in error
+                                for error in session["cleanup_errors"]))
+
     def test_unexpected_exception_is_recorded_as_nonzero_without_swallowing_it(self):
         with tempfile.TemporaryDirectory() as folder:
             with patch.dict(os.environ, {run_log.LOG_DIR_ENV: folder}), \

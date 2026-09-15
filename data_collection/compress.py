@@ -1,4 +1,4 @@
-"""Offline, resumable RGB dataset conversion to fixed-quality JPEG (Q50)."""
+"""Offline, resumable RGB/JPEG dataset conversion to fixed-quality JPEG (Q50)."""
 
 from __future__ import annotations
 
@@ -90,14 +90,20 @@ def _write_jpeg_episode(
             group = images.create_group(camera)
             _copy_attributes(raw_group, group)
             raw_group.copy('timestamp_ns', group)
-            rgb = raw_group['rgb']
+            frames = raw_group[config['image_encoding']]
             jpeg = group.create_dataset(
-                'jpeg', shape=(rgb.shape[0],), maxshape=(None,),
+                'jpeg', shape=(frames.shape[0],), maxshape=(None,),
                 chunks=(32,), dtype=h5py.vlen_dtype(np.uint8),
             )
-            _copy_attributes(rgb, jpeg)
-            for index in range(rgb.shape[0]):
-                bgr = cv2.cvtColor(rgb[index], cv2.COLOR_RGB2BGR)
+            _copy_attributes(frames, jpeg)
+            for index in range(frames.shape[0]):
+                if config['image_encoding'] == 'rgb':
+                    bgr = cv2.cvtColor(frames[index], cv2.COLOR_RGB2BGR)
+                else:
+                    # OpenCV decodes JPEG directly to the BGR encoder input.
+                    bgr = cv2.imdecode(frames[index], cv2.IMREAD_COLOR)
+                    if bgr is None:
+                        raise RuntimeError(f'JPEG decoding failed for {camera} frame {index}')
                 success, encoded = cv2.imencode('.jpg', bgr, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
                 if not success:
                     raise RuntimeError(f'JPEG encoding failed for {camera} frame {index}')
@@ -187,7 +193,7 @@ def _compress_episode(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('source', nargs='?', type=Path, default=DEFAULT_SOURCE,
-                        help=f'raw RGB dataset root (default: {DEFAULT_SOURCE})')
+                        help=f'RGB or JPEG dataset root (default: {DEFAULT_SOURCE})')
     parser.add_argument('destination', nargs='?', type=Path, default=DEFAULT_DESTINATION,
                         help=f'JPEG Q50 dataset root (default: {DEFAULT_DESTINATION})')
     args = parser.parse_args(argv)
@@ -199,8 +205,9 @@ def main(argv: list[str] | None = None) -> int:
         if source == destination or source in destination.parents or destination in source.parents:
             raise ValueError('source and destination roots must not overlap')
         source_config = load_dataset_config(source)
-        if source_config['image_encoding'] != 'rgb' or source_config['jpeg_quality'] is not None:
-            raise ValueError('source dataset must use raw RGB with jpeg_quality=null')
+        if source_config['image_encoding'] == 'jpeg':
+            print(f"Source images: JPEG Q{source_config['jpeg_quality']} -> Q{JPEG_QUALITY}; "
+                  'lossy re-encoding, source files remain unchanged.')
         destination_config = normalize_dataset_config({
             **source_config, 'image_encoding': 'jpeg', 'jpeg_quality': JPEG_QUALITY,
         })

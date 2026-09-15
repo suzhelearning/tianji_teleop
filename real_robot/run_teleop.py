@@ -276,6 +276,11 @@ def error_reason(error):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, default=ROOT / "config.json")
+    parser.add_argument("--ik-backend", choices=("spark", "mapped-palm"), default="spark")
+    parser.add_argument('--mapped-palm-resync-policy',choices=('stop','bounded'),default='stop',
+                        help='bounded: experimental private-event limited hold; default stop')
+    parser.add_argument('--mapped-palm-xz-calibration',action='store_true',
+                        help='mapped-palm real only: terminal C before first Enter; no motor authority from C')
     parser.add_argument("--devices", choices=tuple(DEVICE_SELECTIONS),
                         help="default from config; hands=left+right, all=arms+left+right")
     mode = parser.add_mutually_exclusive_group()
@@ -302,6 +307,21 @@ def main(argv=None):
     if args.task is not None and args.dataset is None:
         parser.error("--task requires --dataset")
     base = config_path.parent
+    bounded = args.mapped_palm_resync_policy=='bounded'
+    real_calibration=args.mapped_palm_xz_calibration
+    if bounded and (args.ik_backend!='mapped-palm' or 'arms' not in devices or args.inspect):
+        parser.error('bounded requires mapped-palm arms, not inspect')
+    if real_calibration and (args.ik_backend!='mapped-palm' or 'arms' not in devices or not args.confirm_real):
+        parser.error('real C calibration requires mapped-palm arms and --confirm-real')
+    event_channel=bounded or real_calibration
+    config=dict(config,mapped_palm_resync_policy=args.mapped_palm_resync_policy,
+                mapped_palm_xz_calibration=real_calibration)
+    if args.ik_backend == "mapped-palm":
+        # Only controller assets change; driver settings, measured startup,
+        # physical limits and operator confirmations remain the original path.
+        bundle = ROOT.parent / "control/mapped_palm"
+        config = dict(config, controller_config=str(bundle / "config/deployment.yaml"),
+                      controller_model=str(bundle / "assets/mapped_palm/marvin_m6_wuji2.xml"))
     run_mode = "inspect" if args.inspect else ("real" if args.confirm_real else "dry-run")
     try:
         session_log = SessionLog.from_environment(
@@ -341,10 +361,13 @@ def main(argv=None):
         if not args.inspect:
             # Refuse static startup failures before opening cameras or SDK sessions.
             arm_root = ROOT.parent / "control"
-            viewer = arm_root / "build/tianji_qp_ik_viewer"
+            viewer = arm_root / ("build-mapped-palm/mapped_palm_tjrc_controller" if args.ik_backend == "mapped-palm" else "build/tianji_qp_ik_viewer")
             if not viewer.is_file():
                 raise RuntimeError("build the current arm controller before starting the real executor")
             receiver = CommandReceiver(config["command_port"])
+            if event_channel:
+                from real_robot.mapped_events import EventReceiver
+                receiver=EventReceiver(receiver,bounded=bounded,calibration=real_calibration)
         if args.dataset is not None:
             from data_collection.integration import CollectionSession
             collection = CollectionSession(args.dataset, args.task, args.collection_config,
@@ -384,12 +407,24 @@ def main(argv=None):
 
         gate = (StagedMotionGate(config["safety"], devices, config["staged_motion"])
                 if staged else MotionGate(config["safety"], devices))
-        if collection is not None:
+        if bounded and staged:
+            gate.bounded_resync=True
+        calibration_guard=None
+        if real_calibration:
+            from real_robot.mapped_calibration import CalibrationGuard
+            calibration_guard=CalibrationGuard(receiver)
+            gate.calibration_guard=calibration_guard
+        if collection is not None or real_calibration:
             from data_collection.keyboard import CollectionKeyboard
-            keyboard = CollectionKeyboard(lambda key: collection.command(key, gate.phase))
+            key_handler=lambda key: collection.command(key,gate.phase) if collection is not None else None
+            keyboard = (CollectionKeyboard(key_handler,on_calibrate=lambda: calibration_guard.calibrate(gate))
+                        if real_calibration else CollectionKeyboard(key_handler))
             enter_pressed = keyboard.poll_enter
-            print("TELEOP recording keys (no Enter needed): r=start, s=save success, d=discard current. "
-                  "Recording keys do not change robot mode.", flush=True)
+            if collection is not None:
+                print("TELEOP recording keys (no Enter needed): r=start, s=save success, d=discard current. "
+                      "Recording keys do not change robot mode.", flush=True)
+            if real_calibration:
+                print('MAPPED REAL: focus terminal; C calibrates X/Z while disabled; then Enter aligns, second Enter starts teleop. C never enables motors.',flush=True)
         enabled_devices = set()
         confirmation_prompted = False
         next_visual = 0.0
@@ -417,7 +452,11 @@ def main(argv=None):
                 and -5_000_000 <= now_ns - packet.timestamp_ns
                 <= config["safety"]["command_timeout_s"] * 1e9
             })
-            real_viewer.publish(actual, target, gate.phase)
+            phase=gate.phase
+            if calibration_guard is not None and not gate.armed:
+                cal_state=getattr(packet,'calibration_state',0)
+                phase={0:'C REQUIRED',1:'C SAMPLING',2:'C OK - ENTER TO ALIGN',3:'C LOCKED',4:'C FAILED - RETRY'}.get(cal_state,'C REQUIRED')
+            real_viewer.publish(actual, target, phase)
             next_visual = now_ns / 1e9 + 1.0 / 30.0
 
         if staged:
@@ -461,7 +500,13 @@ def main(argv=None):
                        "--pico-port", str(pico_port), "--joint-command-host", "127.0.0.1",
                        "--joint-command-port", str(receiver.port)]
             command.append("--pico-teleop")
-            controller = subprocess.Popen(command, cwd=arm_root, start_new_session=True, stdin=subprocess.DEVNULL)
+            process_options={}
+            if event_channel:
+                command.extend(receiver.arguments())
+                process_options['pass_fds']=(receiver.writer.fileno(),)
+            controller = subprocess.Popen(command, cwd=arm_root, start_new_session=True,
+                                          stdin=subprocess.DEVNULL, **process_options)
+            if event_channel: receiver.writer.close()
             started = time.monotonic()
             next_report = started
             last_reason = "waiting for controller packets"
@@ -508,6 +553,16 @@ def main(argv=None):
                     now = time.monotonic()
                     update_monitor(packet, measured)
                     now_ns = time.monotonic_ns()
+                    calibration_enter=False
+                    if calibration_guard is not None:
+                        # Poll even before readiness, so C is usable while
+                        # calibration deliberately revokes arm readiness.
+                        calibration_enter=enter_pressed()
+                        confirmation_prompted=True
+                        if calibration_guard.lock_pending and calibration_enter:
+                            raise SafetyFault('operator interrupted calibration lock/enable')
+                        if calibration_guard.lock_pending:
+                            calibration_guard.lock_acknowledged(packet,now_ns)
                     if session_log is not None:
                         session_log.sample(packet, measured, log_phase(gate, "WAITING"), now_ns)
                     try:
@@ -530,7 +585,14 @@ def main(argv=None):
                               f"Press ENTER to enable {', '.join(devices)}; press ENTER again to stop and disable:",
                               flush=True)
                         confirmation_prompted = True
-                    if not enter_pressed():
+                    if calibration_guard is not None:
+                        if calibration_enter:
+                            calibration_guard.request_lock(packet,now_ns)
+                            continue
+                        enter_authorized=calibration_guard.lock_acknowledged(packet,now_ns)
+                    else:
+                        enter_authorized=enter_pressed()
+                    if not enter_authorized:
                         remaining = cycle_deadline - time.monotonic()
                         if remaining > 0:
                             time.sleep(remaining)
@@ -579,7 +641,10 @@ def main(argv=None):
                         session_log.sample(packet, measured, log_phase(gate, "LIVE"), now_ns)
                     outputs = gate.step(packet, measured, now_ns)
                     if staged:
-                        status.update(_STAGED_STATUS[gate.phase])
+                        message=_STAGED_STATUS[gate.phase]
+                        if bounded and gate._resync_since is not None:
+                            message+=' | 同 epoch 重同步待确认：保持最后命令（上限 100 ms）'
+                        status.update(message)
                         update_monitor(packet, measured)
                         if gate.phase == "HOME_REACHED":
                             final_reason = "staged sequence reached HOME_REACHED"
