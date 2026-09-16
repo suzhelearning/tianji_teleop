@@ -6,9 +6,9 @@ transform_convention: T_controller_palm
 source_topic: /pico/pose/left_hand
 orientation_reference: gravity_leveled_hmd_heading
 translation_m:
-- -0.022420404787601322
-- -0.11338231124394554
-- 0.014110017087938437
+- -0.02973656083778603
+- -0.10682498800163229
+- 0.013386429233963631
 quaternion_xyzw:
 - -0.02058224022980602
 - 0.1653015866786285
@@ -37,8 +37,8 @@ covariance_upper_triangle_6x6:
 - 3.6146694098097373e-05
 - 9.558559903731133e-05
 orientation_calibrated: true
-calibration_revision: 1
-translation_revision: 1
+calibration_revision: 2
+translation_revision: 2
 orientation_revision: 1
 orientation_only_ancestor_sha256: []
 source_recording: interactive_tcp_calibration
@@ -46,6 +46,8 @@ lineage:
 - /pico/pose/left_hand
 - /pico/pose/head
 - gravity_leveled_hmd_heading
+- manual_signed_absolute_mean_translation_2026_09_16
+# Quality below describes the original measurement, not the manual translation adjustment.
 quality:
   sample_count: 4
   position_sample_count: 4
@@ -60,4 +62,4 @@ orientation_calibration:
   sample_count: 127
   orientation_rms_rad: 0.012290962516893707
   correction_angle_rad: 0.4739791066949843
-translation_fingerprint_sha256: de02c035a9917eef1bc01594ea57b1af859ba828a1cf11a966212ceeb2af4a01
+translation_fingerprint_sha256: 0b12461305f8ae1711acaeeaeec06330bcd89bcfe5782e079f81bfffa03d4854

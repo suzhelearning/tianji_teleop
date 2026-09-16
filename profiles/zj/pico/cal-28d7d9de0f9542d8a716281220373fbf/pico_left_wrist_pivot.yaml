@@ -7,10 +7,12 @@ source_frame: pico
 motion_mode: yaw
 tracking_epoch: 163
 tracking_epoch_source: wire_world_reset
+# Manual mean-distance adjustment (2026-09-16); original vector direction retained.
 wrist_to_palm_m:
-  x: 0.05699305705562771
-  y: 0.019116871879917445
+  x: 0.052480764710649136
+  y: 0.017603338142650235
   z: 0.0
+# Historical measurement quality; not remeasured after the manual adjustment.
 quality:
   sample_count: 450
   position_rms_m: 0.01219750319121752

@@ -12,8 +12,8 @@ elbow_center_pico_m:
 - -0.3674448797839606
 - -0.05741887482831713
 - -0.4359642556212517
-upper_arm_length_m: 0.276315
-forearm_length_m: 0.247517
+upper_arm_length_m: 0.25496951
+forearm_length_m: 0.21424932
 covariance_tangent_order:
 - shoulder_x_m
 - shoulder_y_m
@@ -100,11 +100,13 @@ gate_results:
   length_uncertainty: true
   upper_arm_length: true
   forearm_length: true
-tcp_calibration_revision: 1
-tcp_artifact_sha256: e12da019b88d7a51be78475022ca3130f33f1e1aa580ec36b9ff46cbc20de35f
-tcp_translation_revision: 1
-tcp_translation_fingerprint_sha256: de02c035a9917eef1bc01594ea57b1af859ba828a1cf11a966212ceeb2af4a01
-wrist_pivot_sha256: 19d2469a2b5d5acbc9f610ee800719535b69e6353aabf8518e0caa10c24f966a
+# Manually rebound to TCP translation revision 2; geometry and historical quality were not remeasured.
+tcp_calibration_revision: 2
+tcp_artifact_sha256: 1b3f521db6274e86801ac9087f5de6a9a715216b62f03702864a536c5ce120e8
+tcp_translation_revision: 2
+tcp_translation_fingerprint_sha256: 0b12461305f8ae1711acaeeaeec06330bcd89bcfe5782e079f81bfffa03d4854
+# Manual wrist-distance rebinding; original geometry quality was not remeasured.
+wrist_pivot_sha256: 19cb0335352e4a23183cea67bc66beb69f06a710e8173acf3448be0dc9928bce
 tracking_epoch: 163
 tracking_epoch_source: wire_world_reset
 source_recording: /home/current/syz/tianji_teleop/profiles/zj/recordings/pico_left_arm_geometry_20260915_232826_460412/capture.npz
@@ -114,3 +116,4 @@ lineage:
 - /pico/palm_left
 - palm_local_positive_x_wrist
 - shoulder_free_three_static_pose_geometry
+- manual_tcp_translation_rebind_2026_09_16
