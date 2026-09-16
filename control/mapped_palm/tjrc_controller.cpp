@@ -36,7 +36,7 @@ unsigned port(const std::string& s) {
 int main(int argc,char** argv) {
   try {
     std::map<std::string,std::string> args;
-    bool hands=false,calibrate=false,recovery=false,real_calibrate=false,bounded=false;
+    bool hands=false,calibrate=false,recovery=false,real_calibrate=false,bounded=false,dropout=false;
     for(int i=1;i<argc;++i) {
       std::string key=argv[i];
       if(key=="--help") {
@@ -49,6 +49,7 @@ int main(int argc,char** argv) {
       if(key=="--simulation-recovery") { recovery=true; continue; }
       if(key=="--real-resync-bounded") { bounded=true; continue; }
       if(key=="--real-xz-calibration") { real_calibrate=true; continue; }
+      if(key=="--real-input-hold-300ms") { dropout=true; continue; }
       if(key!="--config" && key!="--model" && key!="--urdf" && key!="--pico-bind" && key!="--pico-port" &&
          key!="--hand-bind" && key!="--hand-port" && key!="--joint-command-host" && key!="--joint-command-port" && key!="--target-overlay-port" && key!="--real-event-fd" && key!="--real-event-token")
         throw std::invalid_argument("unsupported option: "+key);
@@ -62,7 +63,7 @@ int main(int argc,char** argv) {
     auto urdf=optional("--urdf",(std::filesystem::path(model).parent_path()/"marvin_m6_s_ccs_696_v4_local.urdf").string());
     const auto out_port=port(required("--joint-command-port"));
     const bool event_channel=args.count("--real-event-fd");
-    if((bounded || real_calibrate) && !event_channel) throw std::invalid_argument("private event channel required");
+    if((bounded || real_calibrate || dropout) && !event_channel) throw std::invalid_argument("private event channel required");
     int event_fd=-1;
     std::string event_token;
     if(event_channel) {
@@ -149,6 +150,10 @@ int main(int argc,char** argv) {
     bool bounded_fault=false;
     unsigned bounded_fault_reason=4;
     std::int64_t bridge_stamp=0,receive_stamp=0;
+    std::int64_t input_valid_ns=0;
+    std::uint64_t valid_sequence=0,valid_generation=0;
+    bool valid_button=false,dropout_holding=false;
+    PicoReceiverStats previous_input_stats;
     const auto period=std::chrono::nanoseconds(static_cast<std::int64_t>(1e9/config.controller.rate_hz));
     while(!stopped) {
       const auto start=std::chrono::steady_clock::now(); auto now=now_ns();
@@ -180,6 +185,7 @@ int main(int argc,char** argv) {
             cycle.reset_at_rest(config.controller.initial_left_q_rad,config.controller.initial_right_q_rad);
             native_tick=0; last_applied_epoch=0; readiness=JointCommandArmReadiness{};
             offered=false; bounded_fault=false; offsets={}; cycle.configure_xz(0,0,0,0);
+            valid_sequence=0; dropout_holding=false;
             active=false; real_calibration_state=1; ++calibration_revision;
             now=now_ns(); sample.reset(); calibration->begin(now);
             std::cout<<"MAPPED REAL: sampling X/Z; no motor authority\n"<<std::flush;
@@ -284,16 +290,63 @@ int main(int argc,char** argv) {
           std::cout<<"MAPPED: calibration FAILED: "<<calibration->status().error<<"\n"<<std::flush;
         }
       }
+      // Check the original valid-input deadline BEFORE consuming a newly
+      // arrived sample. Neither cached frames nor late input may renew it.
+      bool dropout_wait=false;
+      unsigned dropout_fault=0;
+      const auto input_stats=dropout?pico.stats():PicoReceiverStats{};
+      if(dropout && active && offered && !bounded_fault) {
+        const auto& stats=input_stats;
+        if(input_valid_ns<=0 || now<input_valid_ns || now-input_valid_ns>300000000)
+          dropout_fault=4;
+        if(input_event.state==0 || stats.malformed>previous_input_stats.malformed ||
+           stats.crc_failures>previous_input_stats.crc_failures ||
+           stats.reordered>previous_input_stats.reordered)
+          dropout_fault=4;
+        if(input_event.state==2 && (!bounded || dropout_holding)) dropout_fault=4;
+        if(input_event.epoch!=last_applied_epoch ||
+           (dropout_holding && latest && latest->resynchronization_generation!=valid_generation))
+          dropout_fault=6;
+        if(input_event.button!=valid_button) dropout_fault=7;
+        if(sample && (sample->bridge_send_monotonic_ns<=0 ||
+           sample->receive_monotonic_ns>now || sample->bridge_send_monotonic_ns>now ||
+           std::min(sample->receive_monotonic_ns,sample->bridge_send_monotonic_ns)<input_valid_ns))
+          dropout_fault=4;
+        const bool new_fresh_sample=sample && sample->sequence!=valid_sequence &&
+          sample->receive_monotonic_ns>0 && sample->bridge_send_monotonic_ns>0 &&
+          now>=sample->receive_monotonic_ns && now>=sample->bridge_send_monotonic_ns &&
+          now-std::min(sample->receive_monotonic_ns,sample->bridge_send_monotonic_ns)<50000000;
+        dropout_wait=!dropout_fault && input_event.state==1 &&
+          now-input_valid_ns>=50000000 && !new_fresh_sample;
+        if(dropout_wait && latest && latest->resynchronization_generation!=valid_generation) {
+          dropout_fault=6; dropout_wait=false;
+        }
+        if(dropout_fault && (!real_calibrate || calibration_locked)) {
+          bounded_fault=true; bounded_fault_reason=dropout_fault;
+        }
+      }
+      if(dropout) {
+        previous_input_stats=input_stats;
+        // A fresh local receive cannot make a delayed bridge sample fresh.
+        if(sample && (sample->receive_monotonic_ns<=0 || sample->bridge_send_monotonic_ns<=0 ||
+           now<sample->receive_monotonic_ns || now<sample->bridge_send_monotonic_ns ||
+           now-std::min(sample->receive_monotonic_ns,sample->bridge_send_monotonic_ns)>=50000000))
+          sample.reset();
+      }
       BilateralCycleResult r;
-      if(active && !pending && !bounded_fault) {
-        if(native_tick==0) sample=latest;
+      const bool step_enabled=active && !pending && !bounded_fault && !dropout_wait && !dropout_fault;
+      if(step_enabled) {
+        if(native_tick==0 && !dropout) sample=latest;
         r=cycle.step(++native_tick,now,sample);
       }
       if(sample && r.applied_sequence==sample->sequence) {
         bridge_stamp=sample->bridge_send_monotonic_ns; receive_stamp=sample->receive_monotonic_ns;
       }
       ++output.sequence; output.source_timestamp_ns=now_ns(); output.pico_tracking_epoch=active?r.applied_epoch:(latest?latest->tracking_epoch:0);
-      if(active && !pending && !bounded_fault) for(int i=0;i<7;++i) { output.position_rad[static_cast<std::size_t>(i)]=r.left.q[i]; output.position_rad[static_cast<std::size_t>(i+7)]=r.right.q[i]; }
+      if(dropout && offered && input_valid_ns>0 && output.source_timestamp_ns-input_valid_ns>300000000) {
+        dropout_fault=4; dropout_wait=false;
+      }
+      if(step_enabled) for(int i=0;i<7;++i) { output.position_rad[static_cast<std::size_t>(i)]=r.left.q[i]; output.position_rad[static_cast<std::size_t>(i+7)]=r.right.q[i]; }
       WujiHandTeleopFrame h;
       if(hand_frames.tryReadLatest(h)) {
         left_fresh.observe(h); right_fresh.observe(h);
@@ -302,10 +355,14 @@ int main(int argc,char** argv) {
           if(h.right_valid) output.position_rad[i+34]=h.right[i];
         }
       }
+      // Use the same clock snapshot as dropout_wait and cycle.step: crossing
+      // 50 ms while solving is not an IK failure. The next cycle enters hold;
+      // the independent post-solve 300 ms deadline above remains authoritative.
+      const auto freshness_now=dropout?now:output.source_timestamp_ns;
       const bool live=active && r.freshness.live && r.control_executed && r.control.left.accepted && r.control.right.accepted &&
-          receive_stamp>0 && output.source_timestamp_ns>=receive_stamp &&
-          output.source_timestamp_ns-receive_stamp<=static_cast<std::int64_t>(config.cartesian_servo.target_timeout_seconds*1e9) &&
-          jointCommandPicoBridgeFresh(bridge_stamp,output.source_timestamp_ns);
+          receive_stamp>0 && freshness_now>=receive_stamp &&
+          freshness_now-receive_stamp<=static_cast<std::int64_t>(config.cartesian_servo.target_timeout_seconds*1e9) &&
+          jointCommandPicoBridgeFresh(bridge_stamp,freshness_now);
       // The kernel uses epoch_reset for both a new tracking epoch and an
       // accepted same-epoch stream resynchronization. Only the latter may
       // continue in simulation, after rebuilding references in cycle.step().
@@ -315,6 +372,12 @@ int main(int argc,char** argv) {
       const bool reset_requires_hold=(r.epoch_reset && !same_epoch_resync) ||
           r.button_action!=PicoTeleopButtonAction::kNone;
       const bool arm_ready=readiness.update(live,reset_requires_hold);
+      if(dropout && !dropout_fault && live && sample && sample->sequence!=valid_sequence &&
+         r.applied_sequence==sample->sequence) {
+        input_valid_ns=std::min(sample->receive_monotonic_ns,sample->bridge_send_monotonic_ns);
+        valid_sequence=sample->sequence; valid_generation=sample->resynchronization_generation;
+        valid_button=sample->user_button_pressed;
+      }
       if(recovery && active && offered && (r.epoch_reset || r.button_action!=PicoTeleopButtonAction::kNone)) {
         if(reset_requires_hold) { active=false; blocked=true; armed=false; }
         if(latest) {
@@ -344,8 +407,8 @@ int main(int argc,char** argv) {
           ((!recovery || active) && left_fresh.live(output.source_timestamp_ns)?kJointCommandLeftHandReadyFlag:0U) |
           ((!recovery || active) && right_fresh.live(output.source_timestamp_ns)?kJointCommandRightHandReadyFlag:0U));
       if(event_channel) {
-        // No ready-bit fabrication. Only state=2 authorizes the executor to
-        // hold its own last command, with independent feedback/timeout guards.
+        // No ready-bit fabrication: holds authorize only the executor's own
+        // last command, with its independent feedback and timeout guards.
         const bool event_fresh=input_event.receive_ns>0 && now>=input_event.receive_ns &&
           now-input_event.receive_ns<=50000000 && jointCommandPicoBridgeFresh(input_event.bridge_ns,now);
         const bool hold_ok=pending && offered && latest && event_fresh &&
@@ -354,19 +417,23 @@ int main(int argc,char** argv) {
         unsigned event_state=arm_ready?1:5; // IK/output not accepted
         if(hold_ok) event_state=2;
         else if(same_epoch_resync && arm_ready) event_state=3;
-        if(!event_fresh || input_event.state==0) event_state=4; // source invalid/stale
+        if(dropout_wait) event_state=9;
+        if((!event_fresh && !dropout_wait) || input_event.state==0) event_state=4; // source invalid/stale
         if(pending && now-pending_since>100000000) event_state=8;
         if((input_event.epoch!=last_applied_epoch && offered) || (r.epoch_reset && !same_epoch_resync && offered)) event_state=6;
         if(r.button_action!=PicoTeleopButtonAction::kNone ||
            (pending && latest && input_event.button!=latest->user_button_pressed)) event_state=7;
-        if(offered && event_state>=4 && !bounded_fault && (!real_calibrate || calibration_locked)) { bounded_fault=true; bounded_fault_reason=event_state; }
+        if(dropout_fault) event_state=dropout_fault;
+        if(offered && event_state>=4 && event_state!=9 && !bounded_fault && (!real_calibrate || calibration_locked)) { bounded_fault=true; bounded_fault_reason=event_state; }
         if(bounded_fault) event_state=bounded_fault_reason;
         if(event_state>=4) output.flags &= ~kJointCommandArmsReadyFlag;
-        // During a pending jump cycle no kernel result exists; retain identity.
-        if(pending) output.pico_tracking_epoch=last_applied_epoch;
+        // Frozen cycles have no kernel result; retain the applied identity.
+        if(pending || (dropout && active && offered && !step_enabled)) output.pico_tracking_epoch=last_applied_epoch;
+        dropout_holding=event_state==9;
         sendRealEvent(event_fd,event_token,event_state,output.sequence,
                       latest?latest->resynchronization_generation:0,output,
-                      real_calibrate,calibration_revision,calibration_epoch,real_calibration_state,offsets);
+                      real_calibrate,calibration_revision,calibration_epoch,real_calibration_state,offsets,
+                      dropout,input_valid_ns);
       }
       exporter.send(output);
       if(target_observer && output.sequence%4==0) target_observer->publish(r,output.sequence,output.source_timestamp_ns,live);

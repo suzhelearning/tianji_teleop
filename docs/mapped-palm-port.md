@@ -18,7 +18,9 @@
 - 真机入口只新增后端选择；仍经过原有实际反馈初始化、降速、限位、
   多次 Enter 确认和退出处理。**离线通过不代表真机验收。**
 - 输入失鲜撤销机械臂 ready；已接管后 tracking epoch/reset 改变会锁住 ready，
-  不静默跨 epoch 恢复。新仿真入口可用下面的 P/R/S 受控恢复；真机仍保留原锁存策略。
+  不静默跨 epoch 恢复。新仿真入口可用下面的 P/R/S 受控恢复；真机默认仅对 TELEOP
+  的纯 PICO 断流提供从最后有效输入起 300 ms 的保持/恢复窗口，其他故障仍锁存。
+  详见 [真机断流策略](mapped-palm-real-readiness.md)；可用 `--mapped-palm-dropout-policy stop` 禁用该例外。
 
 ## 构建
 

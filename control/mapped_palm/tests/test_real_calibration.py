@@ -17,8 +17,11 @@ class NativeCalibrationTests(unittest.TestCase):
     def test_c_failed_retry_and_lock_with_bounded(self):
         self.exercise(True)
 
-    def exercise(self,bounded):
-        receiver=EventReceiver(CommandReceiver(0),bounded=bounded,calibration=True)
+    def test_c_success_lock_and_epoch_invalidation_with_dropout(self):
+        self.exercise(True, dropout=True)
+
+    def exercise(self,bounded,dropout=False):
+        receiver=EventReceiver(CommandReceiver(0),bounded=bounded,calibration=True,dropout=dropout)
         source=socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
         source.bind(('127.0.0.1',0)); port=source.getsockname()[1]; source.close()
         source=socket.socket(socket.AF_INET,socket.SOCK_DGRAM)

@@ -18,6 +18,7 @@ from __future__ import annotations
 import math
 
 from .safety import MotionGate, SafetyFault, _finite_vector, _slew
+from .protocol import ARMS_READY
 from .settling import FeedbackRest
 
 WAITING = "WAITING"
@@ -85,30 +86,39 @@ class StagedMotionGate(MotionGate):
         self._settle_since_ns = None
         self._targets = {}
         self.bounded_resync = False
+        self.dropout_hold = False
+        self._dropout_since = None
+        self._dropout_ready = None
         self.calibration_guard = None
         self._resync_since = None
         self._resync_generation = None
         self._event_sequence = 0
 
     def allow_unready_hold(self, device, frame, now_ns):
-        return (self.bounded_resync and device=='arms' and self.armed and
-                self.phase==TELEOP and getattr(frame,'event_state',None)==2 and
-                frame.tracking_epoch==self._epoch and self._resync_since is not None and
-                0<=now_ns-self._resync_since<=100_000_000)
+        if device!='arms' or not self.armed or self.phase!=TELEOP or frame.tracking_epoch!=self._epoch:
+            return False
+        if self.dropout_hold and getattr(frame,'event_state',None)==9:
+            return (self._dropout_since is not None and
+                    0<=now_ns-self._dropout_since<=300_000_000)
+        return (self.bounded_resync and getattr(frame,'event_state',None)==2 and
+                self._resync_since is not None and 0<=now_ns-self._resync_since<=100_000_000)
 
     def validate_targets(self, frame, now_ns):
         if self.calibration_guard is not None:
             self.calibration_guard.check(frame,now_ns,locked=self.armed)
-        if self.bounded_resync:
+        if self.bounded_resync or self.dropout_hold:
             from .mapped_events import EventFrame,FAULTS
             if not isinstance(frame,EventFrame):
-                raise SafetyFault('bounded policy requires matched private native events')
+                raise SafetyFault('hold policy requires matched private native events')
+            if frame.event_state in FAULTS:
+                raise SafetyFault('native '+FAULTS[frame.event_state])
+        if self.dropout_hold:
+            self._validate_dropout(frame,now_ns)
+        if self.bounded_resync:
             if not self.armed:
                 self._resync_since=None
                 if frame.event_state==2:
                     raise SafetyFault('cannot enable during source resynchronization')
-            if frame.event_state in FAULTS:
-                raise SafetyFault('native '+FAULTS[frame.event_state])
             if self._resync_since is not None and now_ns-self._resync_since>100_000_000:
                 raise SafetyFault('resynchronization hold timeout')
             if frame.sequence>self._event_sequence:
@@ -126,6 +136,46 @@ class StagedMotionGate(MotionGate):
                     self._resync_since=None
                 self._event_sequence=frame.sequence
         super().validate_targets(frame,now_ns)
+        if self.dropout_hold:
+            # Remember only a fully validated predecessor, never a rejected
+            # target or a pending resynchronization.
+            if frame.event_state in (1,3):
+                self._dropout_ready=(frame.tracking_epoch,frame.generation,frame.input_valid_ns)
+                self._dropout_since=None
+            elif frame.event_state!=9:
+                self._dropout_ready=None
+
+    def _validate_dropout(self, frame, now_ns):
+        source=frame.input_valid_ns
+        if source<=0 or source>frame.timestamp_ns or source>now_ns:
+            raise SafetyFault('invalid PICO input timestamp')
+        if self.armed and frame.tracking_epoch!=self._epoch:
+            raise SafetyFault('PICO tracking epoch changed during real teleoperation')
+        predecessor=self._dropout_ready
+        if predecessor is not None and source<predecessor[2]:
+            raise SafetyFault('PICO input timestamp rollback')
+        # Check the original source deadline BEFORE accepting a recovered frame.
+        # Even missing/coalesced hold events cannot allow a late packet to renew it.
+        since=self._dropout_since
+        if since is None and self.armed and self.phase==TELEOP and predecessor is not None:
+            since=predecessor[2]
+        if since is not None and not 0<=now_ns-since<=300_000_000:
+            raise SafetyFault('PICO dropout hold timeout')
+        if frame.event_state==9:
+            if not self.armed or self.phase!=TELEOP:
+                raise SafetyFault('PICO dropout hold requires armed TELEOP')
+            if frame.flags&ARMS_READY or predecessor!=(frame.tracking_epoch,frame.generation,source):
+                raise SafetyFault('PICO dropout has no matching validated predecessor')
+            if self._resync_since is not None:
+                raise SafetyFault('PICO dropout during source resynchronization')
+            self._dropout_since=source
+        elif self._dropout_since is not None:
+            if frame.event_state!=1 or predecessor[:2]!=(frame.tracking_epoch,frame.generation):
+                raise SafetyFault('PICO dropout recovery identity/state changed')
+            if source<=self._dropout_since:
+                raise SafetyFault('PICO dropout recovery requires a new valid input')
+        if frame.event_state in (1,3,9) and now_ns-source>300_000_000:
+            raise SafetyFault('PICO dropout hold timeout')
 
     @property
     def phase(self) -> str:
@@ -218,6 +268,8 @@ class StagedMotionGate(MotionGate):
             raise SafetyFault("homing requires an active TELEOP session")
         try:
             self.observe_source(frame, now_ns)
+            if self._dropout_since is not None:
+                raise SafetyFault('cannot start homing during PICO dropout hold')
             for device in self.devices:
                 self.check_feedback(device, feedback[device], now_ns, require_enabled=True)
         except SafetyFault as error:
@@ -251,8 +303,9 @@ class StagedMotionGate(MotionGate):
                                      feedback[device].received_monotonic_ns)
                 if phase == TELEOP:
                     limit = settings["maximum_speed_rad_s"]
-                    target = (previous if self.bounded_resync and getattr(frame,'event_state',None)==2
-                              else frame.positions(device))
+                    holding = ((self.bounded_resync and getattr(frame,'event_state',None)==2) or
+                               (self.dropout_hold and self._dropout_since is not None))
+                    target = previous if holding else frame.positions(device)
                     self._targets[device] = tuple(float(value) for value in target)
                 else:
                     limit = min(settings["maximum_speed_rad_s"], self._slow_speed)

@@ -18,8 +18,11 @@ class NativeEventTests(unittest.TestCase):
     def test_unconfirmed_jump_times_out_and_latches(self):
         self.exercise(True)
 
-    def exercise(self, timeout):
-        receiver=EventReceiver(CommandReceiver(0))
+    def test_dropout_policy_keeps_bounded_resync_outside_dropout(self):
+        self.exercise(False, dropout=True)
+
+    def exercise(self, timeout, dropout=False):
+        receiver=EventReceiver(CommandReceiver(0),dropout=dropout)
         source=socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
         source.bind(('127.0.0.1',0)); port=source.getsockname()[1]; source.close()
         source=socket.socket(socket.AF_INET,socket.SOCK_DGRAM)

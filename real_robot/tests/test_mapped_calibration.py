@@ -13,7 +13,8 @@ from test_staged_motion import gate,frame,feedback,NOW,TICK
 def calibrated(state=2,revision=1,epoch=7,stamp=NOW,sequence=1):
     base=frame(stamp=stamp,epoch=epoch,sequence=sequence)
     return EventFrame(**base.__dict__,event_state=1,generation=0,
-                      calibration_revision=revision,calibration_epoch=7,calibration_state=state)
+                      calibration_revision=revision,calibration_epoch=7,calibration_state=state,
+                      input_valid_ns=stamp)
 
 
 class CalibrationTests(unittest.TestCase):

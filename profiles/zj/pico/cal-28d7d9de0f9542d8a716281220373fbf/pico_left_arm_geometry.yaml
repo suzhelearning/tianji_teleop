@@ -12,8 +12,8 @@ elbow_center_pico_m:
 - -0.3674448797839606
 - -0.05741887482831713
 - -0.4359642556212517
-upper_arm_length_m: 0.2687097612258666
-forearm_length_m: 0.18840744954832805
+upper_arm_length_m: 0.276315
+forearm_length_m: 0.247517
 covariance_tangent_order:
 - shoulder_x_m
 - shoulder_y_m

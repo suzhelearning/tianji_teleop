@@ -279,6 +279,8 @@ def main(argv=None):
     parser.add_argument("--ik-backend", choices=("spark", "mapped-palm"), default="spark")
     parser.add_argument('--mapped-palm-resync-policy',choices=('stop','bounded'),default='stop',
                         help='bounded: experimental private-event limited hold; default stop')
+    parser.add_argument('--mapped-palm-dropout-policy',choices=('stop','hold-300ms'),default='hold-300ms',
+                        help='mapped-palm arms: hold last commands up to 300 ms from last valid PICO input; default hold-300ms')
     parser.add_argument('--mapped-palm-xz-calibration',action='store_true',
                         help='mapped-palm real only: terminal C before first Enter; no motor authority from C')
     parser.add_argument("--devices", choices=tuple(DEVICE_SELECTIONS),
@@ -309,13 +311,16 @@ def main(argv=None):
     base = config_path.parent
     bounded = args.mapped_palm_resync_policy=='bounded'
     real_calibration=args.mapped_palm_xz_calibration
+    dropout=(args.mapped_palm_dropout_policy=='hold-300ms' and
+             args.ik_backend=='mapped-palm' and 'arms' in devices and not args.inspect)
     if bounded and (args.ik_backend!='mapped-palm' or 'arms' not in devices or args.inspect):
         parser.error('bounded requires mapped-palm arms, not inspect')
     if real_calibration and (args.ik_backend!='mapped-palm' or 'arms' not in devices or not args.confirm_real):
         parser.error('real C calibration requires mapped-palm arms and --confirm-real')
-    event_channel=bounded or real_calibration
+    event_channel=bounded or real_calibration or dropout
     config=dict(config,mapped_palm_resync_policy=args.mapped_palm_resync_policy,
-                mapped_palm_xz_calibration=real_calibration)
+                mapped_palm_xz_calibration=real_calibration,
+                mapped_palm_dropout_policy='hold-300ms' if dropout else 'stop')
     if args.ik_backend == "mapped-palm":
         # Only controller assets change; driver settings, measured startup,
         # physical limits and operator confirmations remain the original path.
@@ -367,7 +372,7 @@ def main(argv=None):
             receiver = CommandReceiver(config["command_port"])
             if event_channel:
                 from real_robot.mapped_events import EventReceiver
-                receiver=EventReceiver(receiver,bounded=bounded,calibration=real_calibration)
+                receiver=EventReceiver(receiver,bounded=bounded,calibration=real_calibration,dropout=dropout)
         if args.dataset is not None:
             from data_collection.integration import CollectionSession
             collection = CollectionSession(args.dataset, args.task, args.collection_config,
@@ -409,6 +414,8 @@ def main(argv=None):
                 if staged else MotionGate(config["safety"], devices))
         if bounded and staged:
             gate.bounded_resync=True
+        if dropout and staged:
+            gate.dropout_hold=True
         calibration_guard=None
         if real_calibration:
             from real_robot.mapped_calibration import CalibrationGuard
@@ -428,6 +435,7 @@ def main(argv=None):
         enabled_devices = set()
         confirmation_prompted = False
         next_visual = 0.0
+        dropout_was_holding=False
 
         def check_monitor():
             if real_viewer is not None and not real_viewer.is_running():
@@ -644,6 +652,13 @@ def main(argv=None):
                         message=_STAGED_STATUS[gate.phase]
                         if bounded and gate._resync_since is not None:
                             message+=' | 同 epoch 重同步待确认：保持最后命令（上限 100 ms）'
+                        holding=dropout and gate._dropout_since is not None
+                        if holding:
+                            message='PICO 短暂掉线：保持最后命令（距最后有效输入最多 300 ms） | '+message
+                        elif dropout_was_holding:
+                            status.update('PICO 已恢复：从保持命令限速继续')
+                            status.finish()
+                        dropout_was_holding=holding
                         status.update(message)
                         update_monitor(packet, measured)
                         if gate.phase == "HOME_REACHED":
