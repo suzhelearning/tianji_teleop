@@ -1,0 +1,77 @@
+{
+  "source_commit": "5875d0b9d1557a4eca118387cf79e99f3c14cb1d",
+  "model_commit": "8271644a78d69ed9a4adcf9165d882c64ad33dfa",
+  "transformation": "none",
+  "files": [
+    {
+      "destination": "LICENSE",
+      "source": "LICENSE",
+      "sha256": "8c0114d9f726c5aa4aa31a427123df7b2d250c89a89aea92bb428cc31d03d05e"
+    },
+    {
+      "destination": "example/tj_wuji2_hand_bridge.py",
+      "source": "example/tj_wuji2_hand_bridge.py",
+      "sha256": "ef7ad3b1f9c389a5fc3a0f970e11f7fffeaa9f0af217b3fd45430fb6228e76cb"
+    },
+    {
+      "destination": "wuji_retargeting/__init__.py",
+      "source": "wuji_retargeting/__init__.py",
+      "sha256": "606f13f4b3516403f4e0bc0ee1b5492be34b4518b1c29c33fc47dcbbf9fd8adb"
+    },
+    {
+      "destination": "wuji_retargeting/mediapipe.py",
+      "source": "wuji_retargeting/mediapipe.py",
+      "sha256": "3da20bf3df1963c84f5d66d17ec340d3b01cb63d6b0b022e512c4a9324ed7510"
+    },
+    {
+      "destination": "wuji_retargeting/retarget.py",
+      "source": "wuji_retargeting/retarget.py",
+      "sha256": "42607596d0cdd39e0d5c7de84b12abe968d0b76883210fb377d25efaee73fd24"
+    },
+    {
+      "destination": "wuji_retargeting/robot.py",
+      "source": "wuji_retargeting/robot.py",
+      "sha256": "eb036c60a11ad387b2d96d1a0ab9315283f9024c2d6d444133c1ace71354fa86"
+    },
+    {
+      "destination": "wuji_retargeting/opt/__init__.py",
+      "source": "wuji_retargeting/opt/__init__.py",
+      "sha256": "8c70dcabb56527ee2c5ebf0fa9db1bae6431fa223c9b1e3681ca8133cd6961d4"
+    },
+    {
+      "destination": "wuji_retargeting/opt/base.py",
+      "source": "wuji_retargeting/opt/base.py",
+      "sha256": "841b59c0b8609de4c3b7e6f477248edf6b2e0e5da939f2970dfa3631bfce6c3b"
+    },
+    {
+      "destination": "wuji_retargeting/opt/vector.py",
+      "source": "wuji_retargeting/opt/vector.py",
+      "sha256": "5dd34984542430b327445565920da79e49c48e6a1aab37cc7f2328baa5e6c5ef"
+    },
+    {
+      "destination": "wuji_retargeting/opt/adaptive_analytical.py",
+      "source": "wuji_retargeting/opt/adaptive_analytical.py",
+      "sha256": "61c6b9e42ff5c072fa61140e87dbbe039ce38004b10999cd6b094a6529df85f4"
+    },
+    {
+      "destination": "example/config/adaptive_analytical_manus_wuji_hand_2_left.yaml",
+      "source": "example/config/adaptive_analytical_manus_wuji_hand_2_left.yaml",
+      "sha256": "9bbcd8bbe898a6b942aa972f6aaa28e9ec69ebdf7ed6ecb89fe48553fbb05770"
+    },
+    {
+      "destination": "example/config/adaptive_analytical_manus_wuji_hand_2_right.yaml",
+      "source": "example/config/adaptive_analytical_manus_wuji_hand_2_right.yaml",
+      "sha256": "4f45c09d8f9847e3e2f44c30a9c91ad7532452e4911d6870ddb7b5c7a303c94b"
+    },
+    {
+      "destination": "wuji_retargeting/wuji-description/hand2/hand2_beta1/body/urdf/left.urdf",
+      "source": "remote-reference-asset/urdf/left.urdf",
+      "sha256": "cec0a7eb6a34fd82e200def7b75c1d477fad790b2de903aec58e59991994c471"
+    },
+    {
+      "destination": "wuji_retargeting/wuji-description/hand2/hand2_beta1/body/urdf/right.urdf",
+      "source": "remote-reference-asset/urdf/right.urdf",
+      "sha256": "1ae70be3f5e64532203e599eaa98d2af368d0214be9c949a358b7abaa8b6265a"
+    }
+  ]
+}

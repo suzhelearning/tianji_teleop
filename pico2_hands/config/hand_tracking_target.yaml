@@ -1,0 +1,89 @@
+# Simulation-only PICO2 target source.
+#
+# The observation process publishes the PICO2 FLU wrist pose relative to the
+# current head frame.  This profile freezes that pose on `s` and applies the
+# delta to the calibrated Tianji TCP home pose.  No target conditioning is
+# enabled by default; the existing IK producer remains responsible for its
+# own bounded solve path.
+input_profile: pico
+simulation_only: true
+rate_hz: 60.0
+arm_input_max_age_s: 0.5
+active_sides: [left, right]
+active_hand_sides: [left, right]
+arm_input_source: pico
+
+hand_adapter: fixed_rotation
+hand_adapter_config:
+  source: pico
+  coordinate_frame: pico_tracking_initial_wrist_relative
+  max_age_s: 0.5
+  rotation:
+    left: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+    right: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+
+arm_pose_mapper: relative_home
+arm_pose_mapper_config:
+  # T_ik_tcp_hand_center: hand-center axes match the original IK TCP axes.
+  # Keep home_pose as the original TCP home; the mapper derives hand-center
+  # home automatically, avoiding a 36.5 mm jump when teleop starts.
+  ik_tcp_to_control_pose:
+    left: [0.0, 0.0, 0.0365, 0.0, 0.0, 0.0, 1.0]
+    right: [0.0, 0.0, 0.0365, 0.0, 0.0, 0.0, 1.0]
+  home_pose:
+    left: [0.5733, 0.2237, 0.2762, 0.0067, 0.7270, 0.0111, 0.6865]
+    right: [0.5733, -0.2237, 0.2762, -0.0067, 0.7270, -0.0111, 0.6865]
+  # PICO2 already publishes FLU (X forward, Y left, Z up), so only the
+  # historical side-specific world->chest basis is required here.
+  input_to_base_rotation:
+    left: [[1.0, 0.0, 0.0], [0.0, 0.0, -1.0], [0.0, 1.0, 0.0]]
+    right: [[1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, -1.0, 0.0]]
+  expected_reference_frame: pico_head_current
+  expected_tracked_frame: wrist
+
+# Optional head_direct geometry, independent of the wrist pose when s is pressed.
+# Nominal virtual head: 0.30 m above midpoint of Base_L/Base_R origins.
+# Base origins in Link_Stand: [0,+/-0.037,0.140], rotations Rx(-/+90deg).
+# This is simulation calibration, not measured PICO-to-robot extrinsics.
+head_direct_mapper_config:
+  input_to_base_rotation:
+    left: [[1.0, 0.0, 0.0], [0.0, 0.0, -1.0], [0.0, 1.0, 0.0]]
+    right: [[1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, -1.0, 0.0]]
+  input_origin_in_base_m:
+    left: [0.0, -0.30, -0.037]
+    right: [0.0, 0.30, -0.037]
+  # Fixed neutral wrist->TCP rotation = R_base_head^-1 * R_home.
+  # Translation = R_wrist_tcp * [0,0,-0.0365], retaining hand-center convention.
+  tracked_to_tcp_pose:
+    left: [-0.036439422984084625, 0.002086690785164705, 0.0002533261811856455, -0.48069615306401814, 0.5219209040549453, -0.5062229714306127, 0.4901714817651919]
+    right: [-0.036439422984084625, -0.002086690785164705, 0.0002533261811856455, 0.48069615306401814, 0.5219209040549453, 0.5062229714306127, 0.4901714817651919]
+  expected_reference_frame: pico_head_current
+  expected_tracked_frame: wrist
+
+# Independent calibration: still consumes PICO2 Wrist, NOT a skeleton Palm pose.
+# Provisional simulation corrections; tune after checking local axes in viewer.
+head_palm_direct_mapper_config:
+  head_forward_offset_m: 0.10  # fixed virtual-head +X, independent of wrist rotation
+  head_height_offset_m: -0.10  # virtual-head Z, negative lowers both arms equally
+  tcp_local_z_correction_deg:
+    left: 90.0
+    right: -90.0
+  input_to_base_rotation:
+    left: [[1.0, 0.0, 0.0], [0.0, 0.0, -1.0], [0.0, 1.0, 0.0]]
+    right: [[1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, -1.0, 0.0]]
+  input_origin_in_base_m:
+    left: [0.0, -0.30, -0.037]
+    right: [0.0, 0.30, -0.037]
+  tracked_to_tcp_pose:
+    left: [-0.036439422984084625, 0.002086690785164705, 0.0002533261811856455, -0.48069615306401814, 0.5219209040549453, -0.5062229714306127, 0.4901714817651919]
+    right: [-0.036439422984084625, -0.002086690785164705, 0.0002533261811856455, 0.48069615306401814, 0.5219209040549453, 0.5062229714306127, 0.4901714817651919]
+  expected_reference_frame: pico_head_current
+  expected_tracked_frame: wrist
+
+arm_target_processor: passthrough
+arm_target_processor_config: {}
+
+# Existing shared MuJoCo/IK defaults for the two Tianji arm planes.
+elbow_reference_direction:
+  left: [0.45638698, -0.74604902, -0.48489358]
+  right: [0.45638698, 0.74604902, -0.48489358]
