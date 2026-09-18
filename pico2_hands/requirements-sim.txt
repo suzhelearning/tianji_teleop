@@ -1,0 +1,7 @@
+# Tested simulation manager dependencies; Python 3.11+.
+# Optional separate pico2_hands/.venv, not an upgrade of existing routes.
+numpy==2.4.6
+scipy==1.17.1
+h5py==3.16.0
+PyYAML==6.0.3
+mujoco==3.10.0

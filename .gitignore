@@ -30,6 +30,7 @@ build/
 # runtime diagnostics and raw hand recordings
 MUJOCO_LOG.TXT
 /manus/recordings/
+/recordings/
 /logs/real/
 /dataset/
 /dataset_jpeg50/
