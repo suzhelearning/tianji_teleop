@@ -1,5 +1,11 @@
 # 天机遥操数据采集
 
+PICO2 裸手已有独立[仿真入口 `pico2_sim.sh`](pico2_hands/README.md)，
+已通过合成输入／假 TCP 测试，用户已进行真实 PICO 输入仿真并录制；
+跟踪抖动仍是已知限制，不能视为性能验收完成；不支持真机。
+现有 VR、Manus、外骨骼入口及默认算法不变。
+详见[实施方案](docs/pico2-hands-design-and-plan.md)。
+
 2026-09-15 已合入 mapped-palm 路线及退出清理修复，保留本工程原生外骨骼输入。
 合并范围、当前环境和验证限制见 [合并记录](docs/merge-mapped-palm-2026-09-15.md)。
 
