@@ -17,7 +17,7 @@ CONFIG = Path(__file__).resolve().parents[1] / "config.json"
 
 class HomeTests(unittest.TestCase):
     def setUp(self):
-        self.config = json.loads(CONFIG.read_text())
+        self.config, _ = return_home.load_configuration(CONFIG, "arms")
         self.home = tuple(self.config["staged_motion"]["home_left_rad"] +
                           self.config["staged_motion"]["home_right_rad"])
         self.now = 10_000_000_000
@@ -113,6 +113,32 @@ class HomeTests(unittest.TestCase):
         self.assertEqual(state.actual, self.home)
         self.assertEqual(state.cleanup, ["stop", "close"])
         self.assertFalse(state.enabled)
+
+    def test_home_uses_synchronized_bounded_trajectory_from_stationary_hold(self):
+        gate = return_home.ArmHomeGate(self.config)
+        start = list(self.home)
+        start[0] += .1
+        start[7] -= .05
+        start = tuple(start)
+        gate.begin(self.feedback(start), self.now)
+        command = start
+        old_velocity = (0.0,) * 14
+        for _ in range(2000):
+            self.now += 5_000_000
+            previous = command
+            command = gate.advance(self.feedback(previous), self.now)
+            velocity = tuple((b - a) / .005 for a, b in zip(previous, command))
+            self.assertAlmostEqual((start[0] - command[0]) / .1,
+                                   (command[7] - start[7]) / .05, places=11)
+            self.assertLessEqual(max(abs(v) for v in velocity), .1 + 1e-10)
+            self.assertLessEqual(max(abs(v - old) / .005 for v, old in zip(velocity, old_velocity)),
+                                 .2 + 1e-8)
+            old_velocity = velocity
+            if gate.phase == "HOME_REACHED":
+                break
+        self.assertEqual(gate.phase, "HOME_REACHED")
+        self.assertEqual(command, self.home)
+        self.assertTrue(gate.staged_stopped)
 
     def test_interrupt_stops_without_completing_home_and_closes(self):
         result, state = self.run_command(interrupt=True)

@@ -1,11 +1,13 @@
 """Behavioral checks for the simulation-only dynamics, without a controller or GUI."""
 from pathlib import Path
+import tempfile
 import unittest
 
 import mujoco
 import numpy as np
 
 from real_robot.protocol import ARMS_READY, LEFT_HAND_READY, CommandFrame
+from control.model_assets import OBJECT_BODY_NAME
 from sim.physics import PhysicsSimulation
 
 
@@ -100,6 +102,47 @@ class PhysicsTests(unittest.TestCase):
                 mujoco.mj_contactForce(sim.model, sim.data, index, force)
                 normal_force += abs(force[0])
         self.assertGreater(normal_force, 0.01)
+
+    def test_visual_object_overlapping_robot_does_not_change_dynamics(self):
+        with tempfile.TemporaryDirectory() as directory:
+            mesh = Path(directory) / "cube.obj"
+            mesh.write_text(
+                "v -0.1 -0.1 -0.1\nv 0.1 -0.1 -0.1\n"
+                "v 0.1 0.1 -0.1\nv -0.1 0.1 -0.1\n"
+                "v -0.1 -0.1 0.1\nv 0.1 -0.1 0.1\n"
+                "v 0.1 0.1 0.1\nv -0.1 0.1 0.1\n"
+                "f 1 3 2\nf 1 4 3\nf 5 6 7\nf 5 7 8\n"
+                "f 1 2 6\nf 1 6 5\nf 4 8 7\nf 4 7 3\n"
+                "f 1 5 8\nf 1 8 4\nf 2 3 7\nf 2 7 6\n",
+                encoding="utf-8",
+            )
+            decorated = PhysicsSimulation(
+                ROOT / "models/marvin_m6_wuji2.xml",
+                ROOT / "config/qp_ik_pico_teleop.yaml",
+                object_mesh=mesh,
+            )
+        baseline = self.sim
+        targets = baseline.targets.copy()
+        targets[0] += 0.1
+        targets[16] = 0.3
+        frame = self.frame(targets, ARMS_READY | LEFT_HAND_READY)
+        baseline.set_targets(frame)
+        decorated.set_targets(frame)
+        object_geom = decorated.model.geom(OBJECT_BODY_NAME).id
+        mocap = decorated.model.body(OBJECT_BODY_NAME).mocapid[0]
+        for tick in range(50):
+            # A collidable 20 cm cube here would obstruct both finger chains.
+            side = "l" if tick < 25 else "r"
+            finger = decorated.model.body(f"{side}_index_finger_distal").id
+            decorated.data.mocap_pos[mocap] = decorated.data.xpos[finger]
+            baseline.step()
+            decorated.step()
+            self.assertFalse(any(object_geom in contact.geom for contact in decorated.data.contact))
+            np.testing.assert_allclose(decorated.data.qpos, baseline.data.qpos, rtol=0, atol=1e-12)
+            np.testing.assert_allclose(decorated.data.qvel, baseline.data.qvel, rtol=0, atol=1e-10)
+            np.testing.assert_allclose(
+                decorated.data.actuator_force, baseline.data.actuator_force, rtol=0, atol=1e-8,
+            )
 
     def test_numerical_failure_cannot_resume_as_success(self):
         sim = self.sim

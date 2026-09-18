@@ -2,7 +2,6 @@
 """Exercise the real headless controller using loopback-only synthetic inputs."""
 
 import argparse
-import ast
 import math
 from pathlib import Path
 import select
@@ -13,7 +12,7 @@ import subprocess
 import time
 import zlib
 
-from test_pico_viewer_integration import encode_packet, reserve_udp_port
+from test_pico_viewer_integration import configured_initial_posture, encode_packet, reserve_udp_port
 
 
 def hand_packet(sequence, left_valid, right_valid):
@@ -46,13 +45,9 @@ def main():
     parser.add_argument("--model", required=True)
     parser.add_argument("--continuous", action="store_true")
     args = parser.parse_args()
-    initial = {}
-    for line in Path(args.config).read_text().splitlines():
-        for side in ("left", "right"):
-            key = f"initial_{side}_q_rad:"
-            if line.strip().startswith(key):
-                initial[side] = ast.literal_eval(line.split(":", 1)[1].strip())
-    expected_initial = tuple(initial["left"] + initial["right"])
+    initial = configured_initial_posture(args.config)
+    assert initial is not None, "joint-command deployment requires an initial posture"
+    expected_initial = initial["initial_left_q_rad"] + initial["initial_right_q_rad"]
     pico_port, hand_port = reserve_udp_port(), reserve_udp_port()
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as receiver, \
             socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sender:

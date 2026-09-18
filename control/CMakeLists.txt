@@ -102,6 +102,11 @@ target_link_libraries(tianji_qp_ik PUBLIC
 )
 tianji_enable_warnings(tianji_qp_ik)
 
+# Pure stdin/stdout absolute-TCP worker; no hardware/network authority.
+add_executable(mocap_tcp_worker ../mocap_policy_runtime/native/tcp_worker.cpp)
+target_link_libraries(mocap_tcp_worker PRIVATE tianji_qp_ik)
+tianji_enable_warnings(mocap_tcp_worker)
+
 add_executable(tianji_qp_ik_benchmark apps/benchmark_solver.cpp)
 target_link_libraries(tianji_qp_ik_benchmark PRIVATE tianji_qp_ik)
 tianji_enable_warnings(tianji_qp_ik_benchmark)

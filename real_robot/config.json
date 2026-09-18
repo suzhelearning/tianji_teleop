@@ -41,9 +41,9 @@
   },
   "staged_motion": {
     "settle_speed_rad_s": 0.03,
-    "home_left_rad": [0.9599310886, -1.1344640138, -1.2217304764, -1.0471975512, 1.0471975512, 0.0, 0.0],
-    "home_right_rad": [-0.9599310886, -1.1344640138, 1.2217304764, -1.0471975512, -1.0471975512, 0.0, 0.0],
+    "home_config": "../control/mapped_palm/config/home.yaml",
     "maximum_speed_rad_s": 0.1,
+    "maximum_acceleration_rad_s2": 0.2,
     "timeout_s": 60.0,
     "settle_time_s": 0.2
   },
@@ -56,15 +56,15 @@
   "left_hand": {
     "serial": "WH2JA01260811019",
     "sdk_library": "vendor/wuji-sdk/lib/libwuji_sdk_c.so",
-    "kp": 4.2,
-    "kd": 0.07,
+    "kp": 6.0,
+    "kd": 0.1,
     "effort_limit_amps": 1.5
   },
   "right_hand": {
     "serial": "WH2KA01260814006",
     "sdk_library": "vendor/wuji-sdk/lib/libwuji_sdk_c.so",
-    "kp": 4.2,
-    "kd": 0.07,
+    "kp": 6.0,
+    "kd": 0.1,
     "effort_limit_amps": 1.5
   }
 }

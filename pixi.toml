@@ -25,6 +25,12 @@ configure = "cmake -S control -B control/build -G Ninja -DCMAKE_BUILD_TYPE=Relea
 build = "cmake --build control/build --parallel 4"
 test-native = "ctest --test-dir control/build --output-on-failure"
 build-manus = "bash manus/build.sh"
+h5_sim = ".venv/bin/python -m mocap_policy_runtime h5-sim"
+h5_real = ".venv/bin/python -m mocap_policy_runtime h5-real"
+rl_infer = ".venv/bin/python -m mocap_policy_runtime infer"
+rl_live_infer = ".venv/bin/python -m mocap_policy_runtime live"
+regrind_real = ".venv/bin/python -m mocap_policy_runtime regrind-real"
+regrind_hand_sim = ".venv/bin/python -m mocap_policy_runtime regrind-hand-sim"
 
 [feature.tracking]
 channels = ["conda-forge", "https://prefix.dev/robostack-staging"]

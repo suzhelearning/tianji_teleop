@@ -3,6 +3,7 @@
 #include <yaml-cpp/yaml.h>
 
 #include <cmath>
+#include <filesystem>
 #include <stdexcept>
 #include <string>
 
@@ -370,9 +371,40 @@ QpIkConfig loadConfig(const std::string& path) {
   config.controller.rate_hz = required<double>(controller, "rate_hz");
   config.controller.model_state_only = optionalBool(
       controller, "model_state_only", config.controller.model_state_only);
+  const bool has_home_config = static_cast<bool>(controller["home_config"]);
+  const bool has_initial_left =
+      static_cast<bool>(controller["initial_left_q_rad"]);
+  const bool has_initial_right =
+      static_cast<bool>(controller["initial_right_q_rad"]);
+  if (has_initial_left != has_initial_right) {
+    throw std::runtime_error(
+        "controller initial posture override requires both left and right "
+        "seven-value vectors");
+  }
   config.controller.initial_posture_enabled = optionalBool(
       controller, "initial_posture_enabled",
-      config.controller.initial_posture_enabled);
+      has_home_config || config.controller.initial_posture_enabled);
+  // Measured-state runtime configurations override Home as a complete pair.
+  // Do not resolve the deployment-relative path from their temporary location.
+  if (has_home_config && !has_initial_left) {
+    std::filesystem::path home_path =
+        required<std::string>(controller, "home_config");
+    if (home_path.empty()) {
+      throw std::runtime_error("controller.home_config must not be empty");
+    }
+    if (home_path.is_relative()) {
+      home_path = std::filesystem::path(path).parent_path() / home_path;
+    }
+    const YAML::Node home = YAML::LoadFile(home_path.string());
+    if (!home["left_home_rad"] || !home["right_home_rad"]) {
+      throw std::runtime_error(
+          "controller.home_config requires left_home_rad and right_home_rad");
+    }
+    config.controller.initial_left_q_rad = optionalStrictVector7(
+        home, "left_home_rad", config.controller.initial_left_q_rad);
+    config.controller.initial_right_q_rad = optionalStrictVector7(
+        home, "right_home_rad", config.controller.initial_right_q_rad);
+  }
   config.controller.initial_left_q_rad = optionalStrictVector7(
       controller, "initial_left_q_rad",
       config.controller.initial_left_q_rad);
@@ -380,11 +412,10 @@ QpIkConfig loadConfig(const std::string& path) {
       controller, "initial_right_q_rad",
       config.controller.initial_right_q_rad);
   if (config.controller.initial_posture_enabled &&
-      (!controller["initial_left_q_rad"] ||
-       !controller["initial_right_q_rad"])) {
+      !has_home_config && !has_initial_left) {
     throw std::runtime_error(
-        "enabled controller initial posture requires both left and right "
-        "seven-value vectors");
+        "enabled controller initial posture requires home_config or both "
+        "left and right seven-value vectors");
   }
 
   const YAML::Node control = root["control"];

@@ -79,8 +79,8 @@ class StagedMotionGateTests(unittest.TestCase):
     def test_tracking_fault_identifies_worst_joint_and_previous_setpoint(self):
         motion = gate()
         motion.arm(frame(value=.5), feedback(), NOW)
-        motion.step(frame(value=.5, stamp=NOW + TICK),
-                    feedback(enabled=True, stamp=NOW + TICK), NOW + TICK)
+        command = motion.step(frame(value=.5, stamp=NOW + TICK),
+                              feedback(enabled=True, stamp=NOW + TICK), NOW + TICK)
         positions = [0.0] * 14
         positions[2] = .20
         positions[9] = -.31
@@ -94,10 +94,10 @@ class StagedMotionGateTests(unittest.TestCase):
         self.assertEqual(detail["device"], "arms")
         self.assertEqual(detail["joint"], "Joint3_R")
         self.assertEqual(detail["joint_index"], 9)
-        self.assertAlmostEqual(detail["command_rad"], .0005)
+        self.assertEqual(detail["command_rad"], command["arms"][9])
         self.assertAlmostEqual(detail["actual_rad"], -.31)
-        self.assertAlmostEqual(detail["error_rad"], .3105)
-        self.assertAlmostEqual(detail["absolute_error_rad"], .3105)
+        self.assertAlmostEqual(detail["error_rad"], command["arms"][9] + .31)
+        self.assertAlmostEqual(detail["absolute_error_rad"], command["arms"][9] + .31)
         self.assertAlmostEqual(detail["limit_rad"], .14)
         self.assertAlmostEqual(detail["feedback_age_ms"], 2.0)
         self.assertAlmostEqual(detail["step_dt_ms"], 5.0)
@@ -132,7 +132,7 @@ class StagedMotionGateTests(unittest.TestCase):
         now += TICK
         motion.start_teleop(frame(value=.3, stamp=now), feedback(enabled=True, stamp=now, values=positions), now)
         motion.start_homing(frame(value=.3, stamp=now), feedback(enabled=True, stamp=now, values=positions), now)
-        for _ in range(2000):
+        for _ in range(4000):
             now += TICK
             # Contact displacement exceeds the former hand following-error limit.
             contact_positions = dict(positions)
@@ -167,19 +167,30 @@ class StagedMotionGateTests(unittest.TestCase):
         self.assertTrue(gate.armed)
         self.assertEqual(gate.phase, "ALIGNING")
         self.assertEqual(gate.display_targets["arms"], (1.0,)*14)
-        now = NOW + TICK
-        output = gate.step(frame(value=1.0, stamp=now), feedback(enabled=True, stamp=now), now)
-        self.assertEqual(set(output), set(ALL))
-        for device, positions in output.items():
-            self.assertAlmostEqual(positions[0], .0005)  # min(.1, per-device) * tick
-            self.assertNotEqual(positions[0], 0.0)       # no zero/ramp detour
+        now = NOW
+        previous = held()
+        moved = False
+        for _ in range(120):
+            now += TICK
+            output = gate.step(frame(value=1.0, stamp=now),
+                               feedback(enabled=True, stamp=now, values=previous), now)
+            self.assertEqual(set(output), set(ALL))
+            for device in ALL:
+                step = output[device][0] - previous[device][0]
+                self.assertGreaterEqual(step, 0)
+                self.assertLessEqual(step, .1 * TICK / 1e9 + 1e-12)
+                moved |= step > 0
+            previous = output
+        self.assertTrue(moved)
 
     def test_frozen_target_ignores_later_input_and_is_copy_safe(self):
         gate = StagedMotionGate(configuration(), ALL, settings())
         gate.arm(frame(value=.5), feedback(enabled=False), NOW)
         now = NOW + TICK
         output = gate.step(frame(value=1.5, stamp=now), feedback(enabled=True, stamp=now), now)
-        self.assertAlmostEqual(output["arms"][0], .0005)  # toward .5, not toward 1.5
+        # New live input cannot alter the frozen trajectory or its endpoint.
+        now, output = settle(gate, 1.5, output, now)
+        self.assertEqual(output["arms"], (.5,) * 14)
         self.assertEqual(gate.display_targets["arms"], (.5,)*14)
         snapshot = gate.display_targets
         snapshot["arms"] = (0.0,)*14
@@ -283,18 +294,46 @@ class StagedMotionGateTests(unittest.TestCase):
             disabled.step(frame(stamp=now), feedback(enabled=False, stamp=now), now)
         self.assertIsNotNone(disabled.fault)
 
-    def test_alignment_timeout_faults_with_detail(self):
-        gate = StagedMotionGate(configuration(), ALL, settings(timeout_s=.05))
-        gate.arm(frame(value=1.0), feedback(enabled=False), NOW)
+    def test_infeasible_approach_is_rejected_before_motion_and_latches_fault(self):
+        motion = gate(timeout_s=.05)
+        with self.assertRaisesRegex(SafetyFault, "requires at least"):
+            motion.arm(frame(value=1.0), feedback(enabled=False), NOW)
+        self.assertIsNotNone(motion.fault)
+        self.assertEqual(motion._last_commands, held())
+
+    def test_feasible_approach_still_faults_if_actual_feedback_never_settles(self):
+        motion = gate(timeout_s=3)
+        motion.arm(frame(value=.12), feedback(enabled=False), NOW)
         now = NOW
-        measured = held()
-        with self.assertRaises(SafetyFault) as caught:
-            for _ in range(40):
+        with self.assertRaisesRegex(SafetyFault, "did not settle"):
+            for _ in range(700):
                 now += TICK
-                measured = gate.step(frame(value=1.0, stamp=now),
-                                     feedback(enabled=True, stamp=now, values=measured), now)
-        self.assertIn("0.05 s", str(caught.exception))
-        self.assertIsNotNone(gate.fault)
+                motion.step(frame(value=.12, stamp=now), feedback(enabled=True, stamp=now), now)
+        self.assertIsNotNone(motion.fault)
+
+    def test_nonuniform_ticks_preserve_wall_time_velocity_and_acceleration_bounds(self):
+        motion = gate(settle_time_s=.05)
+        motion.arm(frame(value=.2), feedback(), NOW)
+        now, command = NOW, held()
+        old_velocity, old_dt = 0.0, 0.0
+        for index in range(2000):
+            dt_ns = (2_000_000, 13_000_000, 5_000_000, 9_000_000, 3_000_000)[index % 5]
+            dt = dt_ns / 1e9
+            now += dt_ns
+            motion.paused = 100 <= index < 180 or 350 <= index < 430
+            previous = command
+            command = motion.step(frame(value=.2, stamp=now),
+                                  feedback(enabled=True, stamp=now, values=previous), now)
+            velocity = (command["arms"][0] - previous["arms"][0]) / dt
+            self.assertLessEqual(abs(velocity), .1 + 1e-10)
+            # Sample-average velocities live at adjacent interval midpoints.
+            self.assertLessEqual(abs(velocity - old_velocity) / ((dt + old_dt) / 2),
+                                 .2 + 1e-8)
+            old_velocity, old_dt = velocity, dt
+            if motion.phase == "READY":
+                break
+        self.assertEqual(motion.phase, "READY")
+        self.assertEqual(command["arms"], (.2,) * 14)
 
     def test_invalid_home_and_premature_transitions_are_rejected(self):
         for home in ((math.nan,) + HOME_LEFT[1:], (3.0,) + HOME_LEFT[1:], HOME_LEFT[:6], None):
@@ -314,6 +353,150 @@ class StagedMotionGateTests(unittest.TestCase):
             gate.start_teleop(frame(), feedback(enabled=True), NOW)
         with self.assertRaises(SafetyFault):
             gate.start_homing(frame(), feedback(enabled=True), NOW)
+
+    def test_pause_brakes_and_early_resume_waits_for_measured_rest_without_jump(self):
+        motion = gate(settle_time_s=.05)
+        motion.arm(frame(value=.3), feedback(), NOW)
+        now, command = NOW, held()
+        for _ in range(200):
+            now += TICK
+            command = motion.step(frame(value=.3, stamp=now),
+                                  feedback(enabled=True, stamp=now, values=command), now)
+        self.assertFalse(motion.staged_stopped)
+        motion.paused = True
+        now += TICK
+        command = motion.step(frame(value=.3, stamp=now),
+                              feedback(enabled=True, stamp=now, values=command), now)
+        self.assertFalse(motion.staged_stopped)
+        motion.paused = False  # Cannot cancel the committed brake.
+        for _ in range(200):
+            now += TICK
+            command = motion.step(frame(value=.3, stamp=now),
+                                  feedback(enabled=True, stamp=now, values=command), now)
+            if motion.staged_stopped:
+                break
+        self.assertTrue(motion.staged_stopped)
+        stopped = command
+        self.assertLess(stopped["arms"][0], .3)
+        # Moving feedback inside pose tolerance is still not rest.
+        for index in range(30):
+            now += TICK
+            moving = {d: tuple(q + (.01 if index % 2 else -.01) for q in qs)
+                      for d, qs in stopped.items()}
+            command = motion.step(frame(value=.3, stamp=now),
+                                  feedback(enabled=True, stamp=now, values=moving), now)
+            self.assertEqual(command, stopped)
+            self.assertNotEqual(motion.phase, "READY")
+        # A stationary encoder offset must NOT become the new command seed.
+        lagged = {d: tuple(q + .02 for q in qs) for d, qs in stopped.items()}
+        for _ in range(40):
+            now += TICK
+            command = motion.step(frame(value=.3, stamp=now),
+                                  feedback(enabled=True, stamp=now, values=lagged), now)
+            if command != stopped:
+                break
+        self.assertGreater(command["arms"][0], stopped["arms"][0])
+        self.assertLess(command["arms"][0] - stopped["arms"][0], .1 * TICK / 1e9)
+        self.assertEqual(motion.display_targets["arms"], (.3,) * 14)
+        now, command = settle(motion, .3, command, now)
+        self.assertEqual(command["arms"], (.3,) * 14)
+
+    def test_repeated_pauses_do_not_consume_timeout_or_bypass_watchdogs(self):
+        motion = gate(timeout_s=3, settle_time_s=.05)
+        motion.arm(frame(value=.02), feedback(), NOW)
+        now, command = NOW, held()
+        for _ in range(3):
+            for _ in range(35):
+                now += TICK
+                command = motion.step(frame(value=.02, stamp=now),
+                                      feedback(enabled=True, stamp=now, values=command), now)
+            motion.paused = True
+            for _ in range(700):
+                now += TICK
+                command = motion.step(frame(value=.02, stamp=now),
+                                      feedback(enabled=True, stamp=now, values=command), now)
+                self.assertNotEqual(motion.phase, "READY")
+            self.assertTrue(motion.staged_stopped)
+            motion.paused = False
+        now, command = settle(motion, .02, command, now)
+        self.assertEqual(command["arms"], (.02,) * 14)
+        motion.paused = True
+        now += 200_000_000
+        with self.assertRaises(SafetyFault):
+            motion.step(frame(value=.02, stamp=now),
+                        feedback(enabled=True, stamp=now, values=command), now)
+        self.assertIsNotNone(motion.fault)
+
+    def test_initial_approach_waits_for_stationary_feedback_and_rejects_cached_rest(self):
+        motion = gate(settle_time_s=.05)
+        motion.arm(frame(value=.1), feedback(), NOW)
+        now = NOW
+        for index in range(50):
+            now += TICK
+            command = motion.step(frame(value=.1, stamp=now),
+                                  feedback(enabled=True, stamp=now, values=held(index * .001)), now)
+            self.assertEqual(command, held())
+        cached_stamp = now
+        for _ in range(20):
+            now += TICK
+            command = motion.step(frame(value=.1, stamp=now),
+                                  feedback(enabled=True, stamp=cached_stamp, values=held(.049)), now)
+            self.assertEqual(command, held())
+            self.assertNotEqual(motion.phase, "READY")
+
+    def test_homing_refuses_moving_teleop_but_allows_verified_stationary_handoff(self):
+        motion = gate(settle_time_s=.05)
+        motion.arm(frame(), feedback(), NOW)
+        now, command = settle(motion, 0.0, held(), NOW)
+        motion.start_teleop(frame(stamp=now), feedback(enabled=True, stamp=now, values=command), now)
+        now += TICK
+        command = motion.step(frame(value=.02, stamp=now),
+                              feedback(enabled=True, stamp=now, values=command), now)
+        with self.assertRaisesRegex(SafetyFault, "stationary"):
+            motion.start_homing(frame(value=.02, stamp=now),
+                                feedback(enabled=True, stamp=now, values=command), now)
+        self.assertEqual(motion.phase, "TELEOP")
+        self.assertIsNone(motion.fault)
+        for _ in range(50):
+            now += TICK
+            command = motion.step(frame(value=.02, stamp=now),
+                                  feedback(enabled=True, stamp=now, values=command), now)
+        motion.start_homing(frame(value=.02, stamp=now),
+                            feedback(enabled=True, stamp=now, values=command), now)
+        self.assertEqual(motion.phase, "HOMING")
+
+    def test_moving_finger_targets_do_not_block_stationary_arm_home(self):
+        motion = gate(settle_time_s=.05)
+        motion.arm(frame(), feedback(), NOW)
+        now, command = settle(motion, 0.0, held(), NOW)
+        motion.start_teleop(frame(stamp=now), feedback(enabled=True, stamp=now, values=command), now)
+        now += TICK
+        source = CommandFrame(1, now, 7, 7, (0.0,) * 7, (0.0,) * 7, (.8,) * 20, (.6,) * 20)
+        command = motion.step(source, feedback(enabled=True, stamp=now, values=command), now)
+        self.assertGreater(command["left_hand"][0], 0)
+        self.assertLess(command["left_hand"][0], .8)
+        motion.start_homing(source, feedback(enabled=True, stamp=now, values=command), now)
+        self.assertEqual(motion.phase, "HOMING")
+        self.assertEqual(motion.display_targets["left_hand"], command["left_hand"])
+        self.assertEqual(motion.display_targets["right_hand"], command["right_hand"])
+
+    def test_reset_cannot_instantaneously_stop_a_moving_trajectory(self):
+        motion = gate(settle_time_s=.05)
+        motion.arm(frame(value=.3), feedback(), NOW)
+        now, command = NOW, held()
+        for _ in range(80):
+            now += TICK
+            command = motion.step(frame(value=.3, stamp=now),
+                                  feedback(enabled=True, stamp=now, values=command), now)
+        self.assertFalse(motion.staged_stopped)
+        with self.assertRaisesRegex(SafetyFault, "command velocity"):
+            motion.reset_staged_motion()
+        self.assertIsNotNone(motion.fault)
+
+    def test_invalid_acceleration_is_rejected_before_enable(self):
+        for acceleration in (0, -1, math.inf, math.nan, True):
+            with self.subTest(acceleration=acceleration), self.assertRaises(ValueError):
+                gate(maximum_acceleration_rad_s2=acceleration)
 
 
 

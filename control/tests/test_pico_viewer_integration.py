@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 import argparse
-import ast
 import csv
 import math
 from pathlib import Path
@@ -10,8 +9,12 @@ import struct
 import subprocess
 import shutil
 import tempfile
+import sys
 import time
 import zlib
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from control.home_config import load_controller_posture
 
 
 PACKET_SIZE = 656
@@ -233,21 +236,10 @@ def finite_column(rows, name):
 
 
 def configured_initial_posture(config_path):
-    values = {}
-    for line in Path(config_path).read_text().splitlines():
-        stripped = line.strip()
-        for key in ("initial_left_q_rad", "initial_right_q_rad"):
-            prefix = f"{key}:"
-            if stripped.startswith(prefix):
-                parsed = ast.literal_eval(stripped[len(prefix) :].strip())
-                if len(parsed) != 7:
-                    raise AssertionError(f"{key} must contain seven values")
-                values[key] = tuple(float(value) for value in parsed)
-    if not values:
+    posture = load_controller_posture(config_path)
+    if posture is None:
         return None
-    if set(values) != {"initial_left_q_rad", "initial_right_q_rad"}:
-        raise AssertionError("configured initial posture is incomplete")
-    return values
+    return dict(zip(("initial_left_q_rad", "initial_right_q_rad"), posture))
 
 
 def configured_model_state_only(config_path):

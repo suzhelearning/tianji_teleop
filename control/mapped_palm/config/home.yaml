@@ -1,3 +1,8 @@
+# Shared deployment Home for robot model initialization and guarded arm homing.
+# Joint order: Joint1 through Joint7 per side. Values below are radians.
+# Left degrees:  [ 55, -65, -70, -60,  60, 0, 0]
+# Right degrees: [-55, -65,  70, -60, -60, 0, 0]
+# Real hardware always takes over from measured state before moving to Home.
 left_joint_names:
   - Joint1_L
   - Joint2_L

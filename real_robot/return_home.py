@@ -12,7 +12,7 @@ import time
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT.parent))
 from real_robot.run_teleop import CommandReceiver, load_configuration, make_hardware
-from real_robot.safety import SafetyFault, _slew
+from real_robot.safety import SafetyFault
 from real_robot.staged_motion import HOME_REACHED, HOMING, StagedMotionGate
 
 
@@ -42,10 +42,10 @@ class ArmHomeGate(StagedMotionGate):
             previous = self._last_commands["arms"]
             self._check_tracking("arms", previous, measured, now_ns,
                                  feedback.received_monotonic_ns)
-            dt = min((now_ns - self._last_step_ns) / 1e9, 1.0 / self.rate_hz)
-            speed = min(self._slow_speed, self.configuration["arms"]["maximum_speed_rad_s"])
-            command = _slew(previous, self._home, speed * dt)
-            self._last_commands = {"arms": command}
+            dt = (now_ns - self._last_step_ns) / 1e9
+            self._last_commands = self._slow_commands(
+                {"arms": measured}, {"arms": feedback}, now_ns, dt)
+            command = self._last_commands["arms"]
             self._last_step_ns = now_ns
             self._advance_staged(HOMING, self._last_commands, {"arms": measured}, now_ns, {"arms": feedback})
             return command

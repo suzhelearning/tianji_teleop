@@ -25,6 +25,7 @@ import unicodedata
 
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT.parent))
+from control.home_config import load_home
 from real_robot.protocol import DEVICE_READY_FLAGS, decode_packet
 from real_robot.run_log import SessionLog
 from real_robot.safety import MotionGate, SafetyFault
@@ -43,7 +44,7 @@ _STAGED_STATUS = {
     "WAITING": "WAITING | 未使能 | Enter: 锁定目标并慢速对齐",
     "ALIGNING": "ALIGNING | 慢速对齐 | Enter: 中止并失能",
     "READY": "READY | 已对齐并保持 | Enter: 开始实时遥操",
-    "TELEOP": "TELEOP | 实时遥操 | Enter: 回 HOME | Ctrl+C: 直接停止",
+    "TELEOP": "TELEOP | 实时遥操 | 保持输入与机械臂静止后 Enter: 回 HOME | Ctrl+C: 直接停止",
     "HOMING": "HOMING | 双臂回位、双手保持 | Enter: 中止并失能",
     "HOME_REACHED": "HOME_REACHED | 已回位，正在失能",
 }
@@ -149,6 +150,14 @@ def resolve(base, value):
 def load_configuration(path, device_selection=None):
     config = json.loads(path.read_text())
     devices = tuple(config["active_devices"]) if device_selection is None else DEVICE_SELECTIONS[device_selection]
+    staged = config.get("staged_motion")
+    if isinstance(staged, dict) and "home_config" in staged:
+        home_path = staged.pop("home_config")
+        if not isinstance(home_path, str) or not home_path.strip():
+            raise ValueError("staged_motion.home_config must be a nonempty path")
+        left, right = load_home(resolve(path.parent, home_path))
+        staged["home_left_rad"] = list(left)
+        staged["home_right_rad"] = list(right)
     # Validate all output bounds and HOME before loading SDKs.
     if "arms" in devices:
         StagedMotionGate(config["safety"], devices, config["staged_motion"])
@@ -235,6 +244,9 @@ def controller_configuration(config, base, feedback, destination):
         data["controller"]["initial_posture_enabled"] = True
         data["controller"]["initial_left_q_rad"] = list(positions[:7])
         data["controller"]["initial_right_q_rad"] = list(positions[7:])
+    elif "home_config" in data["controller"]:
+        # The runtime YAML is written in a different directory.
+        data["controller"]["home_config"] = str(resolve(original.parent, data["controller"]["home_config"]))
     destination.write_text(yaml.safe_dump(data, sort_keys=False))
     return destination
 

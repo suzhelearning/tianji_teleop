@@ -26,6 +26,7 @@ COMMANDS = {
     "visualize": "Browse recorded datasets",
     "preview": "Preview the live collection stream",
     "home": "Return arms home (explicit --confirm-real required)",
+    "mocap": "Replay mocap trajectories and run reference-conditioned RL policies",
 }
 
 
@@ -37,6 +38,7 @@ def command_line(command: str, arguments: list[str]) -> tuple[list[str], Path]:
         "compress": "data_collection.compress",
         "visualize": "data_collection.visualize",
         "preview": "data_collection.live_preview",
+        "mocap": "mocap_policy_runtime",
     }
     if command in modules:
         return [python, "-m", modules[command], *arguments], ROOT
