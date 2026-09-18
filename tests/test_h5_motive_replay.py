@@ -307,3 +307,13 @@ def test_source_skeleton_can_omit_axes_without_clearing_other_overlays(tmp_path)
     draw_mocap_overlay(axes_scene, replay.preview(0.), pose)
     assert {geom.label for geom in axes_scene.geoms[:axes_scene.ngeom] if geom.label} == {
         "Mocap O", "Mocap X", "Mocap Y", "Mocap Z"}
+
+
+@pytest.mark.parametrize("speed", [0., -1., float("nan"), float("inf")])
+def test_simulation_return_rejects_invalid_speed_before_opening_resources(speed):
+    from mocap_policy_runtime.integration.h5_simulation import H5SimulationSession, main
+
+    with pytest.raises(ValueError, match="return speed must be positive and finite"):
+        H5SimulationSession(None, None, None, None, return_speed=speed)
+    with pytest.raises(ValueError, match="return speed must be positive and finite"):
+        main(["--h5", "unused.h5", "--return-speed", str(speed)])

@@ -26,6 +26,7 @@ from .targets import TargetAdapter, model_wrist_pose
 
 
 SETTINGS_PATH = Path(__file__).resolve().parents[1] / "configs/replay.yaml"
+DEFAULT_RETURN_SPEED = 2.0  # Simulation only; never sourced from real-robot motion limits.
 
 
 def replay_settings(path=SETTINGS_PATH):
@@ -56,12 +57,15 @@ class H5SimulationSession:
     Only the owner of the session may call step/render. No hardware is opened.
     """
 
-    def __init__(self, replay, adapter, simulation, tracker, *, keyboard=None, settings=None):
+    def __init__(self, replay, adapter, simulation, tracker, *, keyboard=None, settings=None,
+                 return_speed=DEFAULT_RETURN_SPEED):
+        if not np.isfinite(return_speed) or return_speed <= 0:
+            raise ValueError("simulation return speed must be positive and finite")
         self.replay, self.adapter, self.simulation = replay, adapter, simulation
         self.tracker, self.keyboard = tracker, keyboard
         self.settings = replay_settings() if settings is None else settings
         safety = json.loads((REPOSITORY / "real_robot/config.json").read_text())
-        self._return_speed = float(safety["staged_motion"]["maximum_speed_rad_s"])
+        self._return_speed = float(return_speed)
         self._return_timeout = float(safety["staged_motion"]["timeout_s"])
         self._return_tolerance = float(safety["safety"]["arms"]["alignment_rad"])
         self._return_settle = float(safety["staged_motion"]["settle_time_s"])
@@ -351,6 +355,8 @@ def parser():
     result = argparse.ArgumentParser(description=__doc__)
     result.add_argument("--h5", type=Path, required=True)
     result.add_argument("--speed", type=float, default=1.)
+    result.add_argument("--return-speed", type=float, default=DEFAULT_RETURN_SPEED,
+                        help="simulation Home return peak joint speed in rad/s (default: 2); independent of --speed and real motion limits")
     result.add_argument("--yaw-deg", type=float, default=0.)
     result.add_argument("--endpoint", default=os.environ.get("TIANJI_ROUTER_ENDPOINT", "tcp/127.0.0.1:7447"))
     result.add_argument("--wrist-name", default="right_wrist")
@@ -367,6 +373,8 @@ def parser():
 
 def main(argv=None):
     args = parser().parse_args(argv)
+    if not np.isfinite(args.return_speed) or args.return_speed <= 0:
+        raise ValueError("simulation return speed must be positive and finite")
     if args.duration is not None and (not np.isfinite(args.duration) or args.duration <= 0):
         raise ValueError("--duration must be positive and finite")
     if not sys.stdin.isatty():
@@ -388,7 +396,8 @@ def main(argv=None):
         tracker = RegrindMotiveTracker(transport, wrist_name=args.wrist_name, require_object=False,
                                       rigid_to_wrist=motive_rigid_to_wrist(settings))
         cleanup.callback(tracker.close)
-        session = H5SimulationSession(replay, adapter, simulation, tracker, keyboard=keyboard, settings=settings)
+        session = H5SimulationSession(replay, adapter, simulation, tracker, keyboard=keyboard,
+                                      settings=settings, return_speed=args.return_speed)
         viewer = None
         if not args.headless:
             import mujoco.viewer
