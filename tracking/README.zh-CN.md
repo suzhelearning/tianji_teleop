@@ -509,7 +509,7 @@ bash scripts/calibrate_pico_arm.sh right all --user zjx
 并更新 `profiles/zjx/profile.yaml`。失败保留草稿和原活动版本；原始采集固定保存在
 `profiles/zjx/recordings/`，不会因发布而改变路径。`status --user zjx` 只读检查已发布版本。
 `--user` 可用于下文的单项或交互式入口；不传时保留下述旧全局目录行为。
-完整人员档案说明见[工作区 README](../README.md#人员档案与标定版本)。
+完整人员档案说明见[工作区人员档案参考](../README-reference.md#人员档案与标定版本)；新人员简化标定与默认仿真见[快速开始](../README.md)。
 
 
 先启动 PICO bridge，再在当前仓库进入 root .venv / ROS SDK environment。脚本默认使用 domain 120；只在本机

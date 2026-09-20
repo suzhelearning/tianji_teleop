@@ -1,8 +1,10 @@
 #include "tianji_qp_ik/config.hpp"
+#include "tianji_qp_ik/shared_root_options.hpp"
 
 #include <yaml-cpp/yaml.h>
 
 #include <cmath>
+#include <filesystem>
 #include <stdexcept>
 #include <string>
 
@@ -130,6 +132,8 @@ SolverBackend parseSolver(const std::string& value) {
 }
 
 IkAlgorithm parseIkAlgorithm(const std::string& value) {
+  if (value == "pico_ee_franka_ceres_lm") return IkAlgorithm::kPicoEeFrankaCeresLm;
+  if (value == "pico_ee_franka_dls") return IkAlgorithm::kPicoEeFrankaDls;
   if (value == "hierarchical_qp") {
     return IkAlgorithm::kHierarchicalQp;
   }
@@ -235,12 +239,40 @@ void applyDynamicLimits(const CartesianOtgDynamicLimits& limits,
 
 }  // namespace
 
-QpIkConfig loadConfig(const std::string& path) {
+QpIkConfig loadConfig(const std::string& path, ConfigConsumer consumer) {
   const YAML::Node root = YAML::LoadFile(path);
   QpIkConfig config;
+  // Existing consumers do not acquire shared-root semantics implicitly.
+  const YAML::Node shared_root = root["spark_shared_root"];
+  if (shared_root) {
+    if (!shared_root.IsMap() || shared_root["mix"] ||
+        shared_root["palm_position_mix"] || shared_root["palm_orientation_mix"]) {
+      throw std::runtime_error("invalid spark_shared_root configuration; mix is unsupported");
+    }
+    if (required<bool>(shared_root, "enabled")) {
+      if (consumer != ConfigConsumer::kSharedRootAware)
+        throw std::runtime_error("enabled shared-root requires an explicitly aware consumer");
+      config.shared_root_profile_path = loadSharedRootOptions(path).profile_path;
+    }
+  }
 
   const YAML::Node controller = root["controller"];
   config.controller.rate_hz = required<double>(controller, "rate_hz");
+  if (controller["pico_ee_dls_kinematics_urdf_path"]) {
+    namespace fs = std::filesystem;
+    const auto value=controller["pico_ee_dls_kinematics_urdf_path"].as<std::string>();
+    if (!value.empty()) {
+      fs::path model(value);
+      if (model.is_relative()) {
+        const auto directory=fs::absolute(path).parent_path();
+        const auto relative=directory/model;
+        // Support both this repository's ../models paths and source profiles'
+        // models paths, without depending on the process working directory.
+        model=fs::exists(relative)?relative:directory.parent_path()/model;
+      }
+      config.controller.pico_ee_dls_kinematics_urdf_path=model.lexically_normal().string();
+    }
+  }
   config.controller.model_state_only = optionalBool(
       controller, "model_state_only", config.controller.model_state_only);
   config.controller.initial_posture_enabled = optionalBool(
@@ -267,6 +299,62 @@ QpIkConfig loadConfig(const std::string& path) {
   }
 
   config.ik_algorithm = parseIkAlgorithm(required<std::string>(root["ik"], "algorithm"));
+  if (const auto node = root["pico_ee_franka_ceres_lm"]) {
+    auto& c = config.pico_ee_franka_ceres_lm;
+    if (node["enabled"]) c.enabled = node["enabled"].as<bool>();
+    if (node["joint_displacement_limit_enabled"]) c.joint_displacement_limit_enabled = node["joint_displacement_limit_enabled"].as<bool>();
+    if (node["nullspace_enabled"]) c.nullspace_enabled = node["nullspace_enabled"].as<bool>();
+    c.max_iterations = optionalInt(node, "max_iterations", c.max_iterations);
+    c.nullspace_attempts = optionalInt(node, "nullspace_attempts", c.nullspace_attempts);
+    c.nullspace_correction_iterations = optionalInt(node, "nullspace_correction_iterations", c.nullspace_correction_iterations);
+    c.max_solver_time_seconds = optionalDouble(node, "max_solver_time_seconds", c.max_solver_time_seconds);
+    c.initial_trust_region_radius = optionalDouble(node, "initial_trust_region_radius", c.initial_trust_region_radius);
+    c.maximum_joint_displacement_rad = optionalDouble(node, "maximum_joint_displacement_rad", c.maximum_joint_displacement_rad);
+    c.position_weight = optionalDouble(node, "position_weight", c.position_weight);
+    c.orientation_weight = optionalDouble(node, "orientation_weight", c.orientation_weight);
+    c.position_tolerance_m = optionalDouble(node, "position_tolerance_m", c.position_tolerance_m);
+    c.orientation_tolerance_rad = optionalDouble(node, "orientation_tolerance_rad", c.orientation_tolerance_rad);
+    c.nullspace_gain = optionalDouble(node, "nullspace_gain", c.nullspace_gain);
+    c.nullspace_max_step_rad = optionalDouble(node, "nullspace_max_step_rad", c.nullspace_max_step_rad);
+    c.home_left_rad = optionalVector7(node, "home_left_rad", c.home_left_rad);
+    c.home_right_rad = optionalVector7(node, "home_right_rad", c.home_right_rad);
+    const auto post = node["post_smoothing"];
+    if (!post || required<std::string>(post, "mode") != "ruckig")
+      throw std::runtime_error("Ceres port supports only explicit Ruckig smoothing");
+    c.post_smoothing.enabled = true;
+    c.post_smoothing.velocity_scale = 1.0;
+    c.post_smoothing.max_velocity_rad_s = optionalVector7(post, "max_velocity_rad_s", c.post_smoothing.max_velocity_rad_s);
+    c.post_smoothing.max_acceleration_rad_s2 = optionalVector7(post, "max_acceleration_rad_s2", c.post_smoothing.max_acceleration_rad_s2);
+    c.post_smoothing.max_jerk_rad_s3 = optionalVector7(post, "max_jerk_rad_s3", c.post_smoothing.max_jerk_rad_s3);
+    c.post_smoothing.validation_tolerance = optionalDouble(post, "validation_tolerance", 1e-8);
+  }
+
+  if (const auto node = root["pico_ee_franka_dls"]) {
+    auto& c = config.pico_ee_franka_dls;
+    c.enabled = optionalBool(node, "enabled", c.enabled);
+    c.planner_enabled = optionalBool(node, "planner_enabled", c.planner_enabled);
+    c.direct_velocity_limit_enabled = optionalBool(node, "direct_velocity_limit_enabled", c.direct_velocity_limit_enabled);
+    c.arm_plane_direction_guidance = optionalBool(node, "arm_plane_direction_guidance", c.arm_plane_direction_guidance);
+    c.max_arm_plane_rate_rad_s = optionalDouble(node, "max_arm_plane_rate_rad_s", c.max_arm_plane_rate_rad_s);
+    c.maximum_target_joint_step_rad = optionalDouble(node, "maximum_target_joint_step_rad", c.maximum_target_joint_step_rad);
+    c.maximum_target_step_norm_rad = optionalDouble(node, "maximum_target_step_norm_rad", c.maximum_target_step_norm_rad);
+    c.planner_validation_tolerance = optionalDouble(node, "planner_validation_tolerance", c.planner_validation_tolerance);
+    c.home_left_rad = optionalStrictVector7(node, "home_left_rad", c.home_left_rad);
+    c.home_right_rad = optionalStrictVector7(node, "home_right_rad", c.home_right_rad);
+    c.bandwidth_rad_s = optionalStrictVector7(node, "bandwidth_rad_s", c.bandwidth_rad_s);
+    c.max_velocity_rad_s = optionalStrictVector7(node, "max_velocity_rad_s", c.max_velocity_rad_s);
+    c.max_acceleration_rad_s2 = optionalStrictVector7(node, "max_acceleration_rad_s2", c.max_acceleration_rad_s2);
+    c.max_jerk_rad_s3 = optionalStrictVector7(node, "max_jerk_rad_s3", c.max_jerk_rad_s3);
+    const auto post = node["post_smoothing"];
+    if (!post || required<std::string>(post, "mode") != "ruckig")
+      throw std::runtime_error("Franka DLS port requires explicit Ruckig smoothing");
+    c.post_smoothing.enabled = true;
+    c.post_smoothing.velocity_scale = 1.0;
+    c.post_smoothing.max_velocity_rad_s = optionalStrictVector7(post, "max_velocity_rad_s", c.max_velocity_rad_s);
+    c.post_smoothing.max_acceleration_rad_s2 = optionalStrictVector7(post, "max_acceleration_rad_s2", c.max_acceleration_rad_s2);
+    c.post_smoothing.max_jerk_rad_s3 = optionalStrictVector7(post, "max_jerk_rad_s3", c.max_jerk_rad_s3);
+    c.post_smoothing.validation_tolerance = optionalDouble(post, "validation_tolerance", 1e-8);
+  }
 
   const YAML::Node servo = root["cartesian_servo"];
   config.cartesian_servo.kp_position = requiredVector3(servo, "kp_position");
@@ -1670,6 +1758,11 @@ QpIkConfig loadConfig(const std::string& path) {
   requirePositive(config.trajectories.angular_amplitude, "trajectories.angular_amplitude");
   requirePositive(config.trajectories.frequency_hz, "trajectories.frequency_hz");
 
+  if (!config.shared_root_profile_path.empty() &&
+      ((!usesSparkHeadroomFeedforwardVelocityQp(config.ik_algorithm) &&
+        !usesSharedRootDirectIk(config.ik_algorithm)) ||
+       config.control_level != ControlLevel::kVelocity))
+    throw std::runtime_error("shared-root requires headroom/feedforward velocity control");
   return config;
 }
 
@@ -1726,6 +1819,10 @@ std::string toString(SolverBackend backend) {
 
 std::string toString(IkAlgorithm algorithm) {
   switch (algorithm) {
+    case IkAlgorithm::kPicoEeFrankaCeresLm:
+      return "pico_ee_franka_ceres_lm";
+    case IkAlgorithm::kPicoEeFrankaDls:
+      return "pico_ee_franka_dls";
     case IkAlgorithm::kHierarchicalQp:
       return "hierarchical_qp";
     case IkAlgorithm::kNullspaceDls:

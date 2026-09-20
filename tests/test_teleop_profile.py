@@ -18,7 +18,8 @@ from teleop_profile import available_users, calibrate_profile, resolve_profile
 
 @pytest.fixture
 def profile_root(tmp_path):
-    shutil.copytree(ROOT / "profiles" / "syz", tmp_path / "profiles" / "syz")
+    from pico_test_data import synthetic_profile
+    synthetic_profile(tmp_path)
     return tmp_path
 
 

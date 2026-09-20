@@ -1,0 +1,422 @@
+{
+  "schema_version": 1,
+  "trace_sha256": "20340067256a3a78205c78a0d5ba6fc01f818d14da5e1e57f116391451df2f2b",
+  "baseline_profile_sha256": "7925a889075b062d95cd5e79bbb5fed6fc553fbe6097a11bb94c11d6ee550da6",
+  "scope": "headless_viewer_model_reference_udp_replay",
+  "error_target": "post_hold_command_not_original_mapped_target",
+  "time_alignment": "TJVR (epoch, sequence) to nanoseconds_since_first_receive",
+  "position_statistics_interval_s": [
+    5,
+    47
+  ],
+  "statistics": "control_cycle_weighted; fresh bilateral targets; floor((n-1)*p) quantile",
+  "raw_artifacts": "/tmp/shared-root-tuning.2xeplM",
+  "selected_for_default": false,
+  "changes": {
+    "baseline": {},
+    "smoothness": {
+      "spark_headroom_feedforward_velocity_qp.joint_reference_smoothness_weight": [
+        100000,
+        10000
+      ]
+    },
+    "jerk_soft": {
+      "spark_headroom_feedforward_velocity_qp.joint_reference_jerk_smoothness_weight": [
+        30000,
+        3000
+      ]
+    },
+    "joint_weight": {
+      "spark_upper_qpoases.joint_reference_weight": [
+        30000,
+        3000
+      ]
+    },
+    "position_gain": {
+      "cartesian_servo.kp_position_near": [
+        [
+          4,
+          4,
+          4
+        ],
+        [
+          10,
+          10,
+          10
+        ]
+      ]
+    },
+    "combined": {
+      "spark_upper_qpoases.joint_reference_weight": [
+        30000,
+        3000
+      ],
+      "cartesian_servo.kp_position_near": [
+        [
+          4,
+          4,
+          4
+        ],
+        [
+          10,
+          10,
+          10
+        ]
+      ]
+    }
+  },
+  "results": {
+    "baseline": {
+      "received": 4427,
+      "failures": 0,
+      "first_valid_recording_s": 0.045203542,
+      "moving_cycles": 8303,
+      "left_position_error_m_p90": 0.137065930427,
+      "left_orientation_error_rad_p90": 0.1460956089,
+      "left_spark_palm_position_error_m_p90": 0.00000732473245777,
+      "left_hold_fraction": 0.1305552210044562,
+      "left_failure_reasons": {},
+      "right_position_error_m_p90": 0.0893830206844,
+      "right_orientation_error_rad_p90": 0.127172300723,
+      "right_spark_palm_position_error_m_p90": 0.00000906782435307,
+      "right_hold_fraction": 0.017704444176803565,
+      "right_failure_reasons": {},
+      "actions": {
+        "natural_reach": {
+          "left": 0.0869771818572,
+          "right": 0.0759427322182
+        },
+        "hands_approach": {
+          "left": 0.151185756956,
+          "right": 0.0917275104923
+        },
+        "crossing": {
+          "left": 0.159517717266,
+          "right": 0.0860800602683
+        },
+        "unequal_height": {
+          "left": 0.0726997509249,
+          "right": 0.0451848034424
+        },
+        "single_hand": {
+          "left": 0.0661437638743,
+          "right": 0.0966097044087
+        },
+        "bilateral_motion": {
+          "left": 0.149334778653,
+          "right": 0.106495675226
+        },
+        "extension_boundary": {
+          "left": 0.09337022655,
+          "right": 0.0591649337303
+        }
+      },
+      "bound_violations": {},
+      "motion_max": {
+        "q": 2.4807,
+        "qdot": 4,
+        "qddot": 90,
+        "jerk": 1500
+      },
+      "motion_p90": {
+        "qdot": 2.4858537113,
+        "qddot": 23.9423371829,
+        "jerk": 1368.24203559
+      }
+    },
+    "smoothness": {
+      "received": 4427,
+      "failures": 11,
+      "first_valid_recording_s": 0.049012986,
+      "moving_cycles": 8266,
+      "left_position_error_m_p90": 0.132798582275,
+      "left_orientation_error_rad_p90": 0.1446835789,
+      "left_spark_palm_position_error_m_p90": 0.00000724542163888,
+      "left_hold_fraction": 0.14190660537140093,
+      "left_failure_reasons": {
+        "solver_failure": 7
+      },
+      "right_position_error_m_p90": 0.0908400321008,
+      "right_orientation_error_rad_p90": 0.137764517546,
+      "right_spark_palm_position_error_m_p90": 0.00000875577711686,
+      "right_hold_fraction": 0.04137430437938543,
+      "right_failure_reasons": {
+        "solver_failure": 4
+      },
+      "actions": {
+        "natural_reach": {
+          "left": 0.0795795417039,
+          "right": 0.0752602095878
+        },
+        "hands_approach": {
+          "left": 0.151064997127,
+          "right": 0.0915897948103
+        },
+        "crossing": {
+          "left": 0.158025082954,
+          "right": 0.0857843635072
+        },
+        "unequal_height": {
+          "left": 0.0751412328112,
+          "right": 0.0448353051034
+        },
+        "single_hand": {
+          "left": 0.0672374222741,
+          "right": 0.105489106959
+        },
+        "bilateral_motion": {
+          "left": 0.143729021976,
+          "right": 0.110130660926
+        },
+        "extension_boundary": {
+          "left": 0.0921551101403,
+          "right": 0.0583654235026
+        }
+      },
+      "bound_violations": {},
+      "motion_max": {
+        "q": 2.4807,
+        "qdot": 4,
+        "qddot": 90,
+        "jerk": 1500
+      },
+      "motion_p90": {
+        "qdot": 3.00923278793,
+        "qddot": 60,
+        "jerk": 1500
+      }
+    },
+    "jerk_soft": {
+      "received": 4427,
+      "failures": 0,
+      "first_valid_recording_s": 0.045203542,
+      "moving_cycles": 8298,
+      "left_position_error_m_p90": 0.134233680369,
+      "left_orientation_error_rad_p90": 0.144173357399,
+      "left_spark_palm_position_error_m_p90": 0.00000734249903356,
+      "left_hold_fraction": 0.13424921667871775,
+      "left_failure_reasons": {},
+      "right_position_error_m_p90": 0.0889535979335,
+      "right_orientation_error_rad_p90": 0.131043040801,
+      "right_spark_palm_position_error_m_p90": 0.00000985212873091,
+      "right_hold_fraction": 0.009881899252832008,
+      "right_failure_reasons": {},
+      "actions": {
+        "natural_reach": {
+          "left": 0.0818237851012,
+          "right": 0.0755312977273
+        },
+        "hands_approach": {
+          "left": 0.150924622167,
+          "right": 0.0912802336651
+        },
+        "crossing": {
+          "left": 0.160130931244,
+          "right": 0.0862896111506
+        },
+        "unequal_height": {
+          "left": 0.0750537913794,
+          "right": 0.0449801561136
+        },
+        "single_hand": {
+          "left": 0.0665183096228,
+          "right": 0.096214602835
+        },
+        "bilateral_motion": {
+          "left": 0.14832897702,
+          "right": 0.107092529997
+        },
+        "extension_boundary": {
+          "left": 0.0930780442907,
+          "right": 0.062080717139
+        }
+      },
+      "bound_violations": {},
+      "motion_max": {
+        "q": 2.4807,
+        "qdot": 4,
+        "qddot": 90,
+        "jerk": 1500
+      },
+      "motion_p90": {
+        "qdot": 2.40784226083,
+        "qddot": 24.6694096796,
+        "jerk": 1500
+      }
+    },
+    "joint_weight": {
+      "received": 4427,
+      "failures": 0,
+      "first_valid_recording_s": 0.045203542,
+      "moving_cycles": 8382,
+      "left_position_error_m_p90": 0.116114642809,
+      "left_orientation_error_rad_p90": 0.130738326393,
+      "left_spark_palm_position_error_m_p90": 0.00000734287550853,
+      "left_hold_fraction": 0.010021474588403722,
+      "left_failure_reasons": {},
+      "right_position_error_m_p90": 0.105223194705,
+      "right_orientation_error_rad_p90": 0.129375266681,
+      "right_spark_palm_position_error_m_p90": 0.00000940199365907,
+      "right_hold_fraction": 0.009663564781675018,
+      "right_failure_reasons": {},
+      "actions": {
+        "natural_reach": {
+          "left": 0.0903793587843,
+          "right": 0.0763082070656
+        },
+        "hands_approach": {
+          "left": 0.104998862598,
+          "right": 0.0639889445953
+        },
+        "crossing": {
+          "left": 0.118229364788,
+          "right": 0.0964515208997
+        },
+        "unequal_height": {
+          "left": 0.0651726767362,
+          "right": 0.0505278973229
+        },
+        "single_hand": {
+          "left": 0.0475360455367,
+          "right": 0.127919653245
+        },
+        "bilateral_motion": {
+          "left": 0.159868872252,
+          "right": 0.14671320061
+        },
+        "extension_boundary": {
+          "left": 0.0891751344033,
+          "right": 0.0642232920506
+        }
+      },
+      "bound_violations": {},
+      "motion_max": {
+        "q": 2.5400489186,
+        "qdot": 4,
+        "qddot": 89.7730882288,
+        "jerk": 1500
+      },
+      "motion_p90": {
+        "qdot": 2.11114837807,
+        "qddot": 13.5278288111,
+        "jerk": 672.074280509
+      }
+    },
+    "position_gain": {
+      "received": 4427,
+      "failures": 0,
+      "first_valid_recording_s": 0.045203542,
+      "moving_cycles": 8209,
+      "left_position_error_m_p90": 0.133925381698,
+      "left_orientation_error_rad_p90": 0.142079337448,
+      "left_spark_palm_position_error_m_p90": 0.00000750953952591,
+      "left_hold_fraction": 0.17212815202826168,
+      "left_failure_reasons": {},
+      "right_position_error_m_p90": 0.0840825354236,
+      "right_orientation_error_rad_p90": 0.118971423162,
+      "right_spark_palm_position_error_m_p90": 0.00000878919458616,
+      "right_hold_fraction": 0.07516140821050067,
+      "right_failure_reasons": {},
+      "actions": {
+        "natural_reach": {
+          "left": 0.0841849274046,
+          "right": 0.0656042986391
+        },
+        "hands_approach": {
+          "left": 0.148928610401,
+          "right": 0.086691291404
+        },
+        "crossing": {
+          "left": 0.155765350155,
+          "right": 0.0813137333004
+        },
+        "unequal_height": {
+          "left": 0.0715765052579,
+          "right": 0.0408991750477
+        },
+        "single_hand": {
+          "left": 0.0633312206101,
+          "right": 0.0926057046056
+        },
+        "bilateral_motion": {
+          "left": 0.146091434426,
+          "right": 0.101925538338
+        },
+        "extension_boundary": {
+          "left": 0.0918303239839,
+          "right": 0.0590586659852
+        }
+      },
+      "bound_violations": {},
+      "motion_max": {
+        "q": 2.4807,
+        "qdot": 4,
+        "qddot": 90,
+        "jerk": 1500
+      },
+      "motion_p90": {
+        "qdot": 2.4713373777,
+        "qddot": 24.4500373534,
+        "jerk": 1373.81844517
+      }
+    },
+    "combined": {
+      "received": 4427,
+      "failures": 0,
+      "first_valid_recording_s": 0.049012986,
+      "moving_cycles": 8285,
+      "left_position_error_m_p90": 0.10723594396,
+      "left_orientation_error_rad_p90": 0.128551108178,
+      "left_spark_palm_position_error_m_p90": 0.00000734947061445,
+      "left_hold_fraction": 0.12094146047073023,
+      "left_failure_reasons": {},
+      "right_position_error_m_p90": 0.102773175304,
+      "right_orientation_error_rad_p90": 0.126192700104,
+      "right_spark_palm_position_error_m_p90": 0.00000890815539852,
+      "right_hold_fraction": 0.047193723596861796,
+      "right_failure_reasons": {},
+      "actions": {
+        "natural_reach": {
+          "left": 0.083114179354,
+          "right": 0.0720590595053
+        },
+        "hands_approach": {
+          "left": 0.0907471049814,
+          "right": 0.0518068225832
+        },
+        "crossing": {
+          "left": 0.109755474569,
+          "right": 0.0904266994901
+        },
+        "unequal_height": {
+          "left": 0.0576624843823,
+          "right": 0.0330605860475
+        },
+        "single_hand": {
+          "left": 0.0383128026931,
+          "right": 0.128069773159
+        },
+        "bilateral_motion": {
+          "left": 0.151536132903,
+          "right": 0.138572767999
+        },
+        "extension_boundary": {
+          "left": 0.0796908228816,
+          "right": 0.0638233683544
+        }
+      },
+      "bound_violations": {},
+      "motion_max": {
+        "q": 2.51646579969,
+        "qdot": 4,
+        "qddot": 89.6784057001,
+        "jerk": 1500
+      },
+      "motion_p90": {
+        "qdot": 2.17895607095,
+        "qddot": 14.3282754825,
+        "jerk": 604.437311532
+      }
+    }
+  }
+}

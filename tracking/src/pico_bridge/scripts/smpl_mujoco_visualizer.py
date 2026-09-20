@@ -6,6 +6,8 @@ from __future__ import annotations
 import argparse
 from collections import deque
 import math
+import os
+import json
 from pathlib import Path
 import threading
 import time
@@ -1829,6 +1831,9 @@ class SmplMujocoVisualizer:
 
     def run(self) -> None:
         import mujoco.viewer
+        from std_msgs.msg import String
+        health = self.node.create_publisher(String, "/pico/skeleton_viewer/status", 10)
+        last_health = 0.0
 
         def spin_ros() -> None:
             try:
@@ -1851,6 +1856,12 @@ class SmplMujocoVisualizer:
                             self._initialize_camera(viewer, target)
                             self._camera_initialized = True
                     viewer.sync()
+                    if time.monotonic() - last_health >= .25:
+                        last_health = time.monotonic()
+                        message = String()
+                        message.data = json.dumps({"pane": os.environ.get("TMUX_PANE", ""),
+                                                   "stamp_ns": time.monotonic_ns()})
+                        health.publish(message)
                     time.sleep(max(1.0 / self.rate, 0.001))
         finally:
             if self.rclpy.ok():

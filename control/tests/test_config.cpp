@@ -78,6 +78,19 @@ TEST(Config, LoadsProjectDefaults) {
   EXPECT_DOUBLE_EQ(config.upper_arm_outward.acceleration_kd, 20.0);
 }
 
+TEST(Config, SharedRootDisabledExperimentLoadsAndEnabledCannotSilentlyUseLegacy) {
+  EXPECT_NO_THROW(loadConfig(std::string(TIANJI_PROJECT_SOURCE_DIR) +
+                            "/config/qp_ik_pico_shared_root.yaml"));
+  const auto enabled = writeTemporaryConfig("shared_root_enabled.yaml",
+      projectConfigText() + "\nspark_shared_root:\n  enabled: true\n");
+  EXPECT_THROW(loadConfig(enabled.string()), std::runtime_error);
+  std::filesystem::remove(enabled);
+  const auto mixed = writeTemporaryConfig("shared_root_mix.yaml",
+      projectConfigText() + "\nspark_shared_root:\n  enabled: false\n  mix: 0.5\n");
+  EXPECT_THROW(loadConfig(mixed.string()), std::runtime_error);
+  std::filesystem::remove(mixed);
+}
+
 TEST(Config, LoadsAndNamesSparkDirectVelocityQp) {
   std::string text = projectConfigText();
   replaceOnce(text, "algorithm: hierarchical_qp",

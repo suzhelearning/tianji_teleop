@@ -20,6 +20,7 @@ endif()
 find_package(yaml-cpp CONFIG REQUIRED)
 find_package(glfw3 CONFIG REQUIRED)
 find_package(Threads REQUIRED)
+include(cmake/OptionalCeres.cmake)
 
 # Build the pinned, licensed offline trajectory generator from this checkout.
 add_subdirectory(third_party/ruckig)
@@ -39,6 +40,12 @@ function(tianji_enable_warnings target)
 endfunction()
 
 add_library(tianji_qp_ik STATIC
+  src/pico_ee_franka_ceres_lm.cpp
+  src/ceres_trajectory_limiter.cpp
+  src/ceres_pinocchio_arm_kinematics.cpp
+  src/controller_ceres_lm.cpp
+  src/franka_iterative_pose_dls.cpp
+  src/pico_ee_franka_dls.cpp
   src/acceleration_bounds.cpp
   src/arm_angle.cpp
   src/acceleration_controller.cpp
@@ -75,6 +82,15 @@ add_library(tianji_qp_ik STATIC
   src/qpoases_solver.cpp
   src/safety.cpp
   src/spark_upper_retarget.cpp
+  src/shared_root_input.cpp
+  src/shared_root_morphology.cpp
+  src/shared_root_target_builder.cpp
+  src/shared_root_closure.cpp
+  src/shared_root_continuity.cpp
+  src/shared_root_options.cpp
+  src/shared_root_sha256.cpp
+  src/shared_root_pipeline.cpp
+  src/shared_root_guidance.cpp
   src/spark_upper_qpoases_ik.cpp
   src/spark_posture_reference.cpp
   src/spark_feedforward_reference.cpp
@@ -101,6 +117,10 @@ target_link_libraries(tianji_qp_ik PUBLIC
   ruckig::ruckig
 )
 tianji_enable_warnings(tianji_qp_ik)
+if(TIANJI_ENABLE_CERES)
+  target_link_libraries(tianji_qp_ik PUBLIC Ceres::ceres)
+  target_compile_definitions(tianji_qp_ik PUBLIC TIANJI_HAS_CERES=1)
+endif()
 
 add_executable(tianji_qp_ik_benchmark apps/benchmark_solver.cpp)
 target_link_libraries(tianji_qp_ik_benchmark PRIVATE tianji_qp_ik)
@@ -123,6 +143,12 @@ target_link_libraries(tianji_qp_ik_viewer PRIVATE tianji_qp_ik glfw Threads::Thr
 tianji_enable_warnings(tianji_qp_ik_viewer)
 
 add_executable(tianji_inspect_model apps/inspect_model.cpp)
+add_executable(tianji_record_action_trace apps/record_action_trace.cpp)
+target_link_libraries(tianji_record_action_trace PRIVATE tianji_qp_ik)
+tianji_enable_warnings(tianji_record_action_trace)
+add_executable(tianji_shared_root_trace_audit apps/shared_root_trace_audit.cpp)
+target_link_libraries(tianji_shared_root_trace_audit PRIVATE tianji_qp_ik)
+tianji_enable_warnings(tianji_shared_root_trace_audit)
 target_link_libraries(tianji_inspect_model PRIVATE mujoco::mujoco)
 tianji_enable_warnings(tianji_inspect_model)
 
@@ -144,6 +170,31 @@ if(BUILD_TESTING)
   endfunction()
 
   tianji_add_test(test_so3 tests/test_so3.cpp)
+  tianji_add_test(test_ceres_trajectory_limiter tests/test_ceres_trajectory_limiter.cpp)
+  tianji_add_test(test_simulation_recovery tests/test_simulation_recovery.cpp)
+  tianji_add_test(test_pico_ee_franka_dls tests/test_pico_ee_franka_dls.cpp)
+  tianji_add_test(test_franka_dls_controller tests/test_franka_dls_controller.cpp)
+  add_test(NAME test_franka_dls_viewer COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_franka_dls_viewer.py $<TARGET_FILE:tianji_qp_ik_viewer>)
+  if(TIANJI_ENABLE_CERES)
+    tianji_add_test(test_pico_ee_franka_ceres_lm tests/test_pico_ee_franka_ceres_lm.cpp)
+    tianji_add_test(test_ceres_controller tests/test_ceres_controller.cpp)
+    add_test(NAME test_ceres_viewer COMMAND ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ceres_viewer.py $<TARGET_FILE:tianji_qp_ik_viewer>)
+  else()
+    add_test(NAME test_ceres_unavailable COMMAND ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ceres_viewer.py $<TARGET_FILE:tianji_qp_ik_viewer> --unavailable)
+  endif()
+  tianji_add_test(test_shared_root_geometry tests/test_shared_root_geometry.cpp)
+  tianji_add_test(test_shared_root_closure tests/test_shared_root_closure.cpp)
+  tianji_add_test(test_shared_root_coverage tests/test_shared_root_coverage.cpp)
+  tianji_add_test(test_shared_root_input tests/test_shared_root_input.cpp)
+  tianji_add_test(test_shared_root_morphology tests/test_shared_root_morphology.cpp)
+  tianji_add_test(test_shared_root_target_builder tests/test_shared_root_target_builder.cpp)
+  tianji_add_test(test_shared_root_continuity tests/test_shared_root_continuity.cpp)
+  tianji_add_test(test_shared_root_options tests/test_shared_root_options.cpp)
+  tianji_add_test(test_shared_root_pipeline tests/test_shared_root_pipeline.cpp)
+  tianji_add_test(test_shared_root_guidance tests/test_shared_root_guidance.cpp)
   tianji_add_test(test_cartesian_servo tests/test_cartesian_servo.cpp)
   tianji_add_test(test_cartesian_acceleration_servo tests/test_cartesian_acceleration_servo.cpp)
   tianji_add_test(test_cartesian_otg tests/test_cartesian_otg.cpp)

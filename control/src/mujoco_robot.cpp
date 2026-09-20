@@ -417,16 +417,33 @@ Mat67 MujocoRobot::tcpJacobianWorld(ArmSide side) {
 
 ArmKinematicSample MujocoRobot::armKinematicsAt(ArmSide side,
                                                 const Vec7& position) {
+  return sampleArmAt(side, position, false);
+}
+ArmKinematicSample MujocoRobot::armKinematicsOnlyAt(ArmSide side, const Vec7& position) {
+  return sampleArmAt(side, position, true);
+}
+ArmKinematicSample MujocoRobot::sampleArmAt(ArmSide side, const Vec7& position, bool kinematics_only) {
   if (!position.allFinite()) {
     throw std::invalid_argument("joint position contains NaN or infinity");
   }
-  mj_copyData(kinematics_data_, model_, data_);
+  if (kinematics_only) {
+    std::copy_n(data_->qpos, model_->nq, kinematics_data_->qpos);
+    std::copy_n(data_->mocap_pos, 3*model_->nmocap, kinematics_data_->mocap_pos);
+    std::copy_n(data_->mocap_quat, 4*model_->nmocap, kinematics_data_->mocap_quat);
+  } else {
+    mj_copyData(kinematics_data_, model_, data_);
+  }
   const ArmMapping& arm = mapping(side);
   for (int index = 0; index < kArmDof; ++index) {
     kinematics_data_->qpos[
         arm.qpos_addresses[static_cast<std::size_t>(index)]] = position[index];
   }
-  mj_forward(model_, kinematics_data_);
+  if (kinematics_only) {
+    mj_kinematics(model_, kinematics_data_);
+    mj_comPos(model_, kinematics_data_);
+  } else {
+    mj_forward(model_, kinematics_data_);
+  }
 
   ArmKinematicSample result;
   result.tcp_pose = tcpPoseFromData(arm, kinematics_data_);

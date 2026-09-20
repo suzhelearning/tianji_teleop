@@ -8,7 +8,7 @@
 
 namespace tianji_qp_ik {
 
-enum class PoseDlsStatus { kConverged, kImproved, kRejected };
+enum class PoseDlsStatus { kConverged, kImproved, kRejected, kNotConverged };
 
 using KinematicsEvaluator = std::function<ArmKinematicSample(const Vec7&)>;
 using KinematicsFeasibility =

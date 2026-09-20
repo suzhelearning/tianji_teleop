@@ -38,7 +38,7 @@ struct PicoUdpReceiver::Impl {
       : options(std::move(options_in)),
         exchange(exchange_in),
         gate(options.max_position_jump_m,
-             options.max_orientation_jump_rad) {}
+             options.max_orientation_jump_rad, options.reject_pose_jumps) {}
 
   ~Impl() { stop(); }
 

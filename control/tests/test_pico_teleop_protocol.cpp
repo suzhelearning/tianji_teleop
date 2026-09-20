@@ -408,6 +408,26 @@ TEST(PicoTeleopStreamGate, RejectsIndependentPositionAndOrientationJumps) {
   EXPECT_EQ(orientation.reason, PicoStreamRejectReason::kOrientationJump);
 }
 
+TEST(PicoTeleopStreamGate, OptionalJumpBypassPreservesOrderingAndEpochChecks) {
+  PicoTeleopStreamGate gate(0.15, 0.60, false);
+  auto frame=makeFrame(1);
+  ASSERT_TRUE(gate.evaluate(frame).accepted);
+  frame.sequence=2;
+  frame.left.position.x()+=2.;
+  frame.right.rotation=Eigen::AngleAxisd(2.,Eigen::Vector3d::UnitX()).toRotationMatrix();
+  const auto decision=gate.evaluate(frame);
+  EXPECT_TRUE(decision.accepted);
+  EXPECT_FALSE(decision.stream_discontinuity);
+  EXPECT_FALSE(gate.evaluate(frame).accepted);
+  frame.sequence=3; ++frame.tracking_epoch;
+  EXPECT_TRUE(gate.evaluate(frame).epoch_changed);
+  frame.sequence=4; --frame.tracking_epoch;
+  EXPECT_FALSE(gate.evaluate(frame).accepted);
+  gate.reset();
+  frame.tracking_epoch=0;
+  EXPECT_FALSE(gate.evaluate(frame).accepted);
+}
+
 TEST(PicoTeleopStreamGate, ResynchronizesAfterThreeStableJumpFrames) {
   PicoTeleopStreamGate gate(0.15, 0.60);
   ASSERT_TRUE(gate.evaluate(makeFrame(1)).accepted);

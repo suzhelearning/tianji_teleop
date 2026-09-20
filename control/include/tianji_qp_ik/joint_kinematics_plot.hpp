@@ -13,6 +13,7 @@ enum class PlotMetric { kPosition, kVelocity, kAcceleration, kJerk };
 enum class ReferenceAccelerationSource {
   kDifferentiateVelocity,
   kDirectQpOutput,
+  kRuckigOutput,
 };
 
 struct JointKinematicsState {
@@ -34,6 +35,7 @@ struct JointKinematicsBounds {
 };
 
 struct ArmJointKinematicsSample {
+  bool ruckig_output{false};
   JointKinematicsState reference;
   JointKinematicsState actual;
   JointKinematicsBounds bounds;
@@ -86,6 +88,7 @@ class JointKinematicsDifferentiator {
 };
 
 struct JointPlotSeries {
+  bool ruckig_output{false};
   std::vector<double> time;
   std::vector<double> reference;
   std::vector<double> actual;

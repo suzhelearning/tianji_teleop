@@ -115,5 +115,21 @@ TEST(MujocoJointPlotTest, AppliesIndependentDerivativeValidity) {
   EXPECT_EQ(figure.linepnt[3], 2);
 }
 
+TEST(MujocoJointPlotTest, IdentifiesRuckigAverageJerkWithoutRelabelingLegacy) {
+  JointKinematicsHistory history(4U);
+  JointKinematicsSample sample;
+  sample.left.ruckig_output = true;
+  sample.left.reference.jerk.setConstant(123);
+  sample.left.reference_jerk_valid = true;
+  history.push(sample);
+  MujocoJointPlot plot;
+  plot.update(history, ArmSide::kLeft, PlotMetric::kJerk, 5.0);
+  EXPECT_STREQ(plot.figure(0).linename[0], "Ruckig output");
+  EXPECT_NE(std::string(plot.figure(0).title).find("avg jerk"), std::string::npos);
+  EXPECT_FLOAT_EQ(plot.figure(0).linedata[0][1], 123.F);
+  plot.update(history, ArmSide::kRight, PlotMetric::kJerk, 5.0);
+  EXPECT_STREQ(plot.figure(0).linename[0], "QP reference");
+}
+
 }  // namespace
 }  // namespace tianji_qp_ik

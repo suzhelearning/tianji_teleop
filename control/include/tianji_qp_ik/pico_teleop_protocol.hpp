@@ -105,7 +105,7 @@ struct PicoStreamDecision {
 class PicoTeleopStreamGate {
  public:
   PicoTeleopStreamGate(double max_position_jump_m,
-                       double max_orientation_jump_rad);
+                       double max_orientation_jump_rad, bool reject_pose_jumps = true);
   PicoStreamDecision evaluate(const PicoTeleopFrame& frame);
   void reset() noexcept;
 
@@ -120,6 +120,7 @@ class PicoTeleopStreamGate {
   double max_position_jump_m_{0.0};
   double max_orientation_jump_rad_{0.0};
   bool initialized_{false};
+  bool reject_pose_jumps_{true};
   std::uint64_t current_epoch_{0};
   std::uint64_t last_observed_sequence_{0};
   Pose last_left_;

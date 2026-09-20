@@ -10,11 +10,13 @@
 #include "tianji_qp_ik/spark_upper_qpoases_ik.hpp"
 #include "tianji_qp_ik/target_manager.hpp"
 #include "tianji_qp_ik/velocity_ik.hpp"
+#include "tianji_qp_ik/shared_root_pipeline.hpp"
 
 #include <chrono>
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <memory>
 
 namespace tianji_qp_ik {
 
@@ -54,6 +56,11 @@ struct SparkGuidanceArmDiagnostics {
 };
 
 struct SparkGuidanceDiagnostics {
+  bool reference_reset_required{false};
+  // Zero on legacy dispatch. A completion requires this exact control cycle,
+  // not merely the source sequence (multiple ticks may share one input frame).
+  std::uint64_t shared_root_cycle{0};
+  SharedRootState shared_root_state{SharedRootState::kUninitialized};
   bool accepted{false};
   bool target_valid{false};
   bool blend_active{false};
@@ -76,7 +83,17 @@ class DualArmSparkGuidance {
   DualArmSparkGuidance(MujocoRobot& robot, const QpIkConfig& config,
                        const std::string& urdf_path,
                        SparkPostureGuideMode posture_mode =
-                           SparkPostureGuideMode::kRuckig);
+                           SparkPostureGuideMode::kRuckig,
+                       const SharedRootOptions* shared_root = nullptr);
+
+  // Explicit experimental/offline integration. Legacy methods cannot silently
+  // authorize this mode. Production profile enabling remains gated separately.
+  bool updateSharedRootFrame(const PicoTeleopFrame&, std::int64_t now_ns);
+  SparkGuidanceDiagnostics stepSharedRoot(
+      const ArmMotionState& left_model, const ArmMotionState& right_model,
+      double dt, std::int64_t now_ns, bool execution_authorized,
+      bool model_state_valid);
+  bool confirmSharedRootReference(std::uint64_t cycle, bool bilateral_accepted) noexcept;
 
   SparkUpperTargets updatePicoFrame(const PicoTeleopFrame& frame);
   bool startJointSpaceTakeover(const SparkUpperTargets& targets,
@@ -93,12 +110,16 @@ class DualArmSparkGuidance {
       const SparkConstraintHeadroomFeedback& right, double dt) noexcept;
   bool reset(const ArmMotionState& left_model,
              const ArmMotionState& right_model) noexcept;
+  // DLS/Ceres own motion validation; reset mapping histories, not unused SPARK OTG.
+  bool resetMappingSession(const ArmMotionState& left_model,
+                           const ArmMotionState& right_model) noexcept;
   void invalidateTarget(std::string_view detail = "spark_target_stale") noexcept;
   const SparkUpperTargets& latestTargets() const noexcept {
     return latest_targets_;
   }
 
  private:
+  bool resetImpl(const ArmMotionState&, const ArmMotionState&, bool reset_reference) noexcept;
   struct ArmState {
     ArmState(ArmSide side, PinocchioArmKinematics& kinematics,
              const QpIkConfig& config, const ArmLimits& limits,
@@ -122,6 +143,9 @@ class DualArmSparkGuidance {
                     const ArmMotionState& right_model);
   void updateBlend(const ArmMotionState& left_model,
                    const ArmMotionState& right_model, double dt);
+  SparkGuidanceDiagnostics stepImpl(const ArmMotionState&, const ArmMotionState&, double);
+  bool resetSharedRootControl(const ArmMotionState&, const ArmMotionState&);
+  void initializeSharedRoot(const SharedRootOptions&, const std::string& urdf_path);
 
   MujocoRobot& robot_;
   QpIkConfig config_;
@@ -149,6 +173,12 @@ class DualArmSparkGuidance {
   bool joint_takeover_active_{false};
   Vec7 joint_takeover_left_goal_{Vec7::Zero()};
   Vec7 joint_takeover_right_goal_{Vec7::Zero()};
+  std::unique_ptr<SharedRootPipeline> shared_root_;
+  SharedRootContinuityOutput shared_output_;
+  std::uint64_t shared_cycle_{0};
+  bool shared_ack_ready_{false};
+  bool shared_suppress_hold_{false};
+  bool shared_intent_valid_{false};
 };
 
 }  // namespace tianji_qp_ik

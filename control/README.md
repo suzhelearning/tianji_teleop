@@ -405,7 +405,36 @@ control_level=velocity
 - 非 PICO 运行需显式使用 `--no-pico-teleop --no-pico-skeleton-overlay` 并指定对应
   `--config`、`--model`、`--control-level` 和 `--algorithm`。
 
+## 共享根映射的身高／体型适配
+
+共享根映射按人体肩宽和总臂展估计尺度，再生成机械臂目标；映射与后续 IK 是不同层。
+2026-09-20 基于 1.62 m 的 4471 帧录制完成 11 组合成人体实验：等比例身高
+1.45～1.95 m 的掌心目标与基线差值低于 `1e-12 m`；独立改变肩宽或骨段比例时
+目标不再相同。所有组最终几何闭合，不代表关节限位、碰撞、IK 或真人验收通过。
+
+完整结果及 Pixi 复现命令见[合成人体映射实验](docs/verification/synthetic_body_mapping_20260920.md)，
+换人步骤见[简化标定](../docs/pico-simple-calibration.md#换人身高与臂长适配)。
+实验仅改变录制中 M0 输出后的骨架点，不覆盖上游按身高模板重建／截断和传感误差；
+生成的 `.synthetic.tjvr` 仅用于离线映射审计，不得送入在线执行器。
+此结论不外推到其他映射模式，也不修改现有控制器默认配置。
+
 ## 历史算法
+
+当前共享根 SPARK `qp_ik_pico_shared_root_reachable.yaml` 已与 Ceres 统一源模型限位、
+初始姿态和硬运动限值；IK 与运动参考均在 Viewer 控制循环在线计算，见
+[限位与在线接线说明](docs/verification/shared_root_ceres_f615b8c.md)。其他历史配置不随之批量修改。
+
+另有默认关闭的[共享根 Ceres LM＋Ruckig 实验后端](docs/verification/shared_root_ceres_f615b8c.md)，
+标准 `pixi run build` 已启用 `TIANJI_ENABLE_CERES=ON`，产物统一在 `control/build`。
+直接使用 CMake 的旧构建仍可关闭该选项。当前仅允许模型状态仿真、禁止关节导出；
+已同步源 `f615b8c` 的 Pinocchio 路径及 Ruckig 修复，见[最新移植验证](docs/verification/shared_root_ceres_f615b8c.md)；
+左臂残差明显改善但仍未通过跟踪验收。原生 Viewer 与真机默认保持不变；
+上层 `teleop.sh --sim` 已按用户选择默认 Franka DLS＋Ruckig。
+
+交互仿真可选 `bash teleop.sh --sim --ik-backend ceres`（在仓库根目录运行）：
+S 接入、H 平滑回 Home 后等待、P/Space 停止，详见
+[DLS/Ceres 交互仿真与验收清单](docs/verification/ceres_interactive_sim.md)。仅双臂 direct 仿真，无硬件指令输出。
+阶段报告与历史消融集中在[历史归档](docs/archive/2026-09-shared-root/README.md)，不作为当前运行指令。
 
 Hierarchical QP、null-space DLS、Cartesian OTG velocity/acceleration、旧 SPARK A/B
 模式、数学公式、基准指令和完整旧键位说明已迁移至

@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
-"""Stop historical processes owned by the Tianji PICO teleoperation chain."""
+"""Read-only conflict inspection; executable names are NOT proof of ownership."""
 
 from __future__ import annotations
 
 import argparse
 import os
-import signal
 import sys
-import time
 from pathlib import Path
 from typing import NamedTuple
 
@@ -106,21 +104,9 @@ def current_process_ancestry(proc_root: Path = Path("/proc")) -> set[int]:
     return ancestry
 
 
-def _wait_until_clear(proc_root: Path, excluded_pids: set[int], timeout_s: float) -> bool:
-    deadline = time.monotonic() + timeout_s
-    while time.monotonic() < deadline:
-        if not find_target_processes(proc_root, excluded_pids):
-            return True
-        time.sleep(0.05)
-    return not find_target_processes(proc_root, excluded_pids)
-
-
 def cleanup_processes(
     proc_root: Path = Path("/proc"),
     dry_run: bool = False,
-    interrupt_timeout_s: float = 2.0,
-    terminate_timeout_s: float = 1.0,
-    kill_timeout_s: float = 1.0,
 ) -> int:
     excluded_pids = current_process_ancestry(proc_root)
     targets = find_target_processes(proc_root, excluded_pids)
@@ -132,33 +118,9 @@ def cleanup_processes(
         print(f"historical pid={process.pid} command={process.arguments[0]}")
     if dry_run:
         return 0
-
-    stages = (
-        (signal.SIGINT, interrupt_timeout_s),
-        (signal.SIGTERM, terminate_timeout_s),
-        (signal.SIGKILL, kill_timeout_s),
-    )
-    for process_signal, timeout_s in stages:
-        targets = find_target_processes(proc_root, excluded_pids)
-        if not targets:
-            return 0
-        for process in targets:
-            try:
-                os.kill(process.pid, process_signal)
-            except (ProcessLookupError, PermissionError):
-                continue
-        if _wait_until_clear(proc_root, excluded_pids, timeout_s):
-            return 0
-
-    survivors = find_target_processes(proc_root, excluded_pids)
-    if survivors:
-        print(
-            "Failed to stop historical Tianji PICO pid(s): "
-            + ",".join(str(process.pid) for process in survivors),
-            file=sys.stderr,
-        )
-        return 2
-    return 0
+    print("Existing PICO processes detected. Nothing was stopped. Resolve ownership "
+          "and stop the old input explicitly before retrying.", file=sys.stderr)
+    return 2
 
 
 def main() -> None:

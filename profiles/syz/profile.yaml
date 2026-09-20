@@ -1,6 +1,0 @@
-schema_version: 1
-user_id: syz
-pico:
-  active_set: '20260908-01'
-manus:
-  user: syz

@@ -15,7 +15,8 @@ from pico_symmetric_geometry import FILES, POLICY_FILE, apply_profile, symmetric
 
 @pytest.fixture
 def original(tmp_path):
-    source = ROOT / 'profiles/syz/pico/20260908-01'
+    from pico_test_data import synthetic_bundle
+    source = synthetic_bundle(tmp_path / 'synthetic')
     result = tmp_path / '.draft'
     shutil.copytree(source, result)
     return result

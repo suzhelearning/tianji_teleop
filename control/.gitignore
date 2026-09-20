@@ -1,6 +1,7 @@
 .worktrees/
 .pixi/
 build/
+build-ceres/
 Testing/
 *.log
 *.csv

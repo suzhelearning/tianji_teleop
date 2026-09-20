@@ -146,7 +146,7 @@ DualArmSparkGuidance::ArmState::ArmState(
 
 DualArmSparkGuidance::DualArmSparkGuidance(
     MujocoRobot& robot, const QpIkConfig& config, const std::string& urdf_path,
-    SparkPostureGuideMode posture_mode)
+    SparkPostureGuideMode posture_mode, const SharedRootOptions* shared_root)
     : robot_(robot),
       config_(config),
       posture_mode_(posture_mode),
@@ -166,10 +166,31 @@ DualArmSparkGuidance::DualArmSparkGuidance(
   if (!reset(left_model, right_model)) {
     throw std::invalid_argument("cannot initialize Spark guidance state");
   }
+  if (shared_root && shared_root->enabled) initializeSharedRoot(*shared_root, urdf_path);
 }
 
 bool DualArmSparkGuidance::reset(const ArmMotionState& left_model,
                                  const ArmMotionState& right_model) noexcept {
+  return resetImpl(left_model, right_model, true);
+}
+
+bool DualArmSparkGuidance::resetMappingSession(const ArmMotionState& left_model,
+                                               const ArmMotionState& right_model) noexcept {
+  if (!shared_root_ ||
+      (config_.ik_algorithm != IkAlgorithm::kPicoEeFrankaDls &&
+       config_.ik_algorithm != IkAlgorithm::kPicoEeFrankaCeresLm)) return false;
+  return resetImpl(left_model, right_model, false);
+}
+
+bool DualArmSparkGuidance::resetImpl(const ArmMotionState& left_model,
+                                     const ArmMotionState& right_model,
+                                     bool reset_reference) noexcept {
+  for (const auto* model : {&left_model, &right_model})
+    if (!model->q.allFinite() || !model->qdot.allFinite() || !model->qddot.allFinite())
+      return false;
+  if (shared_root_) shared_root_->resetSession();
+  shared_ack_ready_ = shared_suppress_hold_ = shared_intent_valid_ = false;
+  shared_output_ = {};
   scaler_.reset();
   left_.ik.reset();
   right_.ik.reset();
@@ -211,8 +232,9 @@ bool DualArmSparkGuidance::reset(const ArmMotionState& left_model,
   right_.settled_hold_dwell_seconds = 0.0;
   left_.settled_hold_reason = SparkSettledHoldReason::kNone;
   right_.settled_hold_reason = SparkSettledHoldReason::kNone;
-  return left_.reference.reset(left_model) &&
-         right_.reference.reset(right_model);
+  if (!reset_reference) cancelJointSpaceTakeover();
+  return !reset_reference || (left_.reference.reset(left_model) &&
+         right_.reference.reset(right_model));
 }
 
 void DualArmSparkGuidance::updateHeadroomFeedback(
@@ -228,6 +250,7 @@ void DualArmSparkGuidance::updateHeadroomFeedback(
 
 SparkUpperTargets DualArmSparkGuidance::updatePicoFrame(
     const PicoTeleopFrame& frame) {
+  if (shared_root_) throw std::logic_error("shared-root requires explicit receive-time context");
   const bool previously_valid = raw_targets_.valid;
   raw_targets_ = scaler_.update(frame.upper_limb_skeleton, frame.left,
                                 frame.right);
@@ -252,7 +275,7 @@ SparkUpperTargets DualArmSparkGuidance::updatePicoFrame(
 bool DualArmSparkGuidance::startJointSpaceTakeover(
     const SparkUpperTargets& targets, const ArmMotionState& left_model,
     const ArmMotionState& right_model) {
-  if (joint_takeover_active_ || !targets.valid || !left_model.q.allFinite() ||
+  if (shared_root_ || joint_takeover_active_ || !targets.valid || !left_model.q.allFinite() ||
       !right_model.q.allFinite()) {
     return false;
   }
@@ -448,6 +471,18 @@ void DualArmSparkGuidance::updateBlend(
 SparkGuidanceDiagnostics DualArmSparkGuidance::step(
     const ArmMotionState& left_model, const ArmMotionState& right_model,
     double dt) {
+  if (shared_root_) {
+    SparkGuidanceDiagnostics result;
+    result.detail = "shared_root_requires_explicit_execution_context";
+    shared_ack_ready_ = false;
+    return result;
+  }
+  return stepImpl(left_model, right_model, dt);
+}
+
+SparkGuidanceDiagnostics DualArmSparkGuidance::stepImpl(
+    const ArmMotionState& left_model, const ArmMotionState& right_model,
+    double dt) {
   const auto start = std::chrono::steady_clock::now();
   SparkGuidanceDiagnostics result;
   if (!std::isfinite(dt) || dt <= 0.0 || !left_model.q.allFinite() ||
@@ -455,7 +490,7 @@ SparkGuidanceDiagnostics DualArmSparkGuidance::step(
     result.detail = "invalid_spark_guidance_input";
     return result;
   }
-  updateBlend(left_model, right_model, dt);
+  if (!shared_root_) updateBlend(left_model, right_model, dt);
   const bool otg_consistent_mode =
       posture_mode_ ==
       SparkPostureGuideMode::kOtgConsistentJointReferenceVelocity;
@@ -476,6 +511,10 @@ SparkGuidanceDiagnostics DualArmSparkGuidance::step(
           config_.spark_upper_qpoases.target_blend_seconds,
       0.0, 1.0);
   result.blend_active = latest_targets_.valid && result.blend_progress < 1.0;
+  if (shared_root_) {
+    result.blend_progress = shared_output_.alpha;
+    result.blend_active = shared_output_.state == SharedRootState::kRecovering;
+  }
   if (feedforward_mode) {
     result.left.headroom = left_.headroom.state();
     result.right.headroom = right_.headroom.state();
@@ -516,6 +555,10 @@ SparkGuidanceDiagnostics DualArmSparkGuidance::step(
             latest_source_timestamp_ns_, latest_source_epoch_,
             latest_source_discontinuity_);
         if (headroom_feedforward_mode) {
+          if (shared_root_ && !shared_intent_valid_) {
+            left_.motion_intent_twist.reset();
+            right_.motion_intent_twist.reset();
+          }
           result.left.motion_intent_twist = left_.motion_intent_twist.update(
               latest_left_input_palm_, latest_source_sequence_,
               latest_source_timestamp_ns_, latest_source_epoch_,
@@ -557,7 +600,11 @@ SparkGuidanceDiagnostics DualArmSparkGuidance::step(
               "motion_intent_twist_held";
         }
       }
-      if (headroom_feedforward_mode &&
+      if (shared_root_ && !shared_intent_valid_) {
+        result.left.motion_intent_twist.reset = true;
+        result.right.motion_intent_twist.reset = true;
+      }
+      if (headroom_feedforward_mode && !shared_suppress_hold_ &&
           config_.spark_headroom_feedforward_velocity_qp
               .settled_hold_enabled) {
         const auto stationary_for_entry = [this](
@@ -658,7 +705,7 @@ SparkGuidanceDiagnostics DualArmSparkGuidance::step(
                         config_.spark_headroom_feedforward_velocity_qp
                             .stationary_reference_hold_angular_velocity_rad_s;
               };
-              return headroom_feedforward_mode &&
+              return headroom_feedforward_mode && !shared_suppress_hold_ &&
                   last_feedforward_sequence_ != 0U &&
                   (stationary(target_motion) || stationary(raw_motion));
             };
@@ -829,6 +876,15 @@ SparkGuidanceDiagnostics DualArmSparkGuidance::step(
       }
       const Pose model_tcp = robot_.armKinematicsAt(side, model.q).tcp_pose;
       arm.target.palm = model_tcp;
+      if (shared_root_) {
+        // A settled-hold diagnostic describes the held model, not the mapped
+        // candidate. Do not leave its old shape endpoint beside the held TCP.
+        const auto sample = robot_.armKinematicsAt(side, model.q);
+        arm.target.shoulder = sample.shoulder_position;
+        arm.target.elbow = sample.elbow_position;
+        arm.target.wrist = sample.wrist_position;
+        arm.target.hand = model_tcp.position;
+      }
       cartesian_target = model_tcp;
       cartesian_target_twist.setZero();
       reference.pose = model_tcp;
@@ -1101,6 +1157,11 @@ SparkGuidanceDiagnostics DualArmSparkGuidance::step(
 }
 
 void DualArmSparkGuidance::invalidateTarget(std::string_view detail) noexcept {
+  if (shared_root_) {
+    shared_root_->resetSession();
+    shared_ack_ready_ = shared_suppress_hold_ = false;
+    shared_output_ = {};
+  }
   raw_targets_.valid = false;
   raw_targets_.detail = detail;
   latest_targets_.valid = false;

@@ -145,9 +145,15 @@ struct ArmIkSnapshot {
   double headroom_scale{0.0};
   int headroom_state{0};
   int headroom_dominant_source{0};
+  double ee_ik_wall_time_us{0.0};
+  double ee_ruckig_wall_time_us{0.0};
+  double ee_ik_to_ruckig_wall_time_us{0.0};
+  bool ee_ruckig_invoked{false};
+  bool ee_pinocchio_kinematics{false};
 };
 
 struct TelemetrySample {
+  int simulation_phase{-1};
   std::uint64_t sequence{0U};
   double control_time_seconds{0.0};
   IkAlgorithm algorithm{IkAlgorithm::kHierarchicalQp};
@@ -203,6 +209,7 @@ struct TelemetrySample {
 };
 
 struct ViewerSnapshot {
+  int simulation_phase{-1};
   std::uint64_t sequence{0U};
   std::uint64_t last_processed_command_id{0U};
   double control_time_seconds{0.0};
@@ -278,6 +285,9 @@ struct ViewerSnapshot {
 };
 
 enum class ViewerCommandType {
+  kSimulationStart,
+  kSimulationHome,
+  kSimulationHold,
   kSetMode,
   kSetBackend,
   kSetIkAlgorithm,

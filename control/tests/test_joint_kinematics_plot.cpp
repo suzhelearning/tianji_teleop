@@ -7,6 +7,26 @@
 namespace tianji_qp_ik {
 namespace {
 
+TEST(JointKinematicsDifferentiatorTest, RuckigUsesInternalAccelerationAndAverageJerk) {
+  JointKinematicsDifferentiator d;
+  const Vec7 zero = Vec7::Zero();
+  auto first = d.update(zero, Vec7::Constant(2),
+      ReferenceAccelerationSource::kRuckigOutput, zero, .005, false);
+  EXPECT_TRUE(first.reference_acceleration_valid);
+  EXPECT_FALSE(first.reference_jerk_valid);
+  auto next = d.update(Vec7::Constant(.5), Vec7::Constant(3),
+      ReferenceAccelerationSource::kRuckigOutput, zero, .005, false);
+  EXPECT_TRUE(next.reference_acceleration.isApprox(Vec7::Constant(3)));
+  EXPECT_TRUE(next.reference_jerk.isApprox(Vec7::Constant(200)));
+  EXPECT_TRUE(next.reference_jerk_valid);
+  auto reset = d.update(zero, zero, ReferenceAccelerationSource::kRuckigOutput,
+                        zero, .005, true);
+  EXPECT_FALSE(reset.reference_jerk_valid);
+  auto legacy = d.update(zero, Vec7::Constant(8),
+      ReferenceAccelerationSource::kDifferentiateVelocity, zero, .005, false);
+  EXPECT_FALSE(legacy.reference_acceleration_valid);
+}
+
 TEST(JointKinematicsDifferentiatorTest,
      DifferentiatesVelocityReferenceAndActualIndependently) {
   JointKinematicsDifferentiator differentiator;

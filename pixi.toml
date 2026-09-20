@@ -11,6 +11,7 @@ cmake = ">=3.24,<4"
 ninja = ">=1.11"
 cxx-compiler = ">=1.9"
 libmujoco = "==3.10.0"
+mujoco-python = "==3.10.0"
 glfw = ">=3.4,<4"
 eigen = ">=3.4,<4"
 libpinocchio = ">=3.8,<4"
@@ -19,15 +20,53 @@ qpoases = ">=3.2,<4"
 yaml-cpp = ">=0.8,<1"
 gtest = ">=1.15,<2"
 matplotlib = ">=3.10,<4"
+pyyaml = ">=6,<7"
 
 [tasks]
-configure = "cmake -S control -B control/build -G Ninja -DCMAKE_BUILD_TYPE=Release -DPython3_EXECUTABLE=$PWD/.venv/bin/python"
-build = "cmake --build control/build --parallel 4"
+configure = "cmake -S control -B control/build -G Ninja -DCMAKE_BUILD_TYPE=Release -DTIANJI_ENABLE_CERES=ON -DPython3_EXECUTABLE=$CONDA_PREFIX/bin/python"
+build = { cmd = "cmake --build control/build --parallel 2", depends-on = ["configure"] }
 test-native = "ctest --test-dir control/build --output-on-failure"
+test-sim = "python -m unittest discover -s sim/tests -v"
+sim = "TIANJI_PYTHON=$CONDA_PREFIX/bin/python bash teleop.sh --sim"
 build-manus = "bash manus/build.sh"
+manus = "pixi run --locked -e manus manus-input"
+prepare-manus = "pixi install --locked -e tracking && pixi run --locked -e manus prepare-manus-runtime"
+
+[feature.manus.dependencies]
+python = "3.11.*"
+pip = "*"
+setuptools = ">=68,<80"
+numpy = ">=1.26,<3"
+pyyaml = ">=6,<7"
+pinocchio = "==3.8.0"
+cxx-compiler = ">=1.9"
+pytest = ">=8,<9"
+nlopt = ">=2.9,<3"
+scipy = ">=1.11,<2"
+pybind11 = ">=2.13,<4"
+wheel = "*"
+
+[feature.manus.tasks]
+# ROS stays in its existing ABI-compatible Python 3.11 tracking environment.
+# Do not solve ROS Humble's Boost pins together with retargeting Pinocchio.
+manus-input = "TIANJI_PYTHON=$CONDA_PREFIX/bin/python ROS_SETUP=$PIXI_PROJECT_ROOT/.pixi/envs/tracking/setup.bash bash manus.sh"
+build-manus-retarget = "python -m pip install --no-deps --no-build-isolation -e ."
+prepare-manus-runtime = { cmd = "bash manus/build.sh", depends-on = ["build-manus-retarget"] }
 
 [feature.tracking]
 channels = ["conda-forge", "https://prefix.dev/robostack-staging"]
+
+[feature.tracking.tasks]
+ensure-pico-user = "TIANJI_PYTHON=$CONDA_PREFIX/bin/python ROS_SETUP=$CONDA_PREFIX/setup.bash bash scripts/ensure_pico_user.sh"
+test-sim-user = "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest tests/test_sim_user.py tests/test_pico_pixi.py tests/test_pico_startup_safety.py tests/test_setup_pico.py -q"
+stop-pico = "bash tracking/scripts/start_tianji_pico_teleop.sh --stop"
+setup-pico = "TIANJI_PYTHON=$CONDA_PREFIX/bin/python ROS_SETUP=$CONDA_PREFIX/setup.bash bash scripts/setup_pico.sh"
+test-setup-pico = "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest tests/test_setup_pico.py tests/test_pico_pixi.py tests/test_pico_startup_safety.py -q"
+build-tracking = "TIANJI_PYTHON=$CONDA_PREFIX/bin/python ROS_SETUP=$CONDA_PREFIX/setup.bash bash tracking/scripts/build.sh"
+pico-driver = "TIANJI_PYTHON=$CONDA_PREFIX/bin/python ROS_SETUP=$CONDA_PREFIX/setup.bash bash tracking/scripts/start_pico_driver.sh"
+calibrate-pico = "TIANJI_PYTHON=$CONDA_PREFIX/bin/python ROS_SETUP=$CONDA_PREFIX/setup.bash bash scripts/calibrate_pico_simple.sh"
+pico-simple = "TIANJI_PYTHON=$CONDA_PREFIX/bin/python ROS_SETUP=$CONDA_PREFIX/setup.bash bash scripts/start_simple_pico.sh"
+test-pico-simple = "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest tests/test_pico_pixi.py tests/test_pico_startup_safety.py tests/test_pico_simple_lifecycle.py tests/test_pico_simple_calibration.py tests/test_pico_simple_ros_loaders.py tests/test_symmetric_profile.py tests/test_teleop_profile.py tracking/src/pico_bridge/test/test_cleanup_tianji_pico_processes.py tracking/src/pico_bridge/test/test_pico_calibration_artifact.py tracking/src/pico_bridge/test/test_pico_palm_tcp_runtime.py -q"
 
 [feature.tracking.dependencies]
 ros-humble-desktop = "*"
@@ -89,3 +128,4 @@ pytest = ">=8,<9"
 [environments]
 default = { features = [] }
 tracking = { features = ["tracking"], no-default-feature = true }
+manus = { features = ["manus"], no-default-feature = true }

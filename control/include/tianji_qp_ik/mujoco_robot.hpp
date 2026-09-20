@@ -80,12 +80,16 @@ class MujocoRobot {
   Pose tcpRelativeToLink7(ArmSide side) const;
   Mat67 tcpJacobianWorld(ArmSide side);
   ArmKinematicSample armKinematicsAt(ArmSide side, const Vec7& position);
+  // FK/Jacobian only, no contacts, inertia factorization or dynamics. Uses
+  // the same model/TCP and private scratch data, without mutating live state.
+  ArmKinematicSample armKinematicsOnlyAt(ArmSide side, const Vec7& position);
   Vec6 tcpJacobianDotTimesVelocityWorld(ArmSide side, const Vec7& q,
                                         const Vec7& qdot);
   int targetBodyId(ArmSide side) const noexcept;
   int targetMocapId(ArmSide side) const noexcept;
 
  private:
+  ArmKinematicSample sampleArmAt(ArmSide, const Vec7&, bool kinematics_only);
   ArmMapping buildMapping(ArmSide side) const;
   HandMapping buildHandMapping(ArmSide side) const;
 

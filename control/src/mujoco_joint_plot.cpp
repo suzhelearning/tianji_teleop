@@ -134,6 +134,14 @@ void MujocoJointPlot::update(const JointKinematicsHistory& history,
                   plotMetricName(metric), plotMetricUnit(metric));
 
     const JointPlotSeries values = history.series(side, metric, joint);
+    std::snprintf(current.linename[0], sizeof(current.linename[0]), "%s",
+                  values.ruckig_output ? "Ruckig output" : "QP reference");
+    if (values.ruckig_output) {
+      std::snprintf(current.title, sizeof(current.title), "%s J%d Ruckig %s [%s]",
+                    side == ArmSide::kLeft ? "Left" : "Right", joint + 1,
+                    metric == PlotMetric::kJerk ? "avg jerk" : plotMetricName(metric),
+                    plotMetricUnit(metric));
+    }
     if (values.time.empty()) {
       continue;
     }

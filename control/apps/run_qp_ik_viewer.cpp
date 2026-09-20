@@ -38,6 +38,7 @@
 #include <exception>
 #include <fstream>
 #include <iomanip>
+#include "tianji_qp_ik/simulation_recovery.hpp"
 #include <iostream>
 #include <limits>
 #include <memory>
@@ -57,12 +58,15 @@ void requestStop(int) { stop_requested = 1; }
 struct Options {
   std::string config_path{"config/qp_ik_pico_teleop.yaml"};
   std::string model_path{"models/marvin_m6_wuji2.xml"};
+  bool model_path_explicit{false};
   std::string telemetry_path;
   std::string joint_telemetry_path;
   std::string joint_command_host{"127.0.0.1"};
   std::uint16_t joint_command_port{0U};
   bool continuous{false};
   bool headless{false};
+  bool simulation_recovery{false};
+  bool sim_allow_pico_jumps{false};
   double duration_seconds{0.0};
   bool pico_teleop{true};
   bool pico_skeleton_overlay{true};
@@ -126,6 +130,8 @@ Options parseOptions(int argc, char** argv) {
                    "[--telemetry FILE] [--joint-telemetry FILE] "
                    "[--joint-command-host LOOPBACK_IPV4] [--joint-command-port PORT (0=disabled)] "
                    "[--pico-teleop|--no-pico-teleop] "
+                   "[--simulation-recovery (Ceres model-only S/H/P gate)] "
+                   "[--sim-allow-pico-jumps (requires simulation recovery)] "
                    "[--pico-skeleton-overlay|--no-pico-skeleton-overlay] "
                    "[--pico-bind IPV4] [--pico-port PORT] "
                    "[--pico-record FILE.tjvr] "
@@ -143,6 +149,14 @@ Options parseOptions(int argc, char** argv) {
                    "[--model-state-only|--actual-feedback-control] "
                    "[--arm-angle-mode pico|default_down|outward_only|pico_outward]\n";
       std::exit(0);
+    }
+    if (argument == "--sim-allow-pico-jumps") {
+      options.sim_allow_pico_jumps = true;
+      continue;
+    }
+    if (argument == "--simulation-recovery") {
+      options.simulation_recovery = true;
+      continue;
     }
     if (argument == "--continuous") {
       options.continuous = true;
@@ -192,6 +206,7 @@ Options parseOptions(int argc, char** argv) {
       options.config_path = value;
     } else if (argument == "--model") {
       options.model_path = value;
+      options.model_path_explicit = true;
     } else if (argument == "--duration") {
       options.duration_seconds = std::stod(value);
     } else if (argument == "--telemetry") {
@@ -244,6 +259,10 @@ Options parseOptions(int argc, char** argv) {
         options.algorithm_override = IkAlgorithm::kHierarchicalQp;
       } else if (value == "nullspace_dls") {
         options.algorithm_override = IkAlgorithm::kNullspaceDls;
+      } else if (value == "pico_ee_franka_ceres_lm") {
+        options.algorithm_override = IkAlgorithm::kPicoEeFrankaCeresLm;
+      } else if (value == "pico_ee_franka_dls") {
+        options.algorithm_override = IkAlgorithm::kPicoEeFrankaDls;
       } else if (value == "spark_guided_velocity_qp") {
         options.algorithm_override = IkAlgorithm::kSparkGuidedVelocityQp;
       } else if (value == "spark_direct_velocity_qp") {
@@ -450,6 +469,10 @@ void processCommand(const ViewerCommand& command, MujocoRobot& robot,
                     std::unique_ptr<DualArmAccelerationController>&
                         acceleration_controller) {
   switch (command.type) {
+    case ViewerCommandType::kSimulationStart:
+    case ViewerCommandType::kSimulationHome:
+    case ViewerCommandType::kSimulationHold:
+      break; // Owned exclusively by the opt-in simulation state machine.
     case ViewerCommandType::kSetMode:
       if (!resumeFromPause(paused, config.control_level, *controller,
                            *acceleration_controller)) {
@@ -624,6 +647,7 @@ void controlLoop(MujocoRobot& robot, QpIkConfig config,
                  WujiHandUdpReceiver* hand_receiver,
                  JointCommandExporter* joint_command_exporter,
                  bool pico_initially_enabled,
+                 bool simulation_recovery,
                  ArmAngleReferenceMode initial_arm_angle_reference_mode,
                  std::atomic<bool>& running) {
   setInitialConfiguration(robot, config);
@@ -631,6 +655,15 @@ void controlLoop(MujocoRobot& robot, QpIkConfig config,
   TargetManager targets(config, initial_targets);
   std::unique_ptr<DualArmController> controller = makeController(robot, config);
   const double dt = 1.0 / config.controller.rate_hz;
+  std::optional<SimulationRecovery> recovery;
+  const auto motionPair = [&] {
+    return SimulationRecovery::Pair{controller->referenceState(ArmSide::kLeft),
+                                    controller->referenceState(ArmSide::kRight)};
+  };
+  if(simulation_recovery)
+    recovery.emplace(config,std::array<ArmLimits,2>{robot.mapping(ArmSide::kLeft).limits,
+        robot.mapping(ArmSide::kRight).limits},motionPair(),dt);
+  int reported_phase=-1;
   const CartesianOtgConfig initial_otg_config =
       cartesianOtgConfigForControlLevel(config, config.control_level);
   CartesianReferenceGenerator left_otg(initial_otg_config, dt);
@@ -640,6 +673,13 @@ void controlLoop(MujocoRobot& robot, QpIkConfig config,
   std::unique_ptr<DualArmAccelerationController> acceleration_controller =
       std::make_unique<DualArmAccelerationController>(robot, config);
   std::unique_ptr<DualArmSparkGuidance> spark_guidance;
+  const bool shared_root_mode = !config.shared_root_profile_path.empty();
+  std::optional<SharedRootOptions> shared_root_options;
+  if (shared_root_mode) {
+    shared_root_options = loadSharedRootOptions(config.shared_root_profile_path);
+    if (!shared_root_options->enabled)
+      throw std::runtime_error("shared-root profile changed after startup validation");
+  }
   if (usesSparkGuidance(config.ik_algorithm)) {
     SparkPostureGuideMode posture_mode = SparkPostureGuideMode::kRuckig;
     if (usesSparkOtgConsistentVelocityQp(config.ik_algorithm)) {
@@ -662,8 +702,9 @@ void controlLoop(MujocoRobot& robot, QpIkConfig config,
       posture_mode = SparkPostureGuideMode::kDisabled;
     }
     spark_guidance = std::make_unique<DualArmSparkGuidance>(
-        robot, config, "models/marvin_m6_s_ccs_696_v4_local.urdf",
-        posture_mode);
+        robot, config, shared_root_options ? shared_root_options->urdf_path
+                                          : "models/marvin_m6_s_ccs_696_v4_local.urdf",
+        posture_mode, shared_root_options ? &*shared_root_options : nullptr);
   }
   DualArmTargets last_spark_targets = initial_targets;
   DualArmReferences last_spark_references = directReferences(initial_targets);
@@ -733,6 +774,44 @@ void controlLoop(MujocoRobot& robot, QpIkConfig config,
     bool hand_reset_requested = false;
     ViewerCommand command;
     while (commands.tryPop(command)) {
+      if(recovery) {
+        bool changed=false;
+        if(command.type==ViewerCommandType::kSimulationStart) {
+          changed=recovery->start(pico_session.freshness(monotonic_now_ns).live,motionPair());
+          std::cout<<(config.ik_algorithm == IkAlgorithm::kPicoEeFrankaDls ? "DLS_SIM: S " : "CERES_SIM: S ")
+                   <<(changed?"accepted":"rejected: fresh input and stationary WAIT/HOLD/Home required")<<std::endl;
+        } else if(command.type==ViewerCommandType::kSimulationHome) {
+          changed=recovery->stop(motionPair(),true);
+          std::cout << "SIM: H " << (changed ? "accepted: braking then Home" :
+              "rejected: fault, recovery already active, or invalid motion state")
+                    << "; phase=" << recovery->name() << std::endl;
+        } else if(command.type==ViewerCommandType::kSimulationHold) {
+          changed=recovery->stop(motionPair());
+        }
+        if(changed) {
+          hand_reset_requested = true; // Reject samples collected before this ownership change.
+          controller->resetSolvers();
+          if(!spark_guidance->resetMappingSession(controller->referenceState(ArmSide::kLeft),
+                                   controller->referenceState(ArmSide::kRight))) {
+            recovery->fault();
+            std::cerr << "SIM: mapping session reset failed; recovery FAULT" << std::endl;
+          }
+          if(command.type==ViewerCommandType::kSimulationStart && recovery->teleop()) {
+            if(!controller->beginSimulationSoftStart()) recovery->fault();
+            else std::cout << "SIM: soft start: slow approach, then gradual normal-speed tracking" << std::endl;
+          }
+        }
+        last_processed_command_id=std::max(last_processed_command_id,command.id);
+        continue; // Legacy toggles/reset cannot bypass simulation ownership.
+      }
+      if (shared_root_mode &&
+          (command.type == ViewerCommandType::kSetIkAlgorithm ||
+           command.type == ViewerCommandType::kSetControlLevel)) {
+        // Switching backend requires a new session with another explicit
+        // profile. Never reinterpret an existing shared-root stream as legacy.
+        last_processed_command_id = std::max(last_processed_command_id, command.id);
+        continue;
+      }
       const ControlLevel previous_control_level = config.control_level;
       const IkAlgorithm previous_algorithm = controller->algorithm();
       const bool previous_paused = paused;
@@ -741,6 +820,17 @@ void controlLoop(MujocoRobot& robot, QpIkConfig config,
                      pico_session, pico_configured, arm_angle_reference_mode,
                      paused, pico_paused,
                      controller, acceleration_controller);
+      if (shared_root_mode && command.type == ViewerCommandType::kResetNominal) {
+        pico_session.setEnabled(false);
+        pico_paused = true; // Reset/Home never automatically grants takeover.
+      }
+      if (shared_root_mode && command.type != ViewerCommandType::kResetNominal &&
+          (paused != previous_paused || pico_paused != previous_pico_paused)) {
+        // Process revocation even when pause/resume commands share one tick.
+        if (!spark_guidance->reset(controller->referenceState(ArmSide::kLeft),
+                                   controller->referenceState(ArmSide::kRight)))
+          throw std::runtime_error("shared-root pause/rearm reset failed");
+      }
       hand_reset_requested = hand_reset_requested ||
                              pico_paused != previous_pico_paused;
       if (pico_paused && joint_takeover_active) {
@@ -794,6 +884,8 @@ void controlLoop(MujocoRobot& robot, QpIkConfig config,
           pico_frame.resynchronization_generation;
       const PicoTeleopButtonAction button_action =
           pico_session.observeButton(pico_frame);
+      if(recovery&&button_action==PicoTeleopButtonAction::kPause)
+        recovery->stop(motionPair());
       if (button_action == PicoTeleopButtonAction::kPause) {
         pico_paused = true;
         if (spark_guidance != nullptr) {
@@ -813,6 +905,8 @@ void controlLoop(MujocoRobot& robot, QpIkConfig config,
               static_cast<double>(pico_frame.source_timestamp_ns) * 1.0e-9;
           const bool reset_epoch =
               classification.action == PicoTeleopAction::kResetEpochAndApply;
+          if(recovery&&recovery->teleop()&&reset_epoch&&pico_applied_epoch!=0)
+            recovery->stop(motionPair()); // Reset never grants automatic re-entry.
           const DualArmTargets current = currentTargets(robot);
           bool target_accepted = false;
           TargetManager candidate = reset_epoch
@@ -833,10 +927,14 @@ void controlLoop(MujocoRobot& robot, QpIkConfig config,
                       ? direct_right_state
                       : controller->referenceState(ArmSide::kRight));
             }
-            const SparkUpperTargets spark_targets =
-                spark_guidance->updatePicoFrame(pico_frame);
-            target_accepted = spark_targets.valid;
-            if (target_accepted && reset_epoch && !spark_direct_qpos &&
+            SparkUpperTargets spark_targets;
+            if (shared_root_mode) {
+              target_accepted = spark_guidance->updateSharedRootFrame(pico_frame, monotonic_now_ns);
+            } else {
+              spark_targets = spark_guidance->updatePicoFrame(pico_frame);
+              target_accepted = spark_targets.valid;
+            }
+            if (!shared_root_mode && target_accepted && reset_epoch && !spark_direct_qpos &&
                 controller->algorithm() != IkAlgorithm::kSparkPoseVelocityQp) {
               const ArmMotionState left_alignment_model =
                   spark_direct_qpos
@@ -907,6 +1005,8 @@ void controlLoop(MujocoRobot& robot, QpIkConfig config,
 
     const PicoTeleopFreshness pico_freshness =
         pico_session.freshness(monotonic_now_ns);
+    if(recovery&&recovery->teleop()&&!pico_freshness.live)
+      recovery->stop(motionPair());
     const PicoReceiverStats pico_stats =
         pico_receiver != nullptr ? pico_receiver->stats() : PicoReceiverStats{};
     if (spark_guidance != nullptr &&
@@ -930,7 +1030,7 @@ void controlLoop(MujocoRobot& robot, QpIkConfig config,
           spark_guidance->cancelJointSpaceTakeover();
           joint_takeover_active = false;
         }
-        spark_guidance->invalidateTarget("spark_pico_stale");
+        if (!shared_root_mode) spark_guidance->invalidateTarget("spark_pico_stale");
       }
       joint_takeover_cycle = joint_takeover_active;
       const bool spark_direct_qpos =
@@ -941,7 +1041,16 @@ void controlLoop(MujocoRobot& robot, QpIkConfig config,
       const ArmMotionState right_spark_model =
           spark_direct_qpos ? direct_right_state
                             : controller->referenceState(ArmSide::kRight);
-      spark_diagnostics = joint_takeover_active
+      spark_diagnostics = shared_root_mode
+                              ? spark_guidance->stepSharedRoot(
+                                    left_spark_model, right_spark_model, dt,
+                                    monotonic_now_ns,
+                                    !paused && !pico_paused && pico_session.enabled() &&
+                                        (!recovery || recovery->teleop()),
+                                    left_spark_model.q.allFinite() && left_spark_model.qdot.allFinite() &&
+                                    left_spark_model.qddot.allFinite() && right_spark_model.q.allFinite() &&
+                                    right_spark_model.qdot.allFinite() && right_spark_model.qddot.allFinite())
+                              : joint_takeover_active
                               ? spark_guidance->stepJointSpaceTakeover(
                                     left_spark_model, right_spark_model, dt)
                               : spark_guidance->step(
@@ -959,7 +1068,8 @@ void controlLoop(MujocoRobot& robot, QpIkConfig config,
       }
       desired = last_spark_targets;
       desired.left_stale = !pico_freshness.live ||
-                           !spark_diagnostics.accepted;
+                           !spark_diagnostics.accepted ||
+                           (shared_root_mode && !spark_diagnostics.target_valid);
       desired.right_stale = desired.left_stale;
     }
     const bool spark_internal_otg =
@@ -976,10 +1086,16 @@ void controlLoop(MujocoRobot& robot, QpIkConfig config,
                                         : directReferences(desired));
     const bool spark_direct_qpos =
         usesSparkUpperQpoasesDirect(controller->algorithm());
+    if (shared_root_mode && desired.left_stale) {
+      // Cached references may have been fresh when accepted. They must not
+      // mask the current mapping's stale/invalid/disabled state.
+      references.left.stale = references.right.stale = true;
+      references.left.twist.setZero();references.right.twist.setZero();
+    }
     const bool spark_joint_reference_velocity =
         controller->algorithm() ==
         IkAlgorithm::kSparkUpperQpoasesVelocityQp;
-    if (config.cartesian_otg.enabled && !spark_direct_qpos &&
+    if (config.cartesian_otg.enabled && !usesSharedRootDirectIk(controller->algorithm()) && !spark_direct_qpos &&
         !spark_joint_reference_velocity && !spark_internal_reference) {
       references.left = left_otg.update(
           desired.left, desired.left_twist, desired.left_stale, dt);
@@ -991,7 +1107,34 @@ void controlLoop(MujocoRobot& robot, QpIkConfig config,
     controller->setArmAngleReferenceMode(arm_angle_reference_mode);
     acceleration_controller->setArmAngleReferenceMode(
         arm_angle_reference_mode);
-    if (!paused && !pico_paused) {
+    bool recovery_plot_valid = false;
+    const bool recovery_home_sample = recovery &&
+        recovery->phase() == SimulationRecovery::Phase::kHoming;
+    if(recovery&&!recovery->teleop()) {
+      const auto next=recovery->update(motionPair());
+      // Recovery validates a bilateral candidate before either arm is applied.
+      if(!controller->setReferenceState(ArmSide::kLeft,next[0]) ||
+         !controller->setReferenceState(ArmSide::kRight,next[1]))
+        throw std::runtime_error("Simulation recovery reference validation failed");
+      robot.forward();
+      recovery_plot_valid = recovery->phase() != SimulationRecovery::Phase::kFault;
+      // Waiting/braking/Home are intentional non-tracking states, not NaNs.
+      diagnostics.hold_reason = diagnostics.left.hold_reason = diagnostics.right.hold_reason =
+          recovery_plot_valid ? HoldReason::kNone : HoldReason::kSolverFailure;
+      diagnostics.left.safety = diagnostics.right.safety = {false, diagnostics.hold_reason, -1};
+      diagnostics.left.q_ref=next[0].q;diagnostics.right.q_ref=next[1].q;
+      diagnostics.left.current=robot.tcpPose(ArmSide::kLeft);
+      diagnostics.right.current=robot.tcpPose(ArmSide::kRight);
+      diagnostics.left.q_actual=robot.armPosition(ArmSide::kLeft);
+      diagnostics.right.q_actual=robot.armPosition(ArmSide::kRight);
+      diagnostics.left.tcp_actual=diagnostics.left.current;
+      diagnostics.right.tcp_actual=diagnostics.right.current;
+      diagnostics.left.target=diagnostics.left.current;
+      diagnostics.right.target=diagnostics.right.current;
+      diagnostics.left.reference.pose=diagnostics.left.current;
+      diagnostics.right.reference.pose=diagnostics.right.current;
+    } else if (!paused && !pico_paused) {
+      if (spark_diagnostics.reference_reset_required) controller->resetSolvers();
       if (spark_direct_qpos) {
         const SparkQpoasesDirectCommand direct_command =
             makeDirectCommand(spark_diagnostics);
@@ -1059,6 +1202,14 @@ void controlLoop(MujocoRobot& robot, QpIkConfig config,
                                 : diagnostics.accepted;
       if (!accepted) {
         ++control_failures;
+        if(recovery&&pico_freshness.live&&!desired.left_stale&&!desired.right_stale)
+          recovery->stop(motionPair());
+      }
+      if (shared_root_mode) {
+        (void)spark_guidance->confirmSharedRootReference(
+            spark_diagnostics.shared_root_cycle,
+            accepted && diagnostics.left.accepted && diagnostics.right.accepted &&
+            pico_freshness.live && spark_diagnostics.target_valid);
       }
       if (spark_guidance != nullptr &&
           usesSparkHeadroomFeedforwardVelocityQp(controller->algorithm()) &&
@@ -1119,7 +1270,8 @@ void controlLoop(MujocoRobot& robot, QpIkConfig config,
       diagnostics.hold_reason = HoldReason::kNone;
     }
 
-    const bool hands_paused = paused || pico_paused;
+    const bool hands_paused = recovery ? recovery->handsPaused(paused, pico_paused)
+                                       : paused || pico_paused;
     if (hands_paused || hand_was_paused || plot_reset_requested ||
         joint_command_stream_reset || hand_reset_requested) {
       hand_history.clear();
@@ -1168,6 +1320,14 @@ void controlLoop(MujocoRobot& robot, QpIkConfig config,
 
     ViewerSnapshot snapshot;
     snapshot.sequence = sequence;
+    if(recovery) {
+      snapshot.simulation_phase=static_cast<int>(recovery->phase());
+      if(snapshot.simulation_phase!=reported_phase) {
+        reported_phase=snapshot.simulation_phase;
+        std::cout<<(config.ik_algorithm == IkAlgorithm::kPicoEeFrankaDls ? "DLS_SIM: " : "CERES_SIM: ")
+                 <<recovery->name()<<std::endl;
+      }
+    }
     snapshot.last_processed_command_id = last_processed_command_id;
     snapshot.control_time_seconds = control_time;
     snapshot.left_q = robot.armPosition(ArmSide::kLeft);
@@ -1328,6 +1488,11 @@ void controlLoop(MujocoRobot& robot, QpIkConfig config,
         diagnostics.left.dls_posture_ruckig_accepted;
     snapshot.left_ik.dls_posture_solve_time_us =
         diagnostics.left.dls_posture_solve_time_us;
+    snapshot.left_ik.ee_ik_wall_time_us = diagnostics.left.ee_ik_wall_time_us;
+    snapshot.left_ik.ee_ruckig_wall_time_us = diagnostics.left.ee_ruckig_wall_time_us;
+    snapshot.left_ik.ee_ik_to_ruckig_wall_time_us = diagnostics.left.ee_ik_to_ruckig_wall_time_us;
+    snapshot.left_ik.ee_ruckig_invoked = diagnostics.left.ee_ruckig_invoked;
+    snapshot.left_ik.ee_pinocchio_kinematics = diagnostics.left.ee_pinocchio_kinematics;
     snapshot.left_ik.dls_posture_initial_position_error_m =
         diagnostics.left.dls_posture_initial_position_error_m;
     snapshot.left_ik.dls_posture_initial_orientation_error_rad =
@@ -1496,6 +1661,11 @@ void controlLoop(MujocoRobot& robot, QpIkConfig config,
         diagnostics.right.dls_posture_ruckig_accepted;
     snapshot.right_ik.dls_posture_solve_time_us =
         diagnostics.right.dls_posture_solve_time_us;
+    snapshot.right_ik.ee_ik_wall_time_us = diagnostics.right.ee_ik_wall_time_us;
+    snapshot.right_ik.ee_ruckig_wall_time_us = diagnostics.right.ee_ruckig_wall_time_us;
+    snapshot.right_ik.ee_ik_to_ruckig_wall_time_us = diagnostics.right.ee_ik_to_ruckig_wall_time_us;
+    snapshot.right_ik.ee_ruckig_invoked = diagnostics.right.ee_ruckig_invoked;
+    snapshot.right_ik.ee_pinocchio_kinematics = diagnostics.right.ee_pinocchio_kinematics;
     snapshot.right_ik.dls_posture_initial_position_error_m =
         diagnostics.right.dls_posture_initial_position_error_m;
     snapshot.right_ik.dls_posture_initial_orientation_error_rad =
@@ -1878,16 +2048,21 @@ void controlLoop(MujocoRobot& robot, QpIkConfig config,
 
     const bool acceleration_level =
         config.control_level == ControlLevel::kAcceleration;
+    const bool ruckig_plot = usesSharedRootDirectIk(controller->algorithm());
+    const bool ruckig_step_valid = ruckig_plot &&
+        diagnostics.left.dls_posture_ruckig_accepted &&
+        diagnostics.right.dls_posture_ruckig_accepted;
+    plot_sample.left.ruckig_output = plot_sample.right.ruckig_output = ruckig_plot;
     const bool left_output_valid =
-        !paused && (acceleration_level
+        !paused && (ruckig_plot ? (recovery_plot_valid || ruckig_step_valid) : acceleration_level
                         ? acceleration_diagnostics.left.accepted
                         : diagnostics.left.accepted);
     const bool right_output_valid =
-        !paused && (acceleration_level
+        !paused && (ruckig_plot ? (recovery_plot_valid || ruckig_step_valid) : acceleration_level
                         ? acceleration_diagnostics.right.accepted
                         : diagnostics.right.accepted);
     const ReferenceAccelerationSource acceleration_source =
-        acceleration_level
+        ruckig_plot ? ReferenceAccelerationSource::kRuckigOutput : acceleration_level
             ? ReferenceAccelerationSource::kDirectQpOutput
             : ReferenceAccelerationSource::kDifferentiateVelocity;
     if (acceleration_level) {
@@ -1903,7 +2078,7 @@ void controlLoop(MujocoRobot& robot, QpIkConfig config,
         plot_sample.right.bounds.acceleration_upper =
             acceleration_diagnostics.right.bounds.upper;
       }
-    } else {
+    } else if (!ruckig_plot) {
       if (left_output_valid) {
         plot_sample.left.bounds.velocity_lower = diagnostics.left.bounds.lower;
         plot_sample.left.bounds.velocity_upper = diagnostics.left.bounds.upper;
@@ -1913,6 +2088,28 @@ void controlLoop(MujocoRobot& robot, QpIkConfig config,
             diagnostics.right.bounds.lower;
         plot_sample.right.bounds.velocity_upper =
             diagnostics.right.bounds.upper;
+      }
+    }
+
+    if (ruckig_plot) {
+      const auto& normal_smoothing = controller->algorithm() == IkAlgorithm::kPicoEeFrankaDls
+          ? config.pico_ee_franka_dls.post_smoothing : config.pico_ee_franka_ceres_lm.post_smoothing;
+      for (auto* arm : {&plot_sample.left, &plot_sample.right}) {
+        const ArmSide side = arm == &plot_sample.left ? ArmSide::kLeft : ArmSide::kRight;
+        const auto smoothing = recovery && !recovery->teleop()
+            ? normal_smoothing : controller->trajectorySampleLimits(side);
+        Vec7 velocity = (smoothing.velocity_scale * robot.mapping(side).limits.velocity)
+                            .cwiseMin(smoothing.max_velocity_rad_s);
+        Vec7 acceleration = smoothing.max_acceleration_rad_s2;
+        Vec7 jerk = smoothing.max_jerk_rad_s3;
+        if (recovery_home_sample) {
+          velocity = velocity.cwiseMin(Vec7::Constant(SimulationRecovery::kHomeVelocity));
+          acceleration = acceleration.cwiseMin(Vec7::Constant(SimulationRecovery::kHomeAcceleration));
+          jerk = jerk.cwiseMin(Vec7::Constant(SimulationRecovery::kHomeJerk));
+        }
+        arm->bounds.velocity_lower = -velocity; arm->bounds.velocity_upper = velocity;
+        arm->bounds.acceleration_lower = -acceleration; arm->bounds.acceleration_upper = acceleration;
+        arm->bounds.jerk_lower = -jerk; arm->bounds.jerk_upper = jerk;
       }
     }
 
@@ -2064,6 +2261,7 @@ void controlLoop(MujocoRobot& robot, QpIkConfig config,
 
     if (telemetry != nullptr) {
       TelemetrySample sample;
+      sample.simulation_phase = snapshot.simulation_phase;
       sample.sequence = snapshot.sequence;
       sample.control_time_seconds = snapshot.control_time_seconds;
       sample.algorithm = snapshot.algorithm;
@@ -2302,7 +2500,14 @@ void writeTelemetryCsv(const std::string& path, TelemetryBuffer& telemetry,
            << ',' << side << "_headroom_state"
            << ',' << side << "_headroom_dominant_source";
   }
-  output << '\n';
+  // Append-only CSV extension; existing column positions remain unchanged.
+  for (const char* side : {"left", "right"})
+    output << ',' << side << "_ee_ik_wall_time_us"
+           << ',' << side << "_ee_ruckig_wall_time_us"
+           << ',' << side << "_ee_ik_to_ruckig_wall_time_us"
+           << ',' << side << "_ee_ruckig_invoked"
+           << ',' << side << "_ee_pinocchio_kinematics";
+  output << ",simulation_phase\n";
   output << std::setprecision(12);
 
   const auto write_feedforward = [&output](const ArmIkSnapshot& arm) {
@@ -2592,7 +2797,11 @@ void writeTelemetryCsv(const std::string& path, TelemetryBuffer& telemetry,
              << sample.right_ik.spark_posture_velocity_max_abs;
       write_feedforward(sample.left_ik);
       write_feedforward(sample.right_ik);
-      output << '\n';
+      for (const auto* arm : {&sample.left_ik, &sample.right_ik})
+        output << ',' << arm->ee_ik_wall_time_us << ',' << arm->ee_ruckig_wall_time_us
+               << ',' << arm->ee_ik_to_ruckig_wall_time_us << ',' << arm->ee_ruckig_invoked
+               << ',' << arm->ee_pinocchio_kinematics;
+      output << ',' << sample.simulation_phase << '\n';
       continue;
     }
     if (control_finished.load(std::memory_order_acquire)) {
@@ -2630,7 +2839,8 @@ void writeJointTelemetryCsv(
   output << ",left_reference_acceleration_valid,left_reference_jerk_valid,"
             "left_actual_acceleration_valid,left_actual_jerk_valid,"
             "right_reference_acceleration_valid,right_reference_jerk_valid,"
-            "right_actual_acceleration_valid,right_actual_jerk_valid\n";
+            "right_actual_acceleration_valid,right_actual_jerk_valid,"
+            "left_ruckig_output,right_ruckig_output\n";
   output << std::setprecision(12);
 
   const auto writeArm = [&output](const ArmJointKinematicsSample& arm) {
@@ -2668,7 +2878,9 @@ void writeJointTelemetryCsv(
              << ',' << sample.right.reference_acceleration_valid
              << ',' << sample.right.reference_jerk_valid
              << ',' << sample.right.actual_acceleration_valid
-             << ',' << sample.right.actual_jerk_valid << '\n';
+             << ',' << sample.right.actual_jerk_valid
+             << ',' << sample.left.ruckig_output
+             << ',' << sample.right.ruckig_output << '\n';
       continue;
     }
     if (control_finished.load(std::memory_order_acquire)) {
@@ -2777,6 +2989,16 @@ void keyboardCallback(GLFWwindow* window, int key, int, int action, int) {
   }
   auto& application = *static_cast<ViewerApplication*>(glfwGetWindowUserPointer(window));
   ViewerCommand command;
+  if(application.snapshot.simulation_phase>=0&&key!=GLFW_KEY_ESCAPE&&
+      key!=GLFW_KEY_F1&&key!=GLFW_KEY_F2&&key!=GLFW_KEY_F3&&
+      key!=GLFW_KEY_F4&&key!=GLFW_KEY_F5&&key!=GLFW_KEY_K) {
+    if(key==GLFW_KEY_S)command.type=ViewerCommandType::kSimulationStart;
+    else if(key==GLFW_KEY_H)command.type=ViewerCommandType::kSimulationHome;
+    else if(key==GLFW_KEY_P||key==GLFW_KEY_SPACE)command.type=ViewerCommandType::kSimulationHold;
+    else return;
+    (void)pushCommand(application,command);
+    return;
+  }
   switch (key) {
     case GLFW_KEY_ESCAPE:
       glfwSetWindowShouldClose(window, GLFW_TRUE);
@@ -3228,6 +3450,13 @@ void drawOverlay(const ViewerApplication& application, mjrRect viewport) {
                   "Esc quit | "
                   "Right drag pan | middle drag/wheel zoom");
   }
+  if (application.show_help && application.snapshot.simulation_phase >= 0) {
+    std::snprintf(help, sizeof(help),
+        "Direct IK + Ruckig model-reference simulation (no hardware output)\n"
+        "S: start with fresh PICO | H: smooth Home, then wait\n"
+        "P / Space: bounded stop | stale input: stop, S required again\n"
+        "F1: help | F2-F5: plots | K: skeleton | Esc: quit");
+  }
   mjr_overlay(mjFONT_NORMAL, mjGRID_TOPLEFT, viewport, status,
               application.show_help ? help : nullptr, &application.context);
 }
@@ -3631,6 +3860,10 @@ int runViewer(const Options& options, BoundedSpscQueue<ViewerCommand>& commands,
   const auto start = std::chrono::steady_clock::now();
   JointPlotObservation plot_observation;
   while (glfwWindowShouldClose(window) == GLFW_FALSE) {
+    if (options.simulation_recovery && stop_requested) {
+      glfwSetWindowShouldClose(window, GLFW_TRUE);
+      continue;
+    }
     if (!running.load(std::memory_order_acquire)) {
       glfwSetWindowShouldClose(window, GLFW_TRUE);
       continue;
@@ -3643,6 +3876,16 @@ int runViewer(const Options& options, BoundedSpscQueue<ViewerCommand>& commands,
     }
     if (snapshots.tryReadLatest(application.snapshot)) {
       renderSnapshot(application);
+      if (options.simulation_recovery) {
+        static const char* phases[] = {"WAITING", "TELEOP", "BRAKING", "HOMING", "HOME_REACHED", "HOLD", "FAULT"};
+        const int phase = application.snapshot.simulation_phase;
+        if (phase >= 0 && phase < 7) {
+          const std::string title = std::string(application.snapshot.algorithm == IkAlgorithm::kPicoEeFrankaDls
+              ? "Franka DLS + Ruckig SIM | " : "Ceres LM + Ruckig SIM | ") + phases[phase] +
+              " | S: start | H: Home | P/Space: hold";
+          glfwSetWindowTitle(window, title.c_str());
+        }
+      }
     }
     drainJointPlotQueue(joint_plot_queue, plot_observation,
                         &application.joint_plot_history);
@@ -3678,7 +3921,7 @@ int runViewer(const Options& options, BoundedSpscQueue<ViewerCommand>& commands,
       std::snprintf(
           plot_status, sizeof(plot_status),
           "%s arm | %s [%s] | last 5 s\n"
-          "cyan reference | blue actual | red limits\n"
+          "%s\n"
           "F3 metric | F4 left/right + lock | F5 follow L/R\n"
           "control %.0f Hz | history %zu/%zu\n"
           "samples %llu | drops %llu | drained %llu\n"
@@ -3686,7 +3929,11 @@ int runViewer(const Options& options, BoundedSpscQueue<ViewerCommand>& commands,
           "actual derivatives: %s",
           application.joint_plot_arm == ArmSide::kLeft ? "Left" : "Right",
           plotMetricName(application.joint_plot_metric),
-          plotMetricUnit(application.joint_plot_metric), 200.0,
+          plotMetricUnit(application.joint_plot_metric),
+          usesSharedRootDirectIk(application.snapshot.algorithm)
+              ? "cyan Ruckig | blue model (diff) | red limits\nRuckig jerk = delta acceleration / dt"
+              : "cyan reference | blue actual | red limits",
+          200.0,
           application.joint_plot_history.size(),
           application.joint_plot_history.capacity(),
           static_cast<unsigned long long>(
@@ -3718,8 +3965,8 @@ int runViewer(const Options& options, BoundedSpscQueue<ViewerCommand>& commands,
 }
 
 int run(int argc, char** argv) {
-  const Options options = parseOptions(argc, argv);
-  if (options.continuous) {
+  Options options = parseOptions(argc, argv);
+  if (options.continuous || options.simulation_recovery) {
     stop_requested = 0;
     if (std::signal(SIGINT, requestStop) == SIG_ERR ||
         std::signal(SIGTERM, requestStop) == SIG_ERR) {
@@ -3727,12 +3974,25 @@ int run(int argc, char** argv) {
     }
   }
   std::cout << "viewer_config=" << options.config_path << '\n';
-  QpIkConfig config = loadConfig(options.config_path);
+  QpIkConfig config = loadConfig(options.config_path, ConfigConsumer::kSharedRootAware);
   if (options.control_level_override.has_value()) {
     config.control_level = *options.control_level_override;
   }
   if (options.algorithm_override.has_value()) {
     config.ik_algorithm = *options.algorithm_override;
+  }
+  if (!config.shared_root_profile_path.empty()) {
+    if ((!usesSparkHeadroomFeedforwardVelocityQp(config.ik_algorithm) &&
+         !usesSharedRootDirectIk(config.ik_algorithm)) ||
+        config.control_level != ControlLevel::kVelocity || !options.pico_teleop)
+      throw std::invalid_argument("shared-root requires PICO headroom/feedforward velocity mode");
+    if (options.joint_command_port != 0U)
+      throw std::invalid_argument("shared-root experimental mode forbids joint command export");
+    const auto shared = loadSharedRootOptions(config.shared_root_profile_path);
+    if (!options.model_path_explicit) options.model_path = shared.mujoco_path;
+    if (sharedRootSha256File(options.model_path) != sharedRootSha256File(shared.mujoco_path))
+      throw std::invalid_argument("shared-root requires its frozen palm TCP model");
+    std::cout << "shared_root=experimental; device_acceptance=false; joint_export=disabled\n";
   }
   if (usesSparkGuidance(config.ik_algorithm)) {
     if (!options.pico_teleop) {
@@ -3750,6 +4010,24 @@ int run(int argc, char** argv) {
   if (options.model_state_only_override.has_value()) {
     config.controller.model_state_only = *options.model_state_only_override;
   }
+  if (usesSharedRootDirectIk(config.ik_algorithm)) {
+    if (config.shared_root_profile_path.empty() || !config.controller.model_state_only ||
+        options.joint_command_port != 0U)
+      throw std::invalid_argument("Ceres viewer requires enabled shared-root model-only mode; joint export forbidden");
+    if (config.ik_algorithm == IkAlgorithm::kPicoEeFrankaCeresLm && !PicoEeFrankaCeresLmIk7::available())
+      throw std::invalid_argument("Ceres not built: configure TIANJI_ENABLE_CERES=ON");
+  }
+  if (options.sim_allow_pico_jumps && !options.simulation_recovery)
+    throw std::invalid_argument("--sim-allow-pico-jumps requires --simulation-recovery (DLS/Ceres model-only, no export)");
+  if (options.simulation_recovery &&
+      (!usesSharedRootDirectIk(config.ik_algorithm) ||
+       config.shared_root_profile_path.empty() || !config.controller.model_state_only ||
+       !options.pico_teleop || options.joint_command_port != 0U))
+    throw std::invalid_argument("simulation recovery requires shared-root DLS/Ceres, PICO, model-only, no export");
+  if (options.hand_teleop && options.pico_teleop && options.hand_port == options.pico_port)
+    throw std::invalid_argument("hand and PICO ports must differ");
+  if (options.simulation_recovery && options.hand_teleop && options.hand_bind != "127.0.0.1")
+    throw std::invalid_argument("simulation recovery hand input must bind to 127.0.0.1");
   std::cout << (config.controller.model_state_only
                     ? "control_state_source=model_reference"
                     : "control_state_source=actual_feedback_guarded")
@@ -3771,6 +4049,9 @@ int run(int argc, char** argv) {
     receiver_options.max_orientation_jump_rad =
         config.pico_teleop.max_orientation_jump_rad;
     receiver_options.record_path = options.pico_record_path;
+    receiver_options.reject_pose_jumps = !options.sim_allow_pico_jumps;
+    if (options.sim_allow_pico_jumps)
+      std::cerr << "WARNING: simulation-only PICO pose jump rejection DISABLED; freshness and motion limits remain enabled" << std::endl;
     pico_receiver = std::make_unique<PicoUdpReceiver>(
         std::move(receiver_options), pico_frames);
   }
@@ -3860,6 +4141,7 @@ int run(int argc, char** argv) {
                     hand_receiver.get(),
                     joint_command_exporter.get(),
                     options.pico_teleop,
+                    options.simulation_recovery,
                     initial_arm_angle_reference_mode, running);
       } catch (...) {
         control_error = std::current_exception();

@@ -1,0 +1,67 @@
+{
+  "source_commit": "6f241497b2cba4c48b1b4de57eab4298dfc4cfef",
+  "source_core_sha256": "58600f8938249ca1dd8c5e0a705aafb67be9ed0ceb7499fb3457ce587dd27074",
+  "files_sha256": {
+    "src/pico_ee_franka_ceres_lm.cpp": "58600f8938249ca1dd8c5e0a705aafb67be9ed0ceb7499fb3457ce587dd27074",
+    "src/ceres_trajectory_limiter.cpp": "d2f7a6eafbda9313bf0739d63ad990683d22144efa145f387694355dd413e32c",
+    "src/controller_ceres_lm.cpp": "8566c1b2a5ba38ed602713e281680ec918ee1dcf5f921b21f67bebbbfa0046e3",
+    "src/mujoco_robot.cpp": "597f2a1c7dbea116e01e8dff2cd059502965bd85219a14f719a5409d60f5b6db",
+    "config/qp_ik_pico_shared_root_ceres.yaml": "ce9cac23c129542de20f5e16e49ce9c0d1f2461ee6cd572c7ecc396013d9df5d"
+  },
+  "raw_log": "/tmp/tianji_ceres_port_final_trace.log",
+  "raw_log_sha256": "03f66d63347a6139fa19286c6fd697c422313ada02f141cf27d6975cf761f312",
+  "scope": "native shared-root mapping + Ceres + Ruckig model-reference loop, 200Hz, no devices",
+  "interval_s": [
+    5,
+    47
+  ],
+  "metrics": {
+    "0": {
+      "samples": 8395,
+      "ik_m": {
+        "p50": 0.005675603885553542,
+        "p90_nearest_rank": 0.20471557996627585,
+        "max": 0.3525777056454816
+      },
+      "tracking_m": {
+        "p50": 0.006114824205606341,
+        "p90_nearest_rank": 0.2047158914792661,
+        "max": 0.3530104389083453
+      },
+      "tracking_rad": {
+        "p50": 0.0031286430143243073,
+        "p90_nearest_rank": 0.06722352502432197,
+        "max": 0.2255104028257038
+      },
+      "ik_over_10mm_fraction": 0.2372840976771888
+    },
+    "1": {
+      "samples": 8395,
+      "ik_m": {
+        "p50": 6.900071266089885e-12,
+        "p90_nearest_rank": 0.00038205721283855585,
+        "max": 0.0004995027035851968
+      },
+      "tracking_m": {
+        "p50": 0.0017135944747188156,
+        "p90_nearest_rank": 0.05407444508102998,
+        "max": 0.22450139558558846
+      },
+      "tracking_rad": {
+        "p50": 0.004496448024097658,
+        "p90_nearest_rank": 0.0706766937704978,
+        "max": 0.3447075931900125
+      },
+      "ik_over_10mm_fraction": 0.0
+    }
+  },
+  "summary_lines": [
+    "ceres_reference cycles=10200 mapped_ready=9983 accepted=9983 mapped_rejected=0 acknowledgements=4 source_frames=4427",
+    "ceres_summary side=0 samples=8395 ik_p90_m=0.20471557996627585 tracking_p90_m=0.20471589147926611 rotation_p90_rad=0.067223525024321967",
+    "ceres_summary side=1 samples=8395 ik_p90_m=0.00038205721283855585 tracking_p90_m=0.05407444508102998 rotation_p90_rad=0.070676693770497803",
+    "ceres_stopped left_velocity=1.5515838457795457e-17 right_velocity=3.9252311467094379e-17 scope=model_reference actual=unavailable motion_authorized=false phase_a_accepted=false",
+    "trace_sha256=20340067256a3a78205c78a0d5ba6fc01f818d14da5e1e57f116391451df2f2b profile_sha256=ce9cac23c129542de20f5e16e49ce9c0d1f2461ee6cd572c7ecc396013d9df5d"
+  ],
+  "default_enabled": false,
+  "tracking_accepted": false
+}

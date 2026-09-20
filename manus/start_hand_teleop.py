@@ -14,6 +14,30 @@ import time
 ROOT = Path(__file__).resolve().parent
 
 
+def check_collector(collector, sdk):
+    """Inspect trusted local ELF files and loader dependencies; never run SDK main."""
+    if not os.access(collector, os.X_OK):
+        raise ValueError(f"collector is not executable: {collector}")
+    for path in (collector, sdk):
+        with path.open('rb') as stream:
+            if stream.read(4) != b'\x7fELF':
+                raise ValueError(f"not an ELF binary (possibly Git LFS pointer): {path}")
+    try:
+        result = subprocess.run(['ldd', str(collector)], capture_output=True, text=True,
+                                timeout=5, env={**os.environ, 'LC_ALL': 'C'})
+    except subprocess.TimeoutExpired as error:
+        raise RuntimeError('collector dependency check timed out') from error
+    details = result.stdout + result.stderr
+    if result.returncode or 'not found' in details:
+        raise RuntimeError(f'collector dynamic dependencies unavailable: {details.strip()}')
+    # Ensure the intended bundled SDK was resolved, not a different installed SDK.
+    matches = [line.split('=>', 1)[1].strip().split(' (', 1)[0]
+               for line in result.stdout.splitlines()
+               if line.strip().startswith('libManusSDK_Integrated.so =>')]
+    if len(matches) != 1 or Path(matches[0]).resolve() != sdk.resolve():
+        raise RuntimeError('collector does not resolve the bundled Manus SDK; rebuild with pixi run prepare-manus')
+
+
 def calibration_users() -> list[str]:
     suffix = "LeftMetaglovePro.mcal"
     return sorted(
@@ -27,6 +51,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--user", help="Manus calibration user (see --list-users)")
     parser.add_argument("--list-users", action="store_true")
+    parser.add_argument("--check", action="store_true", help="validate runtime and models without starting devices, ROS nodes or UDP")
     parser.add_argument("--host", default="127.0.0.1", help="MuJoCo hand UDP receiver")
     parser.add_argument("--port", type=int, default=16000)
     parser.add_argument("--ros-domain-id", type=int, default=120)
@@ -49,7 +74,25 @@ def main() -> int:
     bridge = hand_root / "example/tj_wuji2_hand_bridge.py"
     for required in (python, collector, adapter, bridge):
         if not required.is_file():
-            parser.error(f"missing {required}; install the root .venv and run bash manus/build.sh")
+            parser.error(f"missing {required}; run pixi run prepare-manus (or provision the explicit legacy environment)")
+
+    # Fail before spawning the SDK collector if the Python/native path is incomplete.
+    try:
+        if not os.access(python, os.X_OK):
+            raise ValueError(f'Python is not executable: {python}')
+        check_collector(collector, ROOT / 'ManusSDK/lib/libManusSDK_Integrated.so')
+        import rclpy
+        from std_msgs.msg import Float32MultiArray
+        from retargeting.wuji_retargeting import _native
+        from retargeting.example.tj_wuji2_hand_bridge import HandRetargeter
+        if args.check:
+            for side in ("left", "right"):
+                HandRetargeter(hand_root, side)
+    except (ImportError, OSError, ValueError, RuntimeError) as error:
+        parser.error(f"Manus runtime check failed: {error}; run pixi run prepare-manus")
+    if args.check:
+        print("Manus runtime/models OK; no devices, ROS nodes or UDP started.")
+        return 0
 
     environment = os.environ.copy()
     # Keep the sourced ROS 2 runtime environment; all Python project code comes

@@ -260,8 +260,9 @@ if [[ "$viewer" == true ]]; then
   child_pids+=("$viewer_pid")
   sleep 1
   if ! kill -0 "$viewer_pid" 2>/dev/null; then
-    echo "viewer exited; estimator remains active" >&2
+    echo "viewer exited; M0 startup failed" >&2
     tail -n 20 "$session_log_dir/viewer.log" >&2 || true
+    exit 2
   fi
 fi
 
@@ -271,4 +272,11 @@ if [[ "$duration" != "0" && "$duration" != "0.0" ]]; then
   exit 0
 fi
 
+if [[ "$viewer" == true ]]; then
+  # Either child exiting invalidates the required input+visualization session.
+  wait -n "$filter_pid" "$viewer_pid" || true
+  echo "M0 filter or required skeleton viewer exited; session no longer ready" >&2
+  tail -n 20 "$session_log_dir/viewer.log" >&2 || true
+  exit 2
+fi
 wait "$filter_pid"

@@ -41,6 +41,9 @@ def load_tcp_transform(path: str | Path, side: str) -> TcpTransform:
         raise ValueError(f"cannot read TCP artifact: {error}") from error
     if not isinstance(document, dict):
         raise ValueError("TCP artifact must be a mapping")
+    if document.get("schema_version") == "pico_simple_derived_v1":
+        from pico_simple_artifact import validate_derived
+        validate_derived(artifact_path, "tcp", side)
     if document.get("valid") is not True:
         raise ValueError("TCP artifact valid must be true")
     artifact_side = document.get("side")

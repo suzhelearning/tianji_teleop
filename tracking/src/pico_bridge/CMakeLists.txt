@@ -95,6 +95,7 @@ install(PROGRAMS scripts/pico_palm_tcp_publisher.py DESTINATION lib/${PROJECT_NA
 install(PROGRAMS scripts/pico_palm_skeleton_filter_core.py DESTINATION lib/${PROJECT_NAME})
 install(PROGRAMS scripts/pico_calibration_artifact.py DESTINATION lib/${PROJECT_NAME})
 install(FILES scripts/pico_symmetric_geometry.py DESTINATION lib/${PROJECT_NAME})
+install(FILES scripts/pico_simple_artifact.py DESTINATION lib/${PROJECT_NAME})
 install(PROGRAMS scripts/pico_palm_skeleton_filter_node.py DESTINATION lib/${PROJECT_NAME})
 install(PROGRAMS scripts/pico_palm_skeleton_filter_node.py DESTINATION lib/${PROJECT_NAME} RENAME pico_palm_skeleton_filter)
 install(PROGRAMS scripts/pico_arm_geometry_core.py DESTINATION lib/${PROJECT_NAME})

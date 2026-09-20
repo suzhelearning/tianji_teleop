@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Display dual-arm and both Hand2 targets in MuJoCo, without hardware connections.
+"""MuJoCo simulation without hardware: Franka DLS + Ruckig with hand input by default.
 
-The existing controller supplies reference targets over loopback TJRC v2 UDP.
-Direct display is the default: no PD, dynamics integration or gravity sag.
-Use --simulation-mode dynamics for actuator physics instead.
+The default direct viewer uses in-process IK/Ruckig with S/H/P recovery.
+Explicit spark/mapped-palm backends retain the legacy TJRC dual-arm/Hand2 path.
+Use --ik-backend spark --simulation-mode dynamics for legacy actuator physics.
 Missing or stale input holds the last setpoint. Simulation servo parameters
 are not real-hardware calibration.
 """
@@ -164,20 +164,46 @@ def run_loop(simulation, receiver, controller, viewer, duration, stop_requested,
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--user", help="start/reuse this person's published pico-simple input (DLS/Ceres only)")
     parser.add_argument("--headless", action="store_true", help="run the selected simulation mode without opening a viewer")
     parser.add_argument('--simulation-mode', choices=('dynamics', 'direct'), default='direct',
                         help='direct: joint-state display only (default); dynamics: actuator physics')
-    parser.add_argument("--ik-backend", choices=("spark", "mapped-palm"), default="spark")
+    parser.add_argument("--ik-backend", choices=("spark", "mapped-palm", "ceres", "franka-dls"),
+                        default="franka-dls", help="default: franka-dls (direct viewer with hand input)")
     parser.add_argument("--mapped-palm-xz-calibration", action="store_true",
                         help="mapped-palm only: viewer C samples X/Z, S starts after success")
     parser.add_argument("--duration", type=float, default=0.0, help="stop after N wall-clock seconds (0: until stopped)")
     parser.add_argument("--pico-port", type=int, default=15000, help="loopback PICO input port (default: 15000)")
     parser.add_argument("--hand-port", type=int, default=16000, help="loopback hand input port (default: 16000)")
+    hands = parser.add_mutually_exclusive_group()
+    hands.add_argument("--hand-teleop", dest="hand_teleop", action="store_true", default=None,
+                       help="DLS/Ceres: receive independently started Manus TJH2 input (default)")
+    hands.add_argument("--no-hand-teleop", dest="hand_teleop", action="store_false",
+                       help="DLS/Ceres: arms only, do not bind the hand input port")
     parser.add_argument("--config", type=Path,
                         help="controller YAML, also used for the initial arm pose")
     parser.add_argument("--model", type=Path,
                         help="dual-arm and both Hand2 MuJoCo XML")
+    parser.add_argument("--sim-allow-pico-jumps", action="store_true",
+                        help="simulation only: skip PICO pose jump rejection; retain freshness and motion limits")
     args = parser.parse_args(argv)
+    if args.hand_teleop is not None and args.ik_backend not in ("ceres", "franka-dls"):
+        parser.error("hand input switches are for DLS/Ceres; legacy backends keep their existing hand input")
+    if args.hand_teleop is None:
+        args.hand_teleop = True
+    if args.hand_teleop and (not 1 <= args.hand_port <= 65535 or args.hand_port == args.pico_port):
+        parser.error("hand port must be in [1,65535] and different from PICO port")
+    if args.sim_allow_pico_jumps and args.ik_backend not in ("ceres", "franka-dls"):
+        parser.error("--sim-allow-pico-jumps requires the DLS/Ceres interactive simulation")
+    if args.user and (args.ik_backend not in ("ceres", "franka-dls") or args.pico_port != 15000):
+        parser.error("--user requires the DLS/Ceres interactive backend and PICO port 15000")
+    if args.ik_backend in ("ceres", "franka-dls"):
+        if args.simulation_mode != "direct" or args.mapped_palm_xz_calibration or args.headless:
+            parser.error("Franka DLS/Ceres interactive recovery supports the direct viewer; select --ik-backend spark explicitly for legacy headless/dynamics")
+        if not math.isfinite(args.duration) or args.duration < 0 or not 1 <= args.pico_port <= 65535:
+            parser.error("invalid duration or PICO port")
+        from sim.ceres_session import launch
+        return launch(args)
     mapped = args.ik_backend == "mapped-palm"
     if args.mapped_palm_xz_calibration and (not mapped or args.headless):
         parser.error("X/Z calibration requires the mapped-palm viewer")

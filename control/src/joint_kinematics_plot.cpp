@@ -71,7 +71,8 @@ JointKinematicsDerivatives JointKinematicsDifferentiator::update(
     return output;
   }
 
-  if (source == ReferenceAccelerationSource::kDirectQpOutput) {
+  if (source == ReferenceAccelerationSource::kDirectQpOutput ||
+      source == ReferenceAccelerationSource::kRuckigOutput) {
     output.reference_acceleration = direct_reference_acceleration;
     output.reference_acceleration_valid = true;
   } else if (reference_velocity_initialized_) {
@@ -173,6 +174,7 @@ JointPlotSeries JointKinematicsHistory::series(ArmSide side, PlotMetric metric,
     const JointKinematicsSample& sample = chronological(index);
     const ArmJointKinematicsSample& arm =
         side == ArmSide::kLeft ? sample.left : sample.right;
+    output.ruckig_output = arm.ruckig_output;
     output.time.push_back(sample.time_seconds);
     output.reference.push_back(metricValue(arm.reference, metric)[joint]);
     output.actual.push_back(metricValue(arm.actual, metric)[joint]);

@@ -16,6 +16,7 @@ struct PicoUdpReceiverOptions {
   double max_position_jump_m{0.15};
   double max_orientation_jump_rad{0.60};
   std::string record_path;
+  bool reject_pose_jumps{true};
 };
 
 struct PicoReceiverStats {

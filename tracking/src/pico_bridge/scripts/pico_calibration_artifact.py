@@ -495,6 +495,11 @@ def validate_artifact(
     expected_tcp_sha256: str | None = None,
     expected_wrist_pivot_sha256: str | None = None,
 ) -> ArtifactSummary:
+    # New schema dispatch only; legacy measured validation remains unchanged.
+    _, document = _load(path)
+    if document.get("schema_version") == "pico_simple_derived_v1":
+        from pico_simple_artifact import validate_derived
+        return validate_derived(path, kind, side, tcp_path, wrist_path)
     if kind == "tcp":
         return _validate_tcp(path, side)
     if kind == "wrist":

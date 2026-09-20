@@ -20,7 +20,14 @@ enum class IkAlgorithm {
   kSparkUpperQpoasesCartesianOtgVelocityQp,
   kSparkUpperQpoasesFeedforwardVelocityQp,
   kSparkUpperQpoasesHeadroomFeedforwardVelocityQp,
+  kPicoEeFrankaCeresLm,
+  kPicoEeFrankaDls,
 };
+
+inline bool usesSharedRootDirectIk(IkAlgorithm algorithm) noexcept {
+  return algorithm == IkAlgorithm::kPicoEeFrankaCeresLm ||
+         algorithm == IkAlgorithm::kPicoEeFrankaDls;
+}
 
 inline bool usesSparkHeadroomFeedforwardVelocityQp(
     IkAlgorithm algorithm) noexcept {
@@ -62,7 +69,7 @@ inline bool usesSparkUpperQpoasesDirect(IkAlgorithm algorithm) noexcept {
 }
 
 inline bool usesSparkGuidance(IkAlgorithm algorithm) noexcept {
-  return usesSparkVelocityQp(algorithm) ||
+  return usesSharedRootDirectIk(algorithm) || usesSparkVelocityQp(algorithm) ||
          usesSparkUpperQpoasesDirect(algorithm);
 }
 
@@ -78,6 +85,8 @@ struct ControllerConfig {
   bool initial_posture_enabled{false};
   Vec7 initial_left_q_rad{Vec7::Zero()};
   Vec7 initial_right_q_rad{Vec7::Zero()};
+  // Explicit Pinocchio model for the optional direct Ceres route. No FK fallback.
+  std::string pico_ee_dls_kinematics_urdf_path;
 };
 
 Vec7 configuredInitialPosture(const ControllerConfig& config,
@@ -428,7 +437,68 @@ struct UpperArmOutwardConfig {
   double acceleration_kd{20.0};
 };
 
+struct PicoEeFrankaDlsConfig {
+  DlsPostureRuckigConfig post_smoothing;
+  bool enabled{false};
+  // False bypasses the legacy fourth-order planner. The controller may still
+  // apply the independently configured post_smoothing stage.
+  bool planner_enabled{true};
+  // Optional velocity-only output cap; false preserves existing direct output.
+  bool direct_velocity_limit_enabled{false};
+  // Direct IK only. Zero disables the cycle-wide geometric arm-plane guard.
+  double max_arm_plane_rate_rad_s{0.0};
+  bool arm_plane_direction_guidance{false};
+  Vec7 home_left_rad{
+      (Vec7() << 0.9599310886, -1.1344640138, -1.2217304764,
+       -1.0471975512, 1.0471975512, 0.0, 0.0)
+          .finished()};
+  Vec7 home_right_rad{
+      (Vec7() << -0.9599310886, -1.1344640138, 1.2217304764,
+       -1.0471975512, -1.0471975512, 0.0, 0.0)
+          .finished()};
+  Vec7 bandwidth_rad_s{Vec7::Constant(15.0)};
+  Vec7 max_velocity_rad_s{Vec7::Constant(4.0)};
+  Vec7 max_acceleration_rad_s2{
+      (Vec7() << 60.0, 60.0, 60.0, 90.0, 90.0, 90.0, 90.0).finished()};
+  Vec7 max_jerk_rad_s3{
+      (Vec7() << 3000.0, 3000.0, 3000.0, 4500.0, 4500.0, 4500.0,
+       4500.0)
+          .finished()};
+  double maximum_target_joint_step_rad{0.20};
+  double maximum_target_step_norm_rad{0.35};
+  double planner_validation_tolerance{1.0e-8};
+};
+
+struct PicoEeFrankaCeresLmConfig {
+  bool enabled{false};
+  DlsPostureRuckigConfig post_smoothing;
+  Vec7 home_left_rad{(Vec7() << 0.9599310886, -1.1344640138, -1.2217304764, -1.0471975512, 1.0471975512, 0.0, 0.0).finished()};
+  Vec7 home_right_rad{(Vec7() << -0.9599310886, -1.1344640138, 1.2217304764, -1.0471975512, -1.0471975512, 0.0, 0.0).finished()};
+  int max_iterations{20};
+  double max_solver_time_seconds{0.0015};
+  double initial_trust_region_radius{100.0};
+  // Optional whole-cycle displacement box.  This is separate from the
+  // guarded solver's joint-rate box so IK-only comparisons can disable both
+  // explicit output limits while retaining joint position safety bounds.
+  bool joint_displacement_limit_enabled{true};
+  double maximum_joint_displacement_rad{0.20};
+  double position_weight{1.0};
+  double orientation_weight{1.0};
+  double position_tolerance_m{0.0005};
+  double orientation_tolerance_rad{0.01};
+  bool nullspace_enabled{true};
+  int nullspace_attempts{2};
+  int nullspace_correction_iterations{5};
+  double nullspace_gain{0.5};
+  double nullspace_max_step_rad{0.02};
+};
+
 struct QpIkConfig {
+  PicoEeFrankaCeresLmConfig pico_ee_franka_ceres_lm;
+  PicoEeFrankaDlsConfig pico_ee_franka_dls;
+  // Nonempty only for explicitly shared-root-aware consumers. Other callers
+  // reject enabled profiles instead of silently running legacy guidance.
+  std::string shared_root_profile_path;
   ControllerConfig controller;
   ControlLevel control_level{ControlLevel::kVelocity};
   IkAlgorithm ik_algorithm{IkAlgorithm::kHierarchicalQp};
@@ -457,7 +527,9 @@ struct QpIkConfig {
   UpperArmOutwardConfig upper_arm_outward;
 };
 
-QpIkConfig loadConfig(const std::string& path);
+enum class ConfigConsumer { kLegacy, kSharedRootAware };
+QpIkConfig loadConfig(const std::string& path,
+                     ConfigConsumer consumer = ConfigConsumer::kLegacy);
 CartesianOtgConfig cartesianOtgConfigForControlLevel(
     const QpIkConfig& config, ControlLevel level);
 std::string toString(SolverBackend backend);

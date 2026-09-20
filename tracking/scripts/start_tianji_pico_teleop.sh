@@ -104,6 +104,11 @@ fi
 
 if [[ "$mode" == "stop" ]]; then
   if session_exists; then
+    owner="$(tmux show-options -t "$session_name" -v @tianji_checkout 2>/dev/null || true)"
+    if [[ "$owner" != "$repo_root" ]]; then
+      echo 'Session ownership is unknown or belongs to another checkout; refusing to stop it.' >&2
+      exit 2
+    fi
     tmux kill-session -t "$session_name"
     echo "Stopped Tianji PICO session: $session_name"
   else
@@ -113,6 +118,7 @@ if [[ "$mode" == "stop" ]]; then
 fi
 
 source "$repo_root/scripts/environment.sh"
+calibration_sha256=""
 if [[ -n "$calibration_dir" ]]; then
   for side in left right; do
     if ! python3 "$repo_root/src/pico_bridge/scripts/pico_calibration_artifact.py" \
@@ -125,6 +131,7 @@ if [[ -n "$calibration_dir" ]]; then
     fi
   done
   echo "PICO calibration directory: $calibration_dir"
+  calibration_sha256="$("$TIANJI_PYTHON" "$repo_root/../scripts/ensure_pico_user.py" --fingerprint "$calibration_dir")"
 fi
 
 command -v adb >/dev/null || {
@@ -143,13 +150,23 @@ if [[ "$(adb get-state 2>/dev/null || true)" != "device" ]]; then
 fi
 
 if session_exists; then
-  echo "Restarting Tianji PICO session: $session_name"
-  tmux kill-session -t "$session_name"
+  echo "Existing session $session_name; stop it explicitly before starting another input." >&2
+  exit 2
 fi
-python3 "$repo_root/scripts/cleanup_tianji_pico_processes.py"
+# Read-only conflict check. Never terminate processes by their executable name.
+"$TIANJI_PYTHON" "$repo_root/scripts/cleanup_tianji_pico_processes.py"
 
 printf -v repo_quoted '%q' "$repo_root"
 ros_environment="export ROS_DOMAIN_ID=120 EXO_REQUESTED_ROS_DOMAIN_ID=120 ROS_LOCALHOST_ONLY=1 ROS2CLI_DISABLE_DAEMON=1"
+# An existing tmux server can retain a different Python/ROS environment. Pin
+# this launch's SDK in each child command instead of modifying the server.
+printf -v python_quoted '%q' "$TIANJI_PYTHON"
+printf -v setup_quoted '%q' "$ros_setup"
+ros_environment+=" TIANJI_PYTHON=$python_quoted ROS_SETUP=$setup_quoted"
+if [[ -n "${CONDA_PREFIX:-}" ]]; then
+  printf -v conda_quoted '%q' "$CONDA_PREFIX"
+  ros_environment+=" CONDA_PREFIX=$conda_quoted"
+fi
 driver_inner="cd $repo_quoted && $ros_environment && exec ./scripts/start_pico_driver.sh"
 m0_inner="cd $repo_quoted && $ros_environment && exec ./scripts/start_pico_m0.sh --viewer"
 if [[ -n "$calibration_dir" ]]; then
@@ -168,22 +185,50 @@ m0_command="exec bash --noprofile --norc -c $m0_inner_quoted"
 bridge_command="exec bash --noprofile --norc -c $bridge_inner_quoted"
 
 window_name="driver"
-tmux new-session -d -s "$session_name" -n "$window_name"
-tmux set-option -t "$session_name" remain-on-exit on >/dev/null
+if [[ -n "${TIANJI_PICO_SIM_OWNER:-}" ]]; then
+  tmux new-session -d -s "$session_name" -n "$window_name" \; \
+    set-option -t "$session_name" @tianji_sim_owner "$TIANJI_PICO_SIM_OWNER" \; \
+    set-option -t "$session_name" @tianji_checkout "$repo_root"
+else
+  tmux new-session -d -s "$session_name" -n "$window_name"
+fi
+tmux set-option -t "$session_name" @tianji_checkout "$repo_root"
+tmux set-option -t "$session_name" @tianji_calibration_dir "$calibration_dir"
+tmux set-option -t "$session_name" @tianji_calibration_sha256 "$calibration_sha256"
+tmux set-option -w -t "$session_name:$window_name" remain-on-exit on >/dev/null
 tmux send-keys -t "$session_name:$window_name" "$driver_command" C-m
 
 window_name="m0"
 tmux new-window -t "$session_name" -n "$window_name"
+tmux set-option -w -t "$session_name:$window_name" remain-on-exit on >/dev/null
 tmux send-keys -t "$session_name:$window_name" "$m0_command" C-m
 
 window_name="bridge"
 tmux new-window -t "$session_name" -n "$window_name"
+tmux set-option -w -t "$session_name:$window_name" remain-on-exit on >/dev/null
 tmux send-keys -t "$session_name:$window_name" "$bridge_command" C-m
 tmux select-window -t "$session_name:driver"
 
+if ! ROS_DOMAIN_ID=120 "$TIANJI_PYTHON" "$repo_root/scripts/check_pico_session_ready.py" \
+    --session "$session_name" --checkout "$repo_root" --timeout-s 30; then
+  echo "PICO startup failed; panes retained for diagnosis. No automatic cleanup was performed." >&2
+  # Preserve the failing pane before a later explicit stop removes the session.
+  # Diagnostic failures must not hide the original startup failure.
+  if diagnostic_dir="$(mktemp -d "${TMPDIR:-/tmp}/pico-startup.XXXXXX")"; then
+    for window_name in driver m0 bridge; do
+      tmux capture-pane -p -t "$session_name:$window_name" -S -200 \
+        >"$diagnostic_dir/$window_name.log" 2>&1 || true
+      echo "PICO $window_name output (last 30 lines):" >&2
+      tail -n 30 "$diagnostic_dir/$window_name.log" >&2 || true
+    done
+    echo "PICO startup diagnostic logs: $diagnostic_dir" >&2
+  fi
+  exit 2
+fi
+
 echo "Started Tianji PICO tmux session: $session_name"
 echo "Windows: driver, m0, bridge"
-echo "Detach with Ctrl-b d; stop with ./scripts/stop_tianji_pico_teleop.sh"
+echo "Detach with Ctrl-b d; stop from project root with: pixi run -e tracking stop-pico"
 
 if [[ "$mode" == "detach" ]]; then
   exit 0

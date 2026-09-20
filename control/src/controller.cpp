@@ -247,6 +247,7 @@ DualArmController::DualArmController(MujocoRobot& robot, QpIkConfig config)
           1.0 / config_.controller.rate_hz) {
   left_state_.q_ref = robot_.armPosition(ArmSide::kLeft);
   right_state_.q_ref = robot_.armPosition(ArmSide::kRight);
+  if (usesSharedRootDirectIk(algorithm_)) initializeCeres(algorithm_);
   resetDlsPosture(ArmSide::kLeft);
   resetDlsPosture(ArmSide::kRight);
 }
@@ -481,6 +482,8 @@ ControllerDiagnostics DualArmController::stepImpl(
     const DualArmTargets& targets, const DualArmReferences* references,
     const DualArmDirectionReferences& arm_directions,
     const DualArmJointVelocityPostureTasks* posture_tasks, double dt) {
+  if (usesSharedRootDirectIk(algorithm_))
+    return stepCeres(targets, references, dt);
   const auto cycle_start = std::chrono::steady_clock::now();
   ControllerDiagnostics diagnostics;
   diagnostics.left.target = targets.left;
@@ -833,6 +836,7 @@ void DualArmController::resetDlsPosture(ArmSide side) {
 }
 
 void DualArmController::resetSolvers() {
+  left_ceres_.valid = right_ceres_.valid = false;
   left_ik_->reset();
   right_ik_->reset();
   left_state_.slack_prev.setZero();
@@ -886,6 +890,8 @@ void DualArmController::setArmAngleReferenceMode(
 }
 
 void DualArmController::setAlgorithm(IkAlgorithm algorithm) {
+  if (usesSharedRootDirectIk(algorithm)) initializeCeres(algorithm);
+  left_ceres_.valid = right_ceres_.valid = false;
   if (algorithm == algorithm_) {
     resetSolvers();
     return;
@@ -920,6 +926,7 @@ ArmMotionState DualArmController::referenceState(
 
 bool DualArmController::setReferenceState(
     ArmSide side, const ArmMotionState& motion) {
+  left_ceres_.valid = right_ceres_.valid = false;
   const ArmLimits& limits = robot_.mapping(side).limits;
   if (!motion.q.allFinite() || !motion.qdot.allFinite() ||
       !motion.qddot.allFinite()) {
@@ -1076,6 +1083,7 @@ void DualArmController::clearHistory() {
 }
 
 void DualArmController::clearHistory(ArmSide side) {
+  (side == ArmSide::kLeft ? left_ceres_ : right_ceres_).valid = false;
   ArmReferenceState& arm_state = state(side);
   arm_state.qdot_prev.setZero();
   arm_state.qddot_prev.setZero();

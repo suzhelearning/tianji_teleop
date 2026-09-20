@@ -245,9 +245,9 @@ PicoPacketDecodeResult decodePicoTeleopPacket(const std::uint8_t* bytes,
 }
 
 PicoTeleopStreamGate::PicoTeleopStreamGate(
-    double max_position_jump_m, double max_orientation_jump_rad)
+    double max_position_jump_m, double max_orientation_jump_rad, bool reject_pose_jumps)
     : max_position_jump_m_(max_position_jump_m),
-      max_orientation_jump_rad_(max_orientation_jump_rad) {
+      max_orientation_jump_rad_(max_orientation_jump_rad), reject_pose_jumps_(reject_pose_jumps) {
   if (!std::isfinite(max_position_jump_m_) || max_position_jump_m_ <= 0.0 ||
       !std::isfinite(max_orientation_jump_rad_) ||
       max_orientation_jump_rad_ <= 0.0) {
@@ -281,6 +281,11 @@ PicoStreamDecision PicoTeleopStreamGate::evaluate(
     return {false, false, PicoStreamRejectReason::kOutOfOrder};
   }
   last_observed_sequence_ = frame.sequence;
+
+  if (!reject_pose_jumps_) {
+    accept(frame);
+    return {true, false, PicoStreamRejectReason::kNone};
+  }
 
   const PicoStreamRejectReason anchor_jump =
       jumpReason(frame.left, frame.right, last_left_, last_right_);

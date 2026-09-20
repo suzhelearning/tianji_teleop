@@ -35,6 +35,7 @@ MUJOCO_LOG.TXT
 /dataset/
 /dataset_jpeg50/
 /logs/home/
+/logs/pico-setup/
 
 # Repository-owned exoskeleton runtime output (tracked device profiles stay in config).
 /exoskeleton/.pixi-cache/

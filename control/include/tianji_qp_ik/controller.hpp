@@ -10,6 +10,10 @@
 #include "tianji_qp_ik/target_manager.hpp"
 #include "tianji_qp_ik/upper_arm_outward.hpp"
 #include "tianji_qp_ik/velocity_ik.hpp"
+#include "tianji_qp_ik/pico_ee_franka_ceres_lm.hpp"
+#include "tianji_qp_ik/pico_ee_franka_dls.hpp"
+#include "tianji_qp_ik/ceres_trajectory_limiter.hpp"
+#include "tianji_qp_ik/ceres_pinocchio_arm_kinematics.hpp"
 
 #include <memory>
 
@@ -66,6 +70,11 @@ struct ArmControllerDiagnostics {
   double dls_posture_final_position_error_m{0.0};
   double dls_posture_final_orientation_error_rad{0.0};
   double dls_posture_goal_limit_margin_rad{0.0};
+  double ee_ik_wall_time_us{0.0};
+  double ee_ruckig_wall_time_us{0.0};
+  double ee_ik_to_ruckig_wall_time_us{0.0};
+  bool ee_ruckig_invoked{false};
+  bool ee_pinocchio_kinematics{false};
 };
 
 struct ControllerDiagnostics {
@@ -103,6 +112,8 @@ class DualArmController {
       const DualArmDirectionReferences& arm_directions,
       const DualArmJointVelocityPostureTasks& posture_tasks, double dt);
   void resetSolvers();
+  bool beginSimulationSoftStart();
+  DlsPostureRuckigConfig trajectorySampleLimits(ArmSide side) const;
   bool synchronizeReferencesToActual();
   void setAlgorithm(IkAlgorithm algorithm);
   void setArmAngleReferenceMode(ArmAngleReferenceMode mode) noexcept;
@@ -114,6 +125,18 @@ class DualArmController {
   bool setReferenceState(ArmSide side, const ArmMotionState& motion);
 
  private:
+  struct CeresState {
+    Vec7 goal{Vec7::Zero()}, velocity{Vec7::Zero()}, acceleration{Vec7::Zero()};
+    bool valid{false};
+  };
+  void initializeCeres(IkAlgorithm algorithm);
+  ControllerDiagnostics stepCeres(const DualArmTargets&, const DualArmReferences*, double);
+  std::unique_ptr<PicoEeFrankaCeresLmIk7> ceres_;
+  std::unique_ptr<PicoEeFrankaDlsIk7> left_franka_dls_, right_franka_dls_;
+  std::unique_ptr<CeresPinocchioArmKinematics> ceres_kinematics_;
+  std::unique_ptr<CeresTrajectoryLimiter7> left_ceres_smoother_, right_ceres_smoother_;
+  CeresState left_ceres_, right_ceres_;
+  bool simulation_soft_start_pending_{false};
   ControllerDiagnostics stepImpl(const DualArmTargets& targets,
                                  const DualArmReferences* references,
                                  const DualArmDirectionReferences& arm_directions,
