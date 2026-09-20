@@ -25,6 +25,13 @@ RESPONSE_SIZE = HEADER.size + 2 * SIDE.size
 
 
 class NativeIkWorker:
+    def _command(self):
+        return [str(ROOT.parent / "build/pico2-v131/pico2_v131_worker"),
+                str(ROOT / "native/models/marvin_m6_s_ccs_696_v4.urdf"),
+                str(ROOT / "native/models/marvin_m6_qp_pico_fast_kinematics.xml")]
+
+    ready_kind = "pico2_ik_ready"
+
     def __init__(self, *, timeout_s=1.0):
         if not math.isfinite(timeout_s) or timeout_s <= 0:
             raise ValueError("finite positive timeout required")
@@ -35,10 +42,7 @@ class NativeIkWorker:
         self.errors = tempfile.TemporaryFile()
         self.process = None
         try:
-            self.process = subprocess.Popen([
-                str(ROOT.parent / "build/pico2-v131/pico2_v131_worker"),
-                str(ROOT / "native/models/marvin_m6_s_ccs_696_v4.urdf"),
-                str(ROOT / "native/models/marvin_m6_qp_pico_fast_kinematics.xml")],
+            self.process = subprocess.Popen(self._command(),
                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self.errors, bufsize=0)
             os.set_blocking(self.process.stdin.fileno(), False)
             os.set_blocking(self.process.stdout.fileno(), False)
@@ -51,7 +55,7 @@ class NativeIkWorker:
             else:
                 raise RuntimeError("oversized IK handshake")
             ready = json.loads(line)
-            if ready != dict(schema_version=1, kind="pico2_ik_ready", simulation_only=True):
+            if ready != dict(schema_version=1, kind=self.ready_kind, simulation_only=True):
                 raise RuntimeError("IK handshake mismatch")
         except BaseException:
             self.failed = True

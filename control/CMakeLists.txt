@@ -123,6 +123,10 @@ if(TIANJI_ENABLE_CERES)
 endif()
 
 # Pure stdin/stdout absolute-TCP worker; no hardware/network authority.
+add_executable(pico2_dls_worker apps/pico2_dls_worker.cpp)
+target_link_libraries(pico2_dls_worker PRIVATE tianji_qp_ik)
+tianji_enable_warnings(pico2_dls_worker)
+
 add_executable(mocap_tcp_worker ../mocap_policy_runtime/native/tcp_worker.cpp)
 target_link_libraries(mocap_tcp_worker PRIVATE tianji_qp_ik)
 tianji_enable_warnings(mocap_tcp_worker)
@@ -273,6 +277,8 @@ if(BUILD_TESTING)
   tianji_add_test(test_joint_kinematics_plot tests/test_joint_kinematics_plot.cpp)
   tianji_add_test(test_mujoco_joint_plot tests/test_mujoco_joint_plot.cpp)
   target_link_libraries(test_mujoco_joint_plot PRIVATE mujoco::mujoco)
+  tianji_add_test(test_viewer_shortcut_binding tests/test_viewer_shortcut_binding.cpp)
+  target_link_libraries(test_viewer_shortcut_binding PRIVATE mujoco::mujoco)
   tianji_add_test(test_pico_teleop_protocol tests/test_pico_teleop_protocol.cpp)
   tianji_add_test(test_wuji_hand_teleop_protocol
                   tests/test_wuji_hand_teleop_protocol.cpp)

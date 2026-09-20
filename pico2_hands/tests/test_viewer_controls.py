@@ -1,6 +1,9 @@
 from contextlib import contextmanager
 import mujoco
 from pico2_hands.viewer_controls import TeleopDisplayPolicy
+from pico2_hands.viewer_controls import suppress_default_home_shortcut, _visual_shortcut_table
+import ctypes
+import pytest
 
 
 class FakeViewer:
@@ -48,3 +51,37 @@ def test_ui_shortcuts_restored_after_sync_without_touching_other_flags():
     before = viewer.calls
     policy.sync()
     assert viewer.calls == before+1
+
+
+def test_h_shortcut_removed_before_ui_construction_and_restored():
+    library, table = _visual_shortcut_table()
+    index = int(mujoco.mjtVisFlag.mjVIS_CONVEXHULL)
+    before = [tuple(row) for row in table]
+    with suppress_default_home_shortcut():
+        assert ctypes.string_at(table[index][2]) == b""
+        for i, row in enumerate(table):
+            for j in range(3):
+                if (i, j) != (index, 2):
+                    assert row[j] == before[i][j]
+        # Nested owners must not restore H while an outer viewer is active.
+        with suppress_default_home_shortcut():
+            assert ctypes.string_at(table[index][2]) == b""
+        assert ctypes.string_at(table[index][2]) == b""
+    assert [tuple(row) for row in table] == before
+
+
+def test_h_shortcut_restored_when_viewer_creation_fails():
+    library, table = _visual_shortcut_table()
+    index = int(mujoco.mjtVisFlag.mjVIS_CONVEXHULL)
+    before = table[index][2]
+    with pytest.raises(RuntimeError, match="fake viewer failure"):
+        with suppress_default_home_shortcut():
+            raise RuntimeError("fake viewer failure")
+    assert table[index][2] == before
+
+
+def test_unreviewed_mujoco_version_fails_closed(monkeypatch):
+    monkeypatch.setattr(mujoco, "__version__", "future")
+    with pytest.raises(RuntimeError, match="reviewed MuJoCo"):
+        with suppress_default_home_shortcut():
+            pass

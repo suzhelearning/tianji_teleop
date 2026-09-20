@@ -112,7 +112,7 @@ class DualArmController {
       const DualArmDirectionReferences& arm_directions,
       const DualArmJointVelocityPostureTasks& posture_tasks, double dt);
   void resetSolvers();
-  bool beginSimulationSoftStart();
+  bool beginSimulationSoftStart(SimulationSoftStartLimits limits = {});
   DlsPostureRuckigConfig trajectorySampleLimits(ArmSide side) const;
   bool synchronizeReferencesToActual();
   void setAlgorithm(IkAlgorithm algorithm);
@@ -137,6 +137,7 @@ class DualArmController {
   std::unique_ptr<CeresTrajectoryLimiter7> left_ceres_smoother_, right_ceres_smoother_;
   CeresState left_ceres_, right_ceres_;
   bool simulation_soft_start_pending_{false};
+  SimulationSoftStartLimits simulation_soft_start_limits_;
   ControllerDiagnostics stepImpl(const DualArmTargets& targets,
                                  const DualArmReferences* references,
                                  const DualArmDirectionReferences& arm_directions,

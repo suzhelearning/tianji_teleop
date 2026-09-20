@@ -7,13 +7,14 @@ from .reference.gesture_recognition import classify_hand
 
 
 class SimulationCore:
-    def __init__(self, home, ik, hands=None):
+    def __init__(self, home, ik, hands=None, *, mapping_factory=None):
         self.home = np.asarray(home, dtype=float).copy()
         if self.home.shape != (54,) or not np.isfinite(self.home).all():
             raise ValueError("54 finite Home joints required")
         self.q = self.home.copy()
         self.ik, self.hands = ik, hands or {}
-        self.mapping = OptionalXZMapping(lambda q: self.ik.forward(q))
+        self.mapping_factory = mapping_factory or (lambda: OptionalXZMapping(lambda q: self.ik.forward(q)))
+        self.mapping = self.mapping_factory()
         self.state, self.reason = "idle", "waiting for fresh PICO input"
         self.frame = None
         self.identity = None
@@ -34,7 +35,7 @@ class SimulationCore:
     def offer(self, frame, now):
         identity = (frame.receiver_instance_id, frame.connection_generation)
         if self.identity is not None and identity != self.identity:
-            self.mapping = OptionalXZMapping(lambda q: self.ik.forward(q))
+            self.mapping = self.mapping_factory()
             if self.state == "teleop":
                 self.action("h", now)
             self.sequence = self.source_timestamp = -1
@@ -45,6 +46,8 @@ class SimulationCore:
         self.identity = identity
         self.sequence, self.source_timestamp = frame.receiver_frame_sequence, frame.source_timestamp_ns
         self.frame = frame
+        if hasattr(self.mapping, "offer_frame"):
+            self.mapping.offer_frame(frame, now)
         for side, observation in pico_official_hand_observations(frame).items():
             self.gestures[side] = classify_hand(observation.keypoints_m, valid=bool(observation.valid),
                                                 previous=self.gestures[side]).gesture

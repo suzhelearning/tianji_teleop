@@ -6,8 +6,18 @@
 #include <ruckig/ruckig.hpp>
 
 #include <string_view>
+#include <cmath>
 
 namespace tianji_qp_ik {
+
+struct SimulationSoftStartLimits {
+  double velocity{.35}, acceleration{.5}, jerk{2.};
+  bool valid() const noexcept {
+    return std::isfinite(velocity) && velocity > 0 &&
+           std::isfinite(acceleration) && acceleration > 0 &&
+           std::isfinite(jerk) && jerk > 0;
+  }
+};
 
 struct CeresTrajectoryResult {
   bool accepted{false};
@@ -26,7 +36,7 @@ class CeresTrajectoryLimiter7 {
 
   bool canReset(const ArmMotionState& state) const noexcept;
   bool reset(const ArmMotionState& state) noexcept;
-  bool beginSoftStart() noexcept;
+  bool beginSoftStart(SimulationSoftStartLimits limits = {}) noexcept;
   bool softStarting() const noexcept { return soft_start_; }
   CeresTrajectoryResult update(const Vec7& target, double dt, bool allow_soft_start_ramp = true);
   const ArmMotionState& state() const noexcept { return state_; }
@@ -39,6 +49,7 @@ class CeresTrajectoryLimiter7 {
   DlsPostureRuckigConfig nominal_config_;
   DlsPostureRuckigConfig sampled_limits_;
   bool soft_start_{false};
+  SimulationSoftStartLimits soft_start_limits_;
   double close_seconds_{0.0}, ramp_seconds_{-1.0};
   ArmLimits limits_;
   ruckig::Ruckig<kArmDof> otg_;

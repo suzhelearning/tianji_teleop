@@ -5,6 +5,34 @@
 namespace tianji_qp_ik {
 namespace {
 
+TEST(CeresTrajectorySoftStart, ExplicitPico2CapsBoundDerivativesAndPreserveDefaults) {
+  ArmLimits bounds;
+  bounds.lower_position=Vec7::Constant(-3.);bounds.upper_position=Vec7::Constant(3.);
+  bounds.velocity=Vec7::Constant(4.);
+  DlsPostureRuckigConfig cfg;
+  cfg.velocity_scale=1.;cfg.max_velocity_rad_s=Vec7::Constant(4.);
+  cfg.max_acceleration_rad_s2=Vec7::Constant(60.);cfg.max_jerk_rad_s3=Vec7::Constant(3000.);
+  CeresTrajectoryLimiter7 fast(cfg,bounds,.005), original(cfg,bounds,.005);
+  ASSERT_TRUE(fast.reset(ArmMotionState{}));ASSERT_TRUE(original.reset(ArmMotionState{}));
+  EXPECT_FALSE(fast.beginSoftStart({-1.,3.,12.}));
+  EXPECT_FALSE(fast.beginSoftStart({1.4,0.,12.}));
+  EXPECT_FALSE(fast.beginSoftStart({1.4,3.,NAN}));
+  ASSERT_TRUE(fast.beginSoftStart({1.4,3.,12.}));ASSERT_TRUE(original.beginSoftStart());
+  for(int n=0;n<200;++n) {
+    const auto result=fast.update(Vec7::Constant(2.),.005,false);
+    ASSERT_TRUE(result.accepted)<<result.detail;
+    EXPECT_LE(result.state.qdot.cwiseAbs().maxCoeff(),1.4+1e-8);
+    EXPECT_LE(result.state.qddot.cwiseAbs().maxCoeff(),3.+1e-8);
+    EXPECT_LE(result.jerk.cwiseAbs().maxCoeff(),12.+1e-8);
+    ASSERT_TRUE(original.update(Vec7::Constant(2.),.005,false).accepted);
+  }
+  EXPECT_GT(fast.state().q[0],original.state().q[0]);
+  EXPECT_DOUBLE_EQ(fast.sampledLimits().max_velocity_rad_s[0],1.4);
+  EXPECT_DOUBLE_EQ(original.sampledLimits().max_velocity_rad_s[0],.35);
+  EXPECT_DOUBLE_EQ(original.sampledLimits().max_acceleration_rad_s2[0],.5);
+  EXPECT_DOUBLE_EQ(original.sampledLimits().max_jerk_rad_s3[0],2.);
+}
+
 TEST(CeresTrajectorySoftStart, SlowApproachThenRampWithoutStateReset) {
   ArmLimits bounds;
   bounds.lower_position=Vec7::Constant(-3.);bounds.upper_position=Vec7::Constant(3.);

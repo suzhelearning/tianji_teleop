@@ -160,6 +160,26 @@ TEST_F(FrankaDlsController, StaleDoesNotChaseLastGoalAndRecovers) {
   t.left_stale=false;
   EXPECT_TRUE(controller.step(t,.005).accepted);
 }
+TEST_F(FrankaDlsController, Pico2ExplicitSoftStartCapsReachBothLimiters) {
+  DualArmController controller(robot,config);
+  EXPECT_FALSE(controller.beginSimulationSoftStart({1.4,-3.,12.}));
+  ASSERT_TRUE(controller.beginSimulationSoftStart({1.4,3.,12.}));
+  auto t=target();t.left.position.x()+=.10;t.right.position.x()+=.10;
+  for(int n=0;n<30;++n) {
+    std::array<ArmMotionState,2> previous{controller.referenceState(ArmSide::kLeft),controller.referenceState(ArmSide::kRight)};
+    ASSERT_TRUE(controller.step(t,.005).accepted);
+    for(auto side:{ArmSide::kLeft,ArmSide::kRight}) {
+      const auto limits=controller.trajectorySampleLimits(side);
+      EXPECT_DOUBLE_EQ(limits.max_velocity_rad_s[0],1.4);
+      EXPECT_DOUBLE_EQ(limits.max_acceleration_rad_s2[0],3.);
+      EXPECT_DOUBLE_EQ(limits.max_jerk_rad_s3[0],12.);
+      const auto state=controller.referenceState(side);
+      EXPECT_LE(state.qdot.cwiseAbs().maxCoeff(),1.4+1e-8);
+      EXPECT_LE(state.qddot.cwiseAbs().maxCoeff(),3.+1e-8);
+      EXPECT_LE((state.qddot-previous[side==ArmSide::kLeft?0:1].qddot).cwiseAbs().maxCoeff()/.005,12.+1e-6);
+    }
+  }
+}
 TEST_F(FrankaDlsController, BadDtCannotMoveEitherArm) {
   DualArmController controller(robot,config);
   const auto l=controller.reference(ArmSide::kLeft),r=controller.reference(ArmSide::kRight);

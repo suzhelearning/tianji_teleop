@@ -13,8 +13,8 @@ DlsPostureRuckigConfig DualArmController::trajectorySampleLimits(ArmSide side) c
   return algorithm_ == IkAlgorithm::kPicoEeFrankaDls
       ? config_.pico_ee_franka_dls.post_smoothing : config_.pico_ee_franka_ceres_lm.post_smoothing;
 }
-bool DualArmController::beginSimulationSoftStart() {
-  if (!config_.controller.model_state_only ||
+bool DualArmController::beginSimulationSoftStart(SimulationSoftStartLimits limits) {
+  if (!limits.valid() || !config_.controller.model_state_only ||
       (algorithm_ != IkAlgorithm::kPicoEeFrankaDls &&
        algorithm_ != IkAlgorithm::kPicoEeFrankaCeresLm)) return false;
   for (auto side : {ArmSide::kLeft, ArmSide::kRight}) {
@@ -24,6 +24,7 @@ bool DualArmController::beginSimulationSoftStart() {
       return false;
   }
   simulation_soft_start_pending_ = true;
+  simulation_soft_start_limits_ = limits;
   return true;
 }
 void DualArmController::initializeCeres(IkAlgorithm algorithm) {
@@ -190,7 +191,7 @@ ControllerDiagnostics DualArmController::stepCeres(
       // continues toward the last IK goal. It cannot acknowledge mapping data.
       cache.valid = false;
     }
-    if (live && simulation_soft_start_pending_ && !smoother.beginSoftStart()) return false;
+    if (live && simulation_soft_start_pending_ && !smoother.beginSoftStart(simulation_soft_start_limits_)) return false;
     const auto smoother_start=std::chrono::steady_clock::now();
     // A locally limited IK increment can be small even while the actual palm
     // target is far away. Do not mistake that increment for completed takeover.

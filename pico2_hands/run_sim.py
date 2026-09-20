@@ -102,7 +102,16 @@ def main(argv=None):
     parser.add_argument("--duration-s", type=float, default=0)
     parser.add_argument("--record", type=Path)
     parser.add_argument("--self-test", action="store_true")
+    parser.add_argument("--mapping-mode", choices=("legacy", "shared-root"), default="legacy")
+    parser.add_argument("--height-m", type=float)
     args = parser.parse_args(argv)
+    shared_root = args.mapping_mode == "shared-root"
+    if shared_root and (args.height_m is None or not math.isfinite(args.height_m) or not 1 <= args.height_m <= 2.4):
+        parser.error("--mapping-mode shared-root requires --height-m in [1.0, 2.4] metres")
+    if not shared_root and args.height_m is not None:
+        parser.error("--height-m requires --mapping-mode shared-root; legacy mapping is unchanged")
+    if shared_root and args.self_test:
+        parser.error("shared-root requires C; use the offline shared-root tests instead of legacy --self-test")
     if not 1 <= args.port <= 65535 or not math.isfinite(args.duration_s) or args.duration_s < 0:
         parser.error("invalid port/duration")
     events = queue.SimpleQueue()
@@ -117,20 +126,30 @@ def main(argv=None):
         with ExitStack() as stack:
             if not args.self_test:
                 stack.enter_context(input_lock(args.port))
-            simulation = DirectStateSimulation(ROOT.parent / "control/models/marvin_m6_wuji2.xml",
-                                                 ROOT / "config/simulation.yaml")
+            model = "marvin_m6_wuji2_shared_root_ceres.xml" if shared_root else "marvin_m6_wuji2.xml"
+            config = ROOT.parent / "control/config/qp_ik_pico_shared_root_dls.yaml" if shared_root else ROOT / "config/simulation.yaml"
+            simulation = DirectStateSimulation(ROOT.parent / "control/models" / model, config)
             from .display_contract import configure_pico2_limits, validate_display
-            configure_pico2_limits(simulation)
-            validate_display(simulation)
+            if not shared_root:
+                configure_pico2_limits(simulation)
+                validate_display(simulation)
             # The shared XML's target markers are not bound to this input route.
             # Hide them in this instance only; never present static markers as IK targets.
             for side in ("L", "R"):
                 simulation.model.geom("target_geom_" + side).rgba[3] = 0
                 simulation.model.site("target_site_" + side).rgba[3] = 0
-            ik = stack.enter_context(NativeIkWorker(timeout_s=.5))
+            from .dls_worker import DlsWorker
+            ik = stack.enter_context((DlsWorker if shared_root else NativeIkWorker)(timeout_s=.5))
             hands = {} if args.disable_hands else {
                 side: stack.enter_context(NativeHandWorker(side, timeout_s=.5)) for side in ("left", "right")}
-            core = SimulationCore(simulation.targets, ik, hands)
+            if shared_root:
+                from .shared_root_core import SharedRootCore
+                from .display_contract import validate_dls_display
+                validate_dls_display(simulation, ik)
+                core = SharedRootCore(simulation.targets, ik, hands, height_m=args.height_m)
+                print("Shared-root height template + Franka DLS/Ruckig. C: arms forward, shoulder width, palms facing; hold 1s. Then S. H homes arms only.", flush=True)
+            else:
+                core = SimulationCore(simulation.targets, ik, hands)
             fk = ik.forward(core.q[:14].reshape(2, 7)) if args.self_test else None
 
             def on_frame(frame):
@@ -171,6 +190,10 @@ def main(argv=None):
             viewer = None
             if not args.headless and not args.self_test:
                 import mujoco.viewer
+                from .viewer_controls import suppress_default_home_shortcut
+                # Must precede UI construction: post-sync restoration alone
+                # allows a convex-hull frame to appear before H is undone.
+                stack.enter_context(suppress_default_home_shortcut())
                 viewer = stack.enter_context(mujoco.viewer.launch_passive(
                     simulation.model, simulation.data, show_left_ui=False, show_right_ui=False,
                     key_callback=lambda code: events.put(chr(code).lower()) if 0 <= code < 128 else None))
@@ -180,8 +203,12 @@ def main(argv=None):
             for sig in (signal.SIGINT, signal.SIGTERM):
                 old = signal.signal(sig, lambda *_: events.put("q"))
                 stack.callback(signal.signal, sig, old)
-            print("PICO2 SIM ready. S follow | C optional X/Z: arms forward/horizontal, hold 2s | H Home | R rearm | Q Home/exit", flush=True)
-            print("Arm IK: original V131", flush=True)
+            if shared_root:
+                print("PICO2 SIM ready. C required: arms forward, palms facing, hold 1s | S follow | H arms Home | Q Home/exit", flush=True)
+                print("Arm IK: Franka DLS + online Ruckig", flush=True)
+            else:
+                print("PICO2 SIM ready. S follow | C optional X/Z: arms forward/horizontal, hold 2s | H Home | R rearm | Q Home/exit", flush=True)
+                print("Arm IK: original V131", flush=True)
             start = time.monotonic()
             next_tick = next_render = start
             last_status = None
@@ -253,7 +280,8 @@ def main(argv=None):
                     last_status = status
                 if viewer is not None and viewer.is_running() and time.monotonic() >= next_render:
                     viewer.set_texts((None, None, "PICO2 SIM | " + core.state + "\n" + core.reason +
-                        "\nS follow | C X/Z: arms forward/horizontal 2s | H Home | R rearm | Q exit\nCalibration: " + core.mapping.calibration.state +
+                        ("\nS follow | C root: forward, palms facing 1s | H arms Home | Q exit\nCalibration: " if shared_root else
+                         "\nS follow | C X/Z: arms forward/horizontal 2s | H Home | R rearm | Q exit\nCalibration: ") + core.mapping.calibration.state +
                         "\nGestures (observation): " + str(core.gestures), ""))
                     display_policy.sync()
                     next_render = time.monotonic() + 1/30

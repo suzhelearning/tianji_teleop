@@ -74,15 +74,16 @@ bool CeresTrajectoryLimiter7::canReset(
   return validState(state);
 }
 
-bool CeresTrajectoryLimiter7::beginSoftStart() noexcept {
-  if (!initialized_ || state_.qdot.cwiseAbs().maxCoeff() > 1e-6 ||
+bool CeresTrajectoryLimiter7::beginSoftStart(SimulationSoftStartLimits limits) noexcept {
+  if (!limits.valid() || !initialized_ || state_.qdot.cwiseAbs().maxCoeff() > 1e-6 ||
       state_.qddot.cwiseAbs().maxCoeff() > 1e-5) return false;
   soft_start_ = true;
+  soft_start_limits_ = limits;
   close_seconds_ = 0.; ramp_seconds_ = -1.;
   config_ = nominal_config_;
-  config_.max_velocity_rad_s = config_.max_velocity_rad_s.cwiseMin(Vec7::Constant(.35));
-  config_.max_acceleration_rad_s2 = config_.max_acceleration_rad_s2.cwiseMin(Vec7::Constant(.5));
-  config_.max_jerk_rad_s3 = config_.max_jerk_rad_s3.cwiseMin(Vec7::Constant(2.));
+  config_.max_velocity_rad_s = config_.max_velocity_rad_s.cwiseMin(Vec7::Constant(limits.velocity));
+  config_.max_acceleration_rad_s2 = config_.max_acceleration_rad_s2.cwiseMin(Vec7::Constant(limits.acceleration));
+  config_.max_jerk_rad_s3 = config_.max_jerk_rad_s3.cwiseMin(Vec7::Constant(limits.jerk));
   return true;
 }
 
@@ -95,9 +96,9 @@ CeresTrajectoryResult CeresTrajectoryLimiter7::update(const Vec7& target,
       const Vec7 slow = nominal.cwiseMin(Vec7::Constant(cap));
       return slow + blend * (nominal-slow);
     };
-    config_.max_velocity_rad_s = ramp(nominal_config_.max_velocity_rad_s,.35);
-    config_.max_acceleration_rad_s2 = ramp(nominal_config_.max_acceleration_rad_s2,.5);
-    config_.max_jerk_rad_s3 = ramp(nominal_config_.max_jerk_rad_s3,2.);
+    config_.max_velocity_rad_s = ramp(nominal_config_.max_velocity_rad_s,soft_start_limits_.velocity);
+    config_.max_acceleration_rad_s2 = ramp(nominal_config_.max_acceleration_rad_s2,soft_start_limits_.acceleration);
+    config_.max_jerk_rad_s3 = ramp(nominal_config_.max_jerk_rad_s3,soft_start_limits_.jerk);
   }
   CeresTrajectoryResult result;
   result.state = state_;
