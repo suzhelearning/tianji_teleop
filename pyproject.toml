@@ -14,6 +14,7 @@ collection = ["h5py>=3.11,<4", "opencv-python>=4.11,<5", "mujoco>=3.3.2,<4", "py
 retargeting = ["nlopt>=2.9,<3", "pin==3.8.0", "cmeel-urdfdom>=4,<5", "cmeel-tinyxml2>=10,<11", "scipy>=1.11,<2", "wuji-sdk>=0.10", "mujoco>=3.3.2,<4"]
 test = ["pytest>=8,<9"]
 tracking = ["colcon-common-extensions", "setuptools>=68,<80", "empy>=3.3.4,<4", "matplotlib>=3.8,<4"]
+mocap-policy = ["h5py>=3.11,<4", "scipy>=1.11,<2", "torch==2.10.0", "eclipse-zenoh>=1.10,<2", "mujoco>=3.3.2,<4", "Pillow>=10,<13"]
 
 [project.scripts]
 tianji = "tianji.cli:main"
@@ -23,7 +24,7 @@ py-modules = ["teleop_profile"]
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["tianji*", "real_robot*", "data_collection*", "sim*", "manus*", "retargeting*"]
+include = ["tianji*", "real_robot*", "data_collection*", "sim*", "manus*", "retargeting*", "mocap_policy_runtime*"]
 exclude = ["*.tests*", "*.test*", "*.build*", "*.wuji-description*", "*.mujoco-sim*"]
 namespaces = false
 
@@ -33,6 +34,7 @@ retargeting = ["LICENSE"]
 "retargeting.wuji_retargeting" = ["wuji-description/**/*"]
 "retargeting.example" = ["config/*.yaml", "config/**/*.yaml", "data/*", "data/**/*", "utils/mujoco-sim/**/*"]
 manus = ["calibration/*.mcal"]
+mocap_policy_runtime = ["configs/*.yaml", "native/*.cpp"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "real_robot/tests", "data_collection/tests", "sim/tests", "manus/tests", "retargeting/tests", "tracking/src/pico_bridge/test"]

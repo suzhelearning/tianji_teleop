@@ -10,6 +10,7 @@
 | PICO＋Manus | [Manus 联合遥操](#picomanus-双臂双手遥操) | 手套输入与 PICO 分终端运行 |
 | PICO＋外骨骼 | [外骨骼替代 Manus](#外骨骼替代-manus) | 与 Manus 二选一 |
 | 真实机械臂／灵巧手 | [真机遥操](#真机遥操) | 独立预检和人工授权 |
+| Mocap／Regrind | [回放与推理说明](README-mocap.md) | 独立可选依赖，真机需单独授权 |
 | 数据采集 | [采集入口](#数据采集) | 观察录制与真机采集分开 |
 
 所有命令在仓库根目录运行。下文 `NEW_USER` 换成实际人员名，`1.70` 换成实际身高（米）。
@@ -303,6 +304,16 @@ bash teleop.sh --real
 - 仅观察的数据集录制、相机和 R/S/D 操作见[观察采集](README-reference.md#观测数据集采集r--s--d)。
 - 真机任务采集：`bash teleop.sh --data --task TASK`，沿用真机预检和人工授权，
   默认写入 `dataset/`，不是只读观察入口。
+
+## 共用 Home 与 Mocap／Regrind
+
+SPARK／mapped-palm 部署入口和真机受保护回位共用
+[`control/mapped_palm/config/home.yaml`](control/mapped_palm/config/home.yaml)。
+DLS／Ceres 仿真仍使用各自配置中的 Home，不因合并改变其速度或授权流程。
+
+远端新增的 H5 回放、Motive 接入和 Regrind 推理入口保留，详见
+[Mocap／Regrind 操作说明](README-mocap.md)。这些 Pixi task 仍调用独立配置的 `.venv`，
+不是仅安装默认 Pixi 环境即可运行；依赖、模型与设备授权按该说明单独准备。
 
 ## 进阶说明与测试
 

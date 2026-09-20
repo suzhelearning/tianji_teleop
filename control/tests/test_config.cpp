@@ -469,19 +469,80 @@ TEST(Config, InitialPostureDefaultsToDisabledMidpoint) {
                   .isApprox(Vec7::Constant(1.0)));
 }
 
-TEST(Config, LoadsPicoInitialPosture) {
-  const std::filesystem::path path =
-      std::filesystem::path(TIANJI_PROJECT_SOURCE_DIR) /
-      "config" / "qp_ik_pico_teleop.yaml";
-  const QpIkConfig config = loadConfig(path.string());
-  const Vec7 expected_left =
-      (Vec7() << 1.10, -1.52, -1.52, -1.10, 0.0, 0.0, 0.0).finished();
-  const Vec7 expected_right =
-      (Vec7() << -1.10, -1.52, 1.52, -1.10, 0.0, 0.0, 0.0).finished();
+TEST(Config, ResolvesHomeRelativeToControllerConfigAndEnablesPosture) {
+  const auto home = writeTemporaryConfig(
+      "relative_home.yaml",
+      "left_home_rad: [0.1, -0.2, 0.3, -0.4, 0.5, -0.6, 0.7]\n"
+      "right_home_rad: [-0.1, 0.2, -0.3, 0.4, -0.5, 0.6, -0.7]\n");
+  std::string text = projectConfigText();
+  replaceOnce(text, "controller:\n  rate_hz: 1000.0",
+              "controller:\n  rate_hz: 1000.0\n"
+              "  home_config: " + home.filename().string());
+  const auto path = writeTemporaryConfig("relative_home_controller.yaml", text);
+  const auto config = loadConfig(path.string());
+  ArmLimits limits;
+  limits.lower_position = Vec7::Constant(-2.0);
+  limits.upper_position = Vec7::Constant(2.0);
+  const Vec7 expected =
+      (Vec7() << 0.1, -0.2, 0.3, -0.4, 0.5, -0.6, 0.7).finished();
 
-  EXPECT_TRUE(config.controller.initial_posture_enabled);
-  EXPECT_TRUE(config.controller.initial_left_q_rad.isApprox(expected_left));
-  EXPECT_TRUE(config.controller.initial_right_q_rad.isApprox(expected_right));
+  EXPECT_TRUE(configuredInitialPosture(config.controller, limits, ArmSide::kLeft)
+                  .isApprox(expected));
+  EXPECT_TRUE(configuredInitialPosture(config.controller, limits, ArmSide::kRight)
+                  .isApprox(-expected));
+  std::filesystem::remove(path);
+  std::filesystem::remove(home);
+}
+
+TEST(Config, MeasuredPostureOverridesHomeEvenWhenHomeFileIsUnavailable) {
+  const auto home = writeTemporaryConfig(
+      "overridden_home.yaml",
+      "left_home_rad: [0, 0, 0, 0, 0, 0, 0]\n"
+      "right_home_rad: [0, 0, 0, 0, 0, 0, 0]\n");
+  std::string text = projectConfigText();
+  replaceOnce(text, "controller:\n  rate_hz: 1000.0",
+              "controller:\n  rate_hz: 1000.0\n"
+              "  initial_posture_enabled: true\n"
+              "  initial_left_q_rad: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]\n"
+              "  initial_right_q_rad: [-0.1, -0.2, -0.3, -0.4, -0.5, -0.6, -0.7]\n"
+              "  home_config: " + home.filename().string());
+  const auto path = writeTemporaryConfig("measured_home_controller.yaml", text);
+  ArmLimits limits;
+  limits.lower_position = Vec7::Constant(-2.0);
+  limits.upper_position = Vec7::Constant(2.0);
+  const Vec7 expected =
+      (Vec7() << 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7).finished();
+  const auto config = loadConfig(path.string());
+  EXPECT_TRUE(configuredInitialPosture(config.controller, limits, ArmSide::kLeft)
+                  .isApprox(expected));
+  EXPECT_TRUE(configuredInitialPosture(config.controller, limits, ArmSide::kRight)
+                  .isApprox(-expected));
+
+  std::filesystem::remove(home);
+  const auto without_home = loadConfig(path.string());
+  EXPECT_TRUE(configuredInitialPosture(without_home.controller, limits,
+                                      ArmSide::kLeft).isApprox(expected));
+  EXPECT_TRUE(configuredInitialPosture(without_home.controller, limits,
+                                      ArmSide::kRight).isApprox(-expected));
+  std::filesystem::remove(path);
+}
+
+TEST(Config, RejectsPartialMeasuredPostureRatherThanBlendingWithHome) {
+  const auto home = writeTemporaryConfig(
+      "partial_override_home.yaml",
+      "left_home_rad: [0, 0, 0, 0, 0, 0, 0]\n"
+      "right_home_rad: [0, 0, 0, 0, 0, 0, 0]\n");
+  std::string text = projectConfigText();
+  replaceOnce(text, "controller:\n  rate_hz: 1000.0",
+              "controller:\n  rate_hz: 1000.0\n"
+              "  initial_posture_enabled: true\n"
+              "  initial_left_q_rad: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]\n"
+              "  home_config: " + home.filename().string());
+  const auto path = writeTemporaryConfig("partial_home_controller.yaml", text);
+
+  EXPECT_THROW(loadConfig(path.string()), std::runtime_error);
+  std::filesystem::remove(path);
+  std::filesystem::remove(home);
 }
 
 TEST(Config, RejectsMalformedInitialPostureVector) {

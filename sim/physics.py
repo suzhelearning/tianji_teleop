@@ -10,7 +10,8 @@ import xml.etree.ElementTree as ET
 
 import mujoco
 import numpy as np
-import yaml
+from control.home_config import load_controller_posture
+from control.model_assets import add_object_mesh
 
 from real_robot.protocol import (
     ARMS_READY,
@@ -41,7 +42,7 @@ HAND_KV = (0.025, 0.015, 0.012, 0.008) * 5
 TARGET_TOLERANCE_RAD = 1e-7
 
 
-def _simulation_model(model_path: Path) -> mujoco.MjModel:
+def _simulation_model(model_path: Path, object_mesh: Path | None = None) -> mujoco.MjModel:
     root = ET.parse(model_path).getroot()
     if root.tag != "mujoco" or root.find("include") is not None:
         raise ValueError("simulation requires a self-contained MJCF model")
@@ -61,6 +62,7 @@ def _simulation_model(model_path: Path) -> mujoco.MjModel:
         compiler.attrib.pop(attribute, None)
     compiler.set("fusestatic", "false")
     compiler.set("autolimits", "true")
+    add_object_mesh(root, object_mesh)
 
     option = root.find("option")
     if option is None:
@@ -141,8 +143,8 @@ class PhysicsSimulation:
     Once a numerical fault is detected, this instance cannot resume stepping.
     """
 
-    def __init__(self, model_path: Path, controller_config: Path):
-        self.model = _simulation_model(Path(model_path).resolve())
+    def __init__(self, model_path: Path, controller_config: Path, *, object_mesh: Path | None = None):
+        self.model = _simulation_model(Path(model_path).resolve(), object_mesh=object_mesh)
         self.data = mujoco.MjData(self.model)
         ids = np.array([self.model.joint(name).id for name in JOINT_NAMES], dtype=np.intp)
         if not np.all(self.model.jnt_type[ids] == mujoco.mjtJoint.mjJNT_HINGE):
@@ -156,23 +158,11 @@ class PhysicsSimulation:
         if not np.all(np.isfinite(force_ranges)) or np.any(force_ranges[:, 0] >= 0) or np.any(force_ranges[:, 1] <= 0):
             raise ValueError("TJRC actuator ranges must be finite and straddle zero")
 
-        configuration = yaml.safe_load(Path(controller_config).read_text())
-        if not isinstance(configuration, dict) or not isinstance(configuration.get("controller", {}), dict):
-            raise ValueError("controller configuration must be a YAML mapping")
-        controller = configuration.get("controller", {})
-        enabled = controller.get("initial_posture_enabled", False)
-        if not isinstance(enabled, bool):
-            raise ValueError("initial_posture_enabled must be boolean")
+        posture = load_controller_posture(controller_config)
         self._targets = np.zeros(54)
-        for side, region in (("left", slice(0, 7)), ("right", slice(7, 14))):
-            if enabled:
-                key = f"initial_{side}_q_rad"
-                if key not in controller:
-                    raise ValueError(f"enabled initial posture requires {key}")
-                initial = controller[key]
-            else:
-                # Match configuredInitialPosture in the existing C++ controller.
-                initial = self._ranges[region].mean(axis=1)
+        for index, region in enumerate((slice(0, 7), slice(7, 14))):
+            # Match configuredInitialPosture in the existing C++ controller.
+            initial = posture[index] if posture is not None else self._ranges[region].mean(axis=1)
             self._targets[region] = self._validated(initial, region)
         self._targets[14:] = self._validated(self._targets[14:], slice(14, 54))
         self._target_view = self._targets.view()

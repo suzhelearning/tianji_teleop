@@ -93,6 +93,10 @@ class MarvinDevice:
         self._owns_enable = False
         self._enabled = False
         self._position_transition_deadline_ns = 0
+        self._required_states = (1, 1)
+        self._mode_transition = False
+        self._right_impedance = None
+        self._inputs = ()
         self._serials = [None, None]
         self._stamps = [0, 0]
         self._states = ()
@@ -142,6 +146,7 @@ class MarvinDevice:
             outputs, states, inputs = payload['outputs'], payload['states'], payload['inputs']
             if len(outputs) != 2 or len(states) != 2 or len(inputs) != 2:
                 raise ValueError('expected two arms')
+            self._inputs = inputs
             q = tuple(math.radians(value) for arm in outputs for value in _positions(arm['fb_joint_pos'], 7))
             self._states = tuple(int(arm['cur_state']) for arm in states)
             self._commands = tuple(int(arm['cmd_state']) for arm in states)
@@ -173,19 +178,27 @@ class MarvinDevice:
                 elif serial != previous:
                     serials_valid = False
             stamp = min(self._stamps)
-            measured_enabled = all(state == 1 for state in self._states)
+            measured_enabled = self._states == self._required_states
             # Vendor FxRtCSDef.h: 101 is TRANS_TO_POSITION, not a servo fault.
             # Permit it only during our bounded enable; it never means enabled.
             transitioning = now < self._position_transition_deadline_ns
             healthy = (serials_valid and _fresh(stamp, now) and errors == (0, 0)
                        and reports == ('None', 'None')
-                       and all(state in (0, 1) or (transitioning and state == 101)
-                               for state in self._states)
+                       and all(state in (0, expected) or
+                               (transitioning and state in ((1, 3, 101, 103) if self._mode_transition else (101,)))
+                               for state, expected in zip(self._states, self._required_states))
                        and all(command in (-1, state) or
-                               (transitioning and state == 101 and command == 1)
+                               (transitioning and command in self._required_states)
                                for command, state in zip(self._commands, self._states)))
+            if transitioning and self._mode_transition:
+                healthy = healthy and self._states[0] == 1 and self._states[1] in (1, 3, 101, 103)
             if self._enabled:
-                healthy = healthy and measured_enabled and self._ratios_match()
+                healthy = healthy and (measured_enabled or (transitioning and self._mode_transition)) and self._ratios_match()
+                if not transitioning and self._required_states[1] == 3:
+                    healthy = healthy and self._impedance_matches()
+            if transitioning and self._mode_transition and healthy:
+                # The owned servos stay enabled throughout a guarded mode switch.
+                measured_enabled = True
             detail = '' if healthy else (f'Marvin stale/fault/state: states={self._states}, commands={self._commands}, '
                                          f'errors={errors}, servo={reports}, ratios={self._ratios}')
             self._feedback = Feedback(q, stamp, healthy, measured_enabled, detail)
@@ -198,6 +211,67 @@ class MarvinDevice:
         return all(expected - 1 <= measured <= expected
                    for values, expected in zip(self._ratios, (self.velocity_ratio, self.acceleration_ratio))
                    for measured in values)
+
+    def _impedance_matches(self):
+        stiffness, damping, tool_kinematics, tool_dynamics = self._right_impedance
+        values = self._inputs[1]
+        return (values["imp_type"] == 1 and all(
+            len(values[key]) == len(expected) and all(
+                math.isfinite(actual) and abs(actual - wanted) <= 1e-3
+                for actual, wanted in zip(values[key], expected))
+            for key, expected in (("joint_k", stiffness), ("joint_d", damping),
+                                  ("tool_kine", tool_kinematics), ("tool_dyn", tool_dynamics))))
+
+    def set_right_impedance(self, enabled, *, stiffness=None, damping=None,
+                            tool_kinematics=None, tool_dynamics=None, guard=None):
+        """Switch only the right arm, verifying state, K/D and payload echoes.
+
+        SDK K is N m/deg, D is the vendor damping coefficient; tool translation
+        and COM are mm, mass kg, inertia kg mm². Never convert these to SI again.
+        The left arm remains in its existing position-hold mode.
+        """
+        if not self._enabled or self._closed or self._stopped:
+            raise RuntimeError("impedance transition requires owned enabled arms")
+        wanted = (1, 3 if enabled else 1)
+        if wanted == self._required_states:
+            return
+        if enabled:
+            stiffness = _positions(stiffness, 7)
+            damping = _positions(damping, 7)
+            tool_kinematics = _positions(tool_kinematics, 6)
+            tool_dynamics = _positions(tool_dynamics, 10)
+            if any(not 0 <= k <= 22 for k in stiffness) or any(not 0 <= d <= 1 for d in damping) or tool_dynamics[0] < 0:
+                raise ValueError("right impedance parameters exceed SDK ranges")
+            self._right_impedance = (stiffness, damping, tool_kinematics, tool_dynamics)
+        try:
+            _check_guard(guard)
+            measured = self.read_feedback()
+            if not measured.healthy or not measured.enabled:
+                raise RuntimeError("impedance transition requires fresh healthy feedback")
+            serials = tuple(self._serials)
+            self._begin_batch()
+            self._write_positions(measured.position_rad)
+            if enabled:
+                self._success(self._robot.set_tool('B', tool_kinematics, tool_dynamics), 'right tool payload')
+                self._success(self._robot.set_joint_kd_params('B', stiffness, damping), 'right joint K/D')
+                self._success(self._robot.set_impedance_type('B', 1), 'right joint impedance type')
+            self._required_states = wanted
+            self._mode_transition = True
+            self._position_transition_deadline_ns = time.monotonic_ns() + _TIMEOUT_NS
+            self._success(self._robot.set_state('B', wanted[1]), 'right control mode')
+            _check_guard(guard)
+            self._success(self._robot.send_cmd(), 'right control mode send')
+            if enabled:
+                self._success(self._robot.set_PD_vel_est_step('B', 5), 'right velocity estimate 5 ms')
+            self._wait_feedback(
+                lambda value: value.healthy and self._states == wanted and
+                (not enabled or self._impedance_matches()), after=serials, guard=guard)
+        except BaseException:
+            self.stop()
+            raise
+        finally:
+            self._position_transition_deadline_ns = 0
+            self._mode_transition = False
 
     def _wait_feedback(self, predicate, after=None, guard=None):
         deadline = time.monotonic_ns() + _TIMEOUT_NS

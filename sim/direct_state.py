@@ -11,8 +11,8 @@ from sim.physics import JOINT_NAMES, PhysicsSimulation
 class DirectStateSimulation(PhysicsSimulation):
     mode = 'direct'
 
-    def __init__(self, model_path, controller_config):
-        super().__init__(model_path, controller_config)
+    def __init__(self, model_path, controller_config, *, object_mesh=None):
+        super().__init__(model_path, controller_config, object_mesh=object_mesh)
         self._velocity_indices = np.array([
             self.model.joint(name).dofadr[0]
             for name in JOINT_NAMES

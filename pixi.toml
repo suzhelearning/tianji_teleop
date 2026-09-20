@@ -32,6 +32,13 @@ build-manus = "bash manus/build.sh"
 manus = "pixi run --locked -e manus manus-input"
 prepare-manus = "pixi install --locked -e tracking && pixi run --locked -e manus prepare-manus-runtime"
 
+h5_sim = ".venv/bin/python -m mocap_policy_runtime h5-sim"
+h5_real = ".venv/bin/python -m mocap_policy_runtime h5-real"
+rl_infer = ".venv/bin/python -m mocap_policy_runtime infer"
+rl_live_infer = ".venv/bin/python -m mocap_policy_runtime live"
+regrind_real = ".venv/bin/python -m mocap_policy_runtime regrind-real"
+regrind_hand_sim = ".venv/bin/python -m mocap_policy_runtime regrind-hand-sim"
+
 [feature.manus.dependencies]
 python = "3.11.*"
 pip = "*"

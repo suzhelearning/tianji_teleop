@@ -20,7 +20,7 @@ PICO2 裸手已有独立[仿真入口 `pico2_sim.sh`](pico2_hands/README.md)，
 硬件 SDK、ROS、MuJoCo、Pinocchio 等通用库仍须安装；厂商二进制和私钥不由重构替代。
 
 > **三种模式必须区分，且不能同时占用相同输入端口。**
-> - `pixi run sim`（或已配置 Python 的 `bash teleop.sh --sim`）：默认 Franka DLS＋Ruckig 双臂 direct 仿真，按 S 接入；不控制 Hand2。旧双臂＋双手入口用 `--ik-backend spark`，动力学仿真再加 `--simulation-mode dynamics`。
+> - `pixi run sim`（或已配置 Python 的 `bash teleop.sh --sim`）：默认 Franka DLS＋Ruckig 双臂 direct 仿真，按 S 接入；默认接收 Hand2，纯双臂使用 `--no-hand-teleop`。旧双臂＋双手入口用 `--ik-backend spark`，动力学仿真再加 `--simulation-mode dynamics`。
 > - `bash teleop.sh --real`：双臂＋双 Hand2 真机执行与实测／目标双模型窗口；三次 Enter 分别授权慢速对齐、实时遥操、回 HOME 后失能。直接运行 `real_robot/run_teleop.py` 不带使能参数仍为 dry-run。
 > - `bash teleop.sh --data --task TASK`：在相同真机安全门控下采集数据，默认写入根 `dataset/`；用 `--dataset PATH` 指定目录。
 > - 当前真机支持双臂与左右两只 Hand2；`all` 表示双臂＋双手，`hands` 表示仅双手。
@@ -966,7 +966,7 @@ bash teleop.sh --real
 | WAITING（未使能） | 第一次确认：锁定当前目标，使能后从实测姿态慢速对齐 |
 | ALIGNING（慢速对齐） | 中止，直接停止和失能，不提前开始遥操 |
 | READY（已到位并保持） | 第二次确认：连续切换到实时遥操 |
-| TELEOP（实时遥操） | 第三次确认：停止跟随，双臂慢速回指定 HOME |
+| TELEOP（实时遥操） | 保持输入和机械臂静止后第三次确认：停止跟随，双臂平滑回指定 HOME |
 | HOMING（回位） | 中止，直接停止和失能 |
 | HOME_REACHED | 实测确认到位后自动失能、退出 |
 
@@ -983,6 +983,9 @@ READY 必须同时满足指令已到目标、所有选中设备实测误差在�
 `staged_motion.settle_speed_rad_s`（默认 `0.03 rad/s`），并在新反馈上持续
 `settle_time_s`。重复反馈不能累计到位时间；反馈回退、过长间隔或运动会重置静止窗口。
 第二次 Enter 也复查静止条件；独立回 HOME 入口使用相同判定。
+回 HOME 前还要求双臂指令停止变化，不能把移动中的遥操指令直接接到零初速轨迹；
+未满足此条件时请求被拒绝并走现有停止／失能流程。微小但持续变化的输入也可能阻止此切换，
+此时应先安全退出遥操，释放设备后使用独立 `home.sh`，不要放宽安全阈值强行切换。
 mapped-palm 可显式选择 `--mapped-palm-resync-policy bounded`，通过私有事件通道
 执行同 epoch 重同步的短时保持及限速衔接；默认仍为 `stop`。
 这是待实机验收的选项，不是取消失鲜/限位/反馈保护；详见
@@ -1045,9 +1048,14 @@ bash home.sh            # 授权使能／接管双臂，慢速回 HOME 后失能
 双臂均未使能时先使能；双臂均已使能且健康时直接接管，先以实测姿态覆盖旧目标，再慢速回位，
 不会先失能再重新使能。接管后本会话负责停止和失能；普通遥操／采集仍拒绝接管已使能设备。
 单臂使能、另一臂未使能的混合状态仍拒绝操作，不自动清错或修复设备状态。
-HOME 使用 `real_robot/config.json` 的 `staged_motion.home_left_rad/home_right_rad`，
-速度取 `staged_motion.maximum_speed_rad_s` 与机械臂限速中的较小值（当前 0.1 rad/s）。
-从实测姿态开始，实测到位并稳定后停止、失能并释放双臂；Ctrl+C／SIGTERM 或故障则停止，不继续回位。
+HOME 由 `real_robot/config.json` 的 `staged_motion.home_config` 指向
+`control/mapped_palm/config/home.yaml`，启动时加载左右臂目标。
+速度取 `staged_motion.maximum_speed_rad_s` 与机械臂限速中的较小值（当前 `0.1 rad/s`），
+加速度受 `staged_motion.maximum_acceleration_rad_s2` 限制（当前 `0.2 rad/s²`）。
+先保持接管的实测姿态，收到新鲜且稳定的静止反馈后，再以共享进度的五次轨迹回位。
+平滑起止会比原先独立匀速限幅耗时更长；若计算出的运动与整定时间无法满足原有 `60 s` 超时，
+在开始轨迹前拒绝，不先移动到超时再停。实测到位并稳定后停止、失能并释放双臂；
+Ctrl+C／SIGTERM 或故障则停止，不继续回位。
 机械臂反馈新鲜度、健康、位置边界、跟踪误差及回位超时检查仍生效，不默认放宽限位执行越限恢复。
 位置上下限检查对双臂及双手所有关节统一使用 `0.01 rad`（约 `0.573°`）余量，
 目标角和实测反馈均适用；不改变模型限位、速度限制或跟踪误差阈值。
@@ -1076,7 +1084,7 @@ HOME 使用 `real_robot/config.json` 的 `staged_motion.home_left_rad/home_right
 
 #### 指定 HOME
 
-`real_robot/config.json` 的 `staged_motion` 保存以下 HOME（各侧 Joint1→Joint7，单位 rad），
+`real_robot/config.json` 的 `staged_motion.home_config` 指向共用 Home 文件，保存以下 HOME（各侧 Joint1→Joint7，单位 rad），
 启动前会验证维数、有限值和关节限位，不会替换为全零或启动姿态：
 
 ```python
@@ -1084,7 +1092,8 @@ left  = ( 0.9599310886, -1.1344640138, -1.2217304764, -1.0471975512,  1.04719755
 right = (-0.9599310886, -1.1344640138,  1.2217304764, -1.0471975512, -1.0471975512, 0.0, 0.0)
 ```
 
-慢速对齐／回位的 setpoint 变化上限为 `0.1 rad/s`，同时不超过各设备原有上限；
+慢速对齐／回位使用共享进度五次轨迹：速度上限 `0.1 rad/s`（同时不超过各设备原有上限），
+加速度上限 `0.2 rad/s²`；峰值同时受这两项约束，若无法在超时内完成则在运动前拒绝。
 到位稳定时间为 `0.2 s`，每次对齐／回位超时为 `60 s`。这些值可在 `staged_motion` 中配置。
 
 默认硬件边界限制：

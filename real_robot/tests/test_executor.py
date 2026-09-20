@@ -98,7 +98,7 @@ class ExecutorTests(unittest.TestCase):
         self.assertEqual(load_configuration(path, "left_hand")[1], ("left_hand",))
 
     def test_duplicate_serials_are_rejected_before_hardware_creation(self):
-        config = json.loads((ROOT / "real_robot/config.json").read_text())
+        config, _ = load_configuration(ROOT / "real_robot/config.json")
         config["left_hand"]["serial"] = config["right_hand"]["serial"].lower()
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "config.json"
@@ -187,7 +187,7 @@ class ExecutorTests(unittest.TestCase):
             viewer_factory.side_effect = RuntimeError("model unavailable")
         with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
             if model is not None:
-                config = json.loads(config_path.read_text())
+                config, _ = load_configuration(config_path)
                 config["controller_model"] = model
                 config_path = Path(temporary) / "config.json"
                 config_path.write_text(json.dumps(config))
@@ -259,7 +259,7 @@ class ExecutorTests(unittest.TestCase):
         hardware_factory.assert_not_called()
 
     def test_invalid_home_is_rejected_before_viewer_or_hardware(self):
-        config = json.loads((ROOT / "real_robot/config.json").read_text())
+        config, _ = load_configuration(ROOT / "real_robot/config.json")
         config["staged_motion"]["home_left_rad"][0] = 999.0
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "config.json"
@@ -287,7 +287,7 @@ class ExecutorTests(unittest.TestCase):
         viewer_factory.assert_not_called()
 
     def test_occupied_command_port_is_refused_before_hardware_connection(self):
-        config = json.loads((ROOT / "real_robot/config.json").read_text())
+        config, _ = load_configuration(ROOT / "real_robot/config.json")
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as occupied, \
                 tempfile.TemporaryDirectory() as folder:
             occupied.bind(("127.0.0.1", 0))
@@ -346,7 +346,7 @@ class ExecutorTests(unittest.TestCase):
 
     def _staged_session(self, *, close_during=None, abort_during=None, log_dir=None,
                         cleanup_failure=False, cycle_work_s=0):
-        config = json.loads((ROOT / "real_robot/config.json").read_text())
+        config, _ = load_configuration(ROOT / "real_robot/config.json")
         home = tuple(config["staged_motion"]["home_left_rad"] + config["staged_motion"]["home_right_rad"])
         state = SimpleNamespace(now=NOW, actual=home, enabled=False, first_enter=False,
                                 sends=[], send_times=[], gates=[], stopped=False)
