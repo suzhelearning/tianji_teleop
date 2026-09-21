@@ -3,7 +3,7 @@
 # retargeter using the manus environment's own Python and compiler.
 set -euo pipefail
 root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
-package="$root/src/teleop_inputs/manus_bridge"
+package="$root/src/teleop_inputs/manus"
 
 if [[ ! -r "$package/build.sh" ]]; then
   printf 'Missing Manus build script: %s/build.sh\n' "$package" >&2

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-pico_scripts="$repo_root/src/teleop_inputs/pico_bridge/scripts"
+pico_scripts="$repo_root/src/teleop_inputs/pico_controller/scripts"
 calibration_dir=""
 forwarded_arguments=()
 while (($#)); do

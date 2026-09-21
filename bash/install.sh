@@ -26,7 +26,7 @@ fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 command -v pixi >/dev/null || fail 'Install Pixi first: https://pixi.sh/latest/installation/'
 [[ -x /usr/bin/g++ && -x /usr/bin/gcc ]] || fail 'Install build-essential.'
 
-exoskeleton_root="$project_root/src/teleop_inputs/exoskeleton_bridge"
+exoskeleton_root="$project_root/src/teleop_inputs/exoskeleton"
 
 install_exoskeleton() {
   [[ -r "$exoskeleton_root/pixi.toml" && -r "$exoskeleton_root/pixi.lock" ]] \
@@ -54,7 +54,7 @@ pixi run --locked check-env
 pixi run --locked build
 pixi run --locked -e policy build
 bash bash/build_manus.sh
-pico2_root="$project_root/src/teleop_inputs/pico2_hands"
+pico2_root="$project_root/src/teleop_inputs/pico_hand"
 pixi install --locked --manifest-path "$pico2_root/tools/wuji_hand_native/pixi.toml"
 bash "$pico2_root/build_native.sh"
 

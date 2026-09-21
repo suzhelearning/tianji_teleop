@@ -6,7 +6,7 @@
 # dependency. The workspace root therefore ships no importable Python package,
 # no console script (the `tianji` entry point belongs to src/tools/tianji_tools)
 # and no extension module (the retargeting extension belongs to
-# src/wuji/wuji_retargeting).
+# src/teleop_outputs/wuji/wuji_retargeting).
 
 [project]
 name = "tianji-teleop"

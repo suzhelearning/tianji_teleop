@@ -97,3 +97,39 @@ DDS 回归包括：身份／phase_revision／新鲜度授权、相机先于反�
 - `check-env` 和 `rviz2 --help` 通过；PCL／VTK 及只供已删除组件使用的 ROS 依赖已从 default／policy 锁文件与环境中移除。
 - policy 环境检查通过，`test-mocap`：**85 passed**，确认推理／回放未依赖已移除的组件。
 - 本轮只做构建和无硬件验证，没有启动真实输入设备或机器人。
+
+## 8. 目录归类调整（teleop_inputs / teleop_outputs）
+
+按“人侧输入、机器人侧输出”重新归类物理目录，**不改 ROS 包名、Python 模块名、可执行文件名、话题和线上协议**：
+
+```text
+src/teleop_inputs/    pico_controller/  manus/  exoskeleton/  pico_hand/
+src/teleop_outputs/   tianji/{tianji_cmd_pub,tianji_controller,tianji_description}
+                      wuji/{wuji_controller,wuji_retargeting}
+```
+
+未创建 `auxiliary/`，也没有恢复已删除的辅助包。
+
+实际执行与验证：
+
+| 项目 | 结果 |
+|---|---|
+| 裸 shell `bash bash/install.sh` | 通过；锁定环境、外骨骼与裸手独立环境在新前缀下重建，control／default／Manus／裸手原生目标全部编译 |
+| default／policy 的 colcon | 各 **16 个 ROS 包** |
+| `pixi run test-native` | core **106/106**，mapped-palm **1/1** |
+| `test-controller`／`test-interfaces`／`test-sim`／`test-collection` | **256 passed（1 skipped）／32／42／81** |
+| `test-pico`／`test-pico2`／`test-manus` | **322／86／24** |
+| `test-ros` | **29 passed**，真实 DDS，domain 121 |
+| `test-mocap`／`test-retargeting` | **85／19** |
+| 外骨骼独立 manifest | **323 passed**（新前缀下重建扩展后） |
+| 裸手 `bash bash/run_pico2_sim.sh --self-test --record` | 4104 周期，S→H→S→Q 正常 Home 退出 |
+| 安装后 `bash bash/run_teleop.sh --sim --duration 3` | 实际 DLS 窗口启动，`control_state_source=model_reference`、`pico_udp_bind=127.0.0.1:15000` |
+| `run_manus.sh --calibration-user … --check`／`run_exoskeleton.sh --check-config` | 均离线通过，未启动设备 |
+| CLI／路由模块导入 | `tianji`、`tianji mocap`、`simulation.run_sim`、`tianji_controller.run_teleop`、`data_collector.node`、`tianji_cameras.monitor` 全部可用 |
+
+模型、标定、设备备份和算法数值未改：**750 个模型／标定／备份文件**逐字节校验一致；`config/robot.json` 仅两项资源路径变化。
+
+归类过程同时修复一处**既有指纹不一致**：删除辅助包时移除了 `pico_symmetric_geometry.py` 中的 Odin 附件拷贝，但该文件登记在共享根输入契约的 `source_files` 中。现按实际内容更新该指纹，并依序重链契约 SHA、两份几何 artifact 的 `tjvr_input_contract_sha256` 及原生允许列表与固定指纹测试；除注册指纹外，几何／运动学字段与算法数值不变。
+
+上述均为无硬件验收；真实输入、相机、机器人动作与 GPU／模型现场条件仍见第 6 节。
+

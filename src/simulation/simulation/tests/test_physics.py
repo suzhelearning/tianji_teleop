@@ -22,7 +22,7 @@ def _model() -> Path:
     try:
         return package_share("tianji_description", "models", "marvin_m6_wuji2.xml")
     except ResourceNotFound:
-        return (workspace() / "src" / "tianji" / "tianji_description" / "models"
+        return (workspace() / "src" / "teleop_outputs" / "tianji" / "tianji_description" / "models"
                 / "marvin_m6_wuji2.xml")
 
 

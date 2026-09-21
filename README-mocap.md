@@ -5,7 +5,7 @@
 
 ## 共用 Home 姿态
 
-部署入口的双臂 Home 统一读取 [`src/tianji/tianji_description/config/home.yaml`](src/tianji/tianji_description/config/home.yaml)，运行时通过 `tianji_description` 的安装 share 资源定位；
+部署入口的双臂 Home 统一读取 [`src/teleop_outputs/tianji/tianji_description/config/home.yaml`](src/teleop_outputs/tianji/tianji_description/config/home.yaml)，运行时通过 `tianji_description` 的安装 share 资源定位；
 按每侧 Joint1～Joint7 排列，文件存储弧度，注释标明对应角度：
 
 - 左臂：`[55, -65, -70, -60, 60, 0, 0]°`
@@ -67,11 +67,11 @@ pixi run -e policy test-mocap
 物体网格、Motive router／发布端及现场键盘权限仍需显式准备，不由安装器下载或生成。
 
 原生源位于 `src/inference/mocap_policy_runtime/mocap_policy_runtime/native/tcp_worker.cpp`；
-控制工程从 `src/tianji/tianji_controller/native/` 构建，将 `mocap_tcp_worker` 安装到
+控制工程从 `src/teleop_outputs/tianji/tianji_controller/native/` 构建，将 `mocap_tcp_worker` 安装到
 `install/control/bin/`。Python 通过 `tianji_runtime.native_executable()` 定位，worker 在
 `control` 环境运行，以原有 stdin/stdout 协议通信，不把 control 库导入 Python 运行环境。
 机器人模型从 `tianji_description` 的安装 share 读取，源码在
-`src/tianji/tianji_description/models/` 及其模型资源闭包；不要指向旧构建树里的二进制或孤立复制 XML。
+`src/teleop_outputs/tianji/tianji_description/models/` 及其模型资源闭包；不要指向旧构建树里的二进制或孤立复制 XML。
 
 原始关键点的手部重定向复用 `manus` 环境中已安装的官方 HandRetargeter；
 完整安装已准备该闭包，单独重建用 `bash bash/build_manus.sh`。default／policy

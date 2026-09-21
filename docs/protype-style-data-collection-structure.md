@@ -30,7 +30,7 @@ updated: 2026-09-21
 | Ceres 仿真 | 同一入口加 `--ik-backend ceres` | 独立求解配置，沿用 DLS/Ceres 会话管理；不是默认真机后端 |
 | 旧 SPARK／mapped-palm | 显式 `--ik-backend spark` 或 `mapped-palm` | 保留既有 TJRC 执行路径；无窗口／动力学应显式选择支持它的后端，不能直接给默认 DLS 加 `--headless` |
 | 真机与任务采集 | `bash bash/run_teleop.sh --real`／`--data --task TASK` → `tianji_controller.run_teleop` | 独立预检、人工授权及原真机后端；不能把仿真 S/H/P 当作真机授权 |
-| PICO2 裸手 | `bash bash/run_pico2_sim.sh`、`src/teleop_inputs/pico2_hands/` | 默认 legacy V131；显式 `--mapping-mode shared-root --height-m HEIGHT` 使用身高模板＋C 标定＋DLS/Ruckig，先 C 后 S；仍仅仿真，不支持真机 |
+| PICO2 裸手 | `bash bash/run_pico2_sim.sh`、`src/teleop_inputs/pico_hand/` | 默认 legacy V131；显式 `--mapping-mode shared-root --height-m HEIGHT` 使用身高模板＋C 标定＋DLS/Ruckig，先 C 后 S；仍仅仿真，不支持真机 |
 | Mocap／Regrind | `tianji mocap` → `bash/run_mocap.sh`、`src/inference/mocap_policy_runtime/` | H5 回放、Motive 输入、策略推理和受保护执行有各自入口与可选依赖 |
 
 Manus 与外骨骼是二选一的独立手部发送端，不由 DLS 仿真自动启动或停止。默认双臂输入端口 `15000`、双手 `16000`；协议兼容不代表任意路线组合已完成现场验收。
@@ -66,23 +66,25 @@ tianji_teleop/
 │   ├── robot.json / hand_devices.json
 │   └── collect_real.json / cameras.rviz  # collect_real 是唯一相机角色／serial 来源
 ├── src/
-│   ├── tianji/
-│   │   ├── tianji_controller/
-│   │   │   ├── native/                  # 原控制 CMake、apps、include、mapped_palm
-│   │   │   └── tianji_controller/       # Python SDK 所有者、执行器、反馈、保护
-│   │   ├── tianji_cmd_pub/              # PICO 位姿 → TJVR 目标，保留原生几何协议
-│   │   └── tianji_description/
-│   │       ├── models/ / marvin_m6_ccs/  # 模型及网格相对资源闭包
-│   │       ├── mapped_palm/assets/
-│   │       ├── config/                  # 部署 Home、deployment、bandwidth
-│   │       └── tianji_description/      # Home／模型读取 helper
-│   ├── wuji/
-│   │   ├── wuji_controller/             # Hand2 SDK、反馈与命令契约
-│   │   └── wuji_retargeting/            # Python retargeting 包和 _native 扩展
-│   ├── teleop_inputs/
-│   │   ├── pico_bridge/                 # PICO 头显＋手柄
-│   │   ├── manus_bridge/ / exoskeleton_bridge/
-│   │   └── pico2_hands/                 # legacy V131 与显式 shared-root 仿真
+│   ├── teleop_inputs/                   # 人类侧输入的物理分组，不改变 ROS 包名
+│   │   ├── pico_controller/             # PICO 头显＋手柄；ROS 包 pico_bridge
+│   │   ├── manus/                       # ROS 包 manus_bridge
+│   │   ├── exoskeleton/                 # ROS 包 exoskeleton_bridge
+│   │   └── pico_hand/                   # ROS 包 pico2_hands；legacy V131 与显式 shared-root 仿真
+│   ├── teleop_outputs/                  # 机器人侧映射／控制／模型的物理分组
+│   │   ├── tianji/
+│   │   │   ├── tianji_controller/
+│   │   │   │   ├── native/              # 原控制 CMake、apps、include、mapped_palm
+│   │   │   │   └── tianji_controller/   # Python SDK 所有者、执行器、反馈、保护
+│   │   │   ├── tianji_cmd_pub/          # PICO 位姿 → TJVR 目标，保留原生几何协议
+│   │   │   └── tianji_description/
+│   │   │       ├── models/ / marvin_m6_ccs/  # 模型及网格相对资源闭包
+│   │   │       ├── mapped_palm/assets/
+│   │   │       ├── config/              # 部署 Home、deployment、bandwidth
+│   │   │       └── tianji_description/  # Home／模型读取 helper
+│   │   └── wuji/
+│   │       ├── wuji_controller/         # Hand2 SDK、反馈与命令契约
+│   │       └── wuji_retargeting/        # Python retargeting 包和 _native 扩展
 │   ├── cameras/
 │   │   ├── tianji_cameras/              # 官方驱动 launch、预检、monitor、订阅预览
 │   │   └── fisheye_camera/              # 可选鱼眼，不是默认 RGB 来源
@@ -115,8 +117,10 @@ tianji_teleop/
 ```
 
 此树强调实际职责，不枚举每个包的清单与测试文件。colcon 只扫描 `--base-paths src`，
-不扫描 `vendor/`、旧构建树或环境目录。`src/` 与 `src/tianji/` 仅作目录分组，
-不是 Python 包；`tianji` CLI 安装在 `src/tools/tianji_tools/` 对应包内。
+不扫描 `vendor/`、旧构建树或环境目录。`src/`、`src/teleop_inputs/` 与 `src/teleop_outputs/`
+仅作目录分组，不是 Python 包；`teleop_inputs`／`teleop_outputs` 只是物理归类，
+不改变 ROS 包名、Python 模块名、话题或导入路径。`tianji` CLI 安装在
+`src/tools/tianji_tools/` 对应包内。
 原生 control 的 core 与 mapped-palm 保持独立 CMake 工程，不为目录名拆坏算法闭包。
 
 训练数据在仓库外 `/data/TianjiData/raw/` 和 `/data/TianjiData/compressed/`。
@@ -167,7 +171,7 @@ tianji_cmd_pub         wuji_retargeting
 
 | 关注点 | 归属 |
 |---|---|
-| PICO 数据解码与输入发布 | `teleop_inputs/pico_bridge` |
+| PICO 数据解码与输入发布 | `teleop_inputs/pico_controller`（ROS 包 `pico_bridge`） |
 | 人体/VR 坐标到机器人目标映射 | `tianji_cmd_pub` |
 | 臂 IK、轨迹与限制 | `tianji_controller` |
 | 机器人 SDK、设备反馈、人工授权与协调停止 | 控制器的执行会话 |
@@ -177,7 +181,7 @@ tianji_cmd_pub         wuji_retargeting
 
 目录拆分不等于进程拆分。双臂和双手仍可在同一执行会话中协调；不能因为拆出了 `wuji_controller` 就重复建立 SDK 会话，也不能破坏现有的协调停止和设备释放顺序。
 
-shared-root 的人体尺度、坐标与目标构建具有指令转换职责，但与 DLS/Ceres 求解、Ruckig 和运动限制紧耦合的原生闭包仍位于 `src/tianji/tianji_controller/native/`。`tianji_cmd_pub` 接收拆出的 PICO 目标转换；不增加每帧 Python 往返或网络跳转。原 `control/apps/` 的交互 viewer、录制及审计工具仍随原生工程构建安装，不把整个控制库当成单一硬件驱动目录。
+shared-root 的人体尺度、坐标与目标构建具有指令转换职责，但与 DLS/Ceres 求解、Ruckig 和运动限制紧耦合的原生闭包仍位于 `src/teleop_outputs/tianji/tianji_controller/native/`。`tianji_cmd_pub` 接收拆出的 PICO 目标转换；不增加每帧 Python 往返或网络跳转。原 `control/apps/` 的交互 viewer、录制及审计工具仍随原生工程构建安装，不把整个控制库当成单一硬件驱动目录。
 
 ### 4.2 采集器保持三层边界
 
@@ -246,7 +250,7 @@ Home／fault／离开 TELEOP 或执行器心跳中断保留 partial，不因 col
 | 人员档案 | `profiles/` | 操作者骨长、手部标定、映射版本 |
 | 数据集契约 | 每个日期数据目录内的 `dataset_config.json` | schema、关节顺序、图像尺寸、编码；同日不可变，不同日期独立校验 |
 
-每个字段只有一个权威来源。相机角色、序列号与禁用槽位只来自 `config/collect_real.json`，不另建 `cameras.json` 双写。SPARK／mapped-palm 部署与真机受保护回位共用 `src/tianji/tianji_description/config/home.yaml`，通过 description 包的 Home helper 和安装资源读取；**DLS／Ceres 仍使用各自配置的 Home**。不得以“统一 Home”为由覆盖不同后端的姿态、速度或授权语义。根配置和模块配置不得重复维护同一个安全阈值。
+每个字段只有一个权威来源。相机角色、序列号与禁用槽位只来自 `config/collect_real.json`，不另建 `cameras.json` 双写。SPARK／mapped-palm 部署与真机受保护回位共用 `src/teleop_outputs/tianji/tianji_description/config/home.yaml`，通过 description 包的 Home helper 和安装资源读取；**DLS／Ceres 仍使用各自配置的 Home**。不得以“统一 Home”为由覆盖不同后端的姿态、速度或授权语义。根配置和模块配置不得重复维护同一个安全阈值。
 
 人员变化不等于机器人配置变化；修改现场序列号也不允许覆盖既有数据集的尺寸、编码或关节顺序契约。
 
@@ -259,8 +263,8 @@ Home／fault／离开 TELEOP 或执行器心跳中断保留 partial，不因 col
 | `cameras`，独立 Jazzy 驱动环境 | 官方 RealSense ROS 4.58.3；隔离其库 ABI，其他进程只通过 DDS 消费，不导入它的 site-packages |
 | `manus`，Python 3.12／Pinocchio 3.8、无 ROS | 手重定向与原生扩展；由 default 桥接输入，通过既有进程协议与 TJH2 输出隔离，不 source ROS |
 | `policy`，同 default 的 Python 3.12／Jazzy ABI | 单独安装 CPU torch 2.10.0 与 Zenoh，使用自己的 `install/policy`；GPU wheel、驱动和模型权重需显式准备，CPU 不代表 GPU 验收 |
-| 外骨骼独立 Python 3.12 manifest | `src/teleop_inputs/exoskeleton_bridge/` 的官方 worker、C++17 FK／拟合扩展；无 Python 数值回退 |
-| PICO2 原生工具独立 manifest | `src/teleop_inputs/pico2_hands/tools/wuji_hand_native/pixi.toml`；独立构建入口，共享根 worker 另由 control 安装 |
+| 外骨骼独立 Python 3.12 manifest | `src/teleop_inputs/exoskeleton/` 的官方 worker、C++17 FK／拟合扩展；无 Python 数值回退 |
+| PICO2 原生工具独立 manifest | `src/teleop_inputs/pico_hand/tools/wuji_hand_native/pixi.toml`；独立构建入口，共享根 worker 另由 control 安装 |
 
 `bash/environment.sh` 统一校验 Jazzy 和当前环境，加载对应 overlay，清理旧 ROS 前缀污染。
 `bash/install.sh` 安装全部锁定环境、外骨骼和 PICO2，构建 default／policy／control 与 Manus；
@@ -295,14 +299,14 @@ Home／fault／离开 TELEOP 或执行器心跳中断保留 partial，不因 col
 | 迁移来源 | 当前归属与保留边界 |
 |---|---|
 | `tianji/`、`teleop_profile.py` | `src/tools/tianji_tools/`，保留统一命令面和人员操作 |
-| `real_robot/` | `src/tianji/tianji_controller/tianji_controller/`；Wuji 专属适配移到 `src/wuji/wuji_controller/`，共用 Feedback 契约在 `tianji_runtime`，不重复连接 SDK |
-| `control/` 算法／apps | `src/tianji/tianji_controller/native/`；保留 DLS、Ceres、SPARK、mapped-palm 差异及 shared-root 原生闭包，非测试 executable 安装到 control |
-| PICO 中 Tianji 目标转换与协议 | `src/tianji/tianji_cmd_pub/`；保留 TJVR 字节协议和端口 |
-| 控制模型、mapped-palm assets、Home helper | `src/tianji/tianji_description/`；保留网格树、安装规则与后端覆盖 |
-| `retargeting/` | `src/wuji/wuji_retargeting/`；保留 Python 模块 retargeting／_native，按使用环境重建 |
-| PICO／Manus／外骨骼输入 | `src/teleop_inputs/` 对应包；SDK 与自有代码按依赖闭包隔离 |
+| `real_robot/` | `src/teleop_outputs/tianji/tianji_controller/tianji_controller/`；Wuji 专属适配移到 `src/teleop_outputs/wuji/wuji_controller/`，共用 Feedback 契约在 `tianji_runtime`，不重复连接 SDK |
+| `control/` 算法／apps | `src/teleop_outputs/tianji/tianji_controller/native/`；保留 DLS、Ceres、SPARK、mapped-palm 差异及 shared-root 原生闭包，非测试 executable 安装到 control |
+| PICO 中 Tianji 目标转换与协议 | `src/teleop_outputs/tianji/tianji_cmd_pub/`；保留 TJVR 字节协议和端口 |
+| 控制模型、mapped-palm assets、Home helper | `src/teleop_outputs/tianji/tianji_description/`；保留网格树、安装规则与后端覆盖 |
+| `retargeting/` | `src/teleop_outputs/wuji/wuji_retargeting/`；保留 Python 模块 retargeting／_native，按使用环境重建 |
+| PICO／Manus／外骨骼输入 | `src/teleop_inputs/` 下对应包（目录 `pico_controller`／`manus`／`exoskeleton`，ROS 包 `pico_bridge`／`manus_bridge`／`exoskeleton_bridge`）；SDK 与自有代码按依赖闭包隔离 |
 | PICO 标定、人员和 owner 管理脚本 | `pico_bridge` 包与 `bash/`；保留发布、取消、人员／版本冲突和 token 限定释放，不补造个人标定 |
-| `pico2_hands/` | `src/teleop_inputs/pico2_hands/`；legacy 默认及显式 shared-root 新模式都仅仿真 |
+| `pico2_hands/` | `src/teleop_inputs/pico_hand/`（ROS 包仍为 `pico2_hands`）；legacy 默认及显式 shared-root 新模式都仅仿真 |
 | `data_collection/` | `src/data_collector/`；integration→session，writer／压缩／web 随包；订阅预览归 `tianji_cameras` |
 | `mocap_policy_runtime/` | `src/inference/mocap_policy_runtime/`；保留 data／replay／policies／integration／native／configs |
 | `sim/` | `src/simulation/`；保留 ceres_session／pico_owned_session，不把退出清理改成全局 stop |
@@ -392,7 +396,7 @@ DLS/Ceres 的 `--user` 仅支持 PICO 端口 `15000`；本次新建的输入会�
 | 一：入口与配置 | `bash/`、`config/`、锁定 Pixi 环境与独立 overlay | 原参数、任务、退出码、信号、人工授权与 Home 差异保留；完整安装不接触硬件 |
 | 二：采集模块 | `src/data_collector/` 独立 DDS collector | schema-v1、日期配置、路径覆盖、显式 destination、partial 与离线读取不变；真实 DDS 服务／失鲜／故障逐项验证 |
 | 三：相机模块 | 官方 4.58.3 节点、统一配置、monitor 与订阅预览 | 单一 pipeline；profile 不匹配失败；真实单台／三台持续采集报告频率与间隔，合成 DDS 不能替代设备验收 |
-| 四：输入模块 | PICO 手柄、Manus、外骨骼、PICO2 两种仿真模式 | 标定发布／取消、人员版本冲突、owner 创建／复用／释放、侧别与失鲜不变；真实佩戴／方向需现场验收 |
+| 四：输入模块 | `src/teleop_inputs/` 下四个输入包：PICO 手柄、Manus、外骨骼、PICO2 两种仿真模式 | 标定发布／取消、人员版本冲突、owner 创建／复用／释放、侧别与失鲜不变；真实佩戴／方向需现场验收 |
 | 五：控制与模型 | controller／cmd_pub／description，control 安装资源 | 后端、Home、资源定位与原生构建无隐式切换；设备会话、授权、协调停止与释放不回归 |
 | 六：推理与仿真 | simulation 与 inference 包、六个 Mocap 路由及 worker | policy/default 隔离、native worker 和 CPU 可选依赖边界；模型／GPU／Motive／真机显式验收，不混淆录制格式 |
 
@@ -410,10 +414,10 @@ DLS/Ceres 的 `--user` 仅支持 PICO 端口 `15000`；本次新建的输入会�
 - [详细操作与采集参考](../README-reference.md)
 - [Mocap／Regrind 独立工作流](../README-mocap.md)
 - [简化 PICO 标定与会话](pico-simple-calibration.md)
-- [DLS／Ceres 交互仿真边界](../src/tianji/tianji_controller/native/docs/verification/ceres_interactive_sim.md)
+- [DLS／Ceres 交互仿真边界](../src/teleop_outputs/tianji/tianji_controller/native/docs/verification/ceres_interactive_sim.md)
 - [迁移验收状态与未验证范围](migration-verification-status.md)
 - [当前数据采集契约 schema-v1](../schema-v1.md)
 - [mapped-palm 真机边界](mapped-palm-real-readiness.md)
-- [PICO2 裸手仿真与共享根模式](../src/teleop_inputs/pico2_hands/README.md)
+- [PICO2 裸手仿真与共享根模式](../src/teleop_inputs/pico_hand/README.md)
 
 最终目标：打开目录就能找到相机、输入、指令转换、控制器、采集器和推理桥；打开 `bash/` 就能按实验流程操作。所有组织调整都服务于稳定地产生可信的遥操作数据。

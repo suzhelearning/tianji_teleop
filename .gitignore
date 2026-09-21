@@ -14,8 +14,8 @@ build/
 /log/
 /.migration-baseline/
 /logs/migration-baseline/
-/src/wuji/wuji_retargeting/wuji_retargeting/_native*.so
-/src/teleop_inputs/exoskeleton_bridge/src/data_glove_wuji_teleop/_native*.so
+/src/teleop_outputs/wuji/wuji_retargeting/wuji_retargeting/_native*.so
+/src/teleop_inputs/exoskeleton/src/data_glove_wuji_teleop/_native*.so
 
 # Preserved local environments/recordings from before the source cutover.
 # No source or runtime launcher consumes these directories.
@@ -33,7 +33,7 @@ build/
 
 # runtime diagnostics and raw hand recordings
 MUJOCO_LOG.TXT
-/src/teleop_inputs/manus_bridge/recordings/
+/src/teleop_inputs/manus/recordings/
 /recordings/
 /logs/real/
 /dataset/
@@ -42,11 +42,11 @@ MUJOCO_LOG.TXT
 /logs/pico-setup/
 
 # Repository-owned exoskeleton runtime output (tracked device profiles stay in config).
-/src/teleop_inputs/exoskeleton_bridge/.pixi-cache/
-/src/teleop_inputs/exoskeleton_bridge/.coverage
-/src/teleop_inputs/exoskeleton_bridge/dist/
-/src/teleop_inputs/exoskeleton_bridge/data/records/
-/src/teleop_inputs/exoskeleton_bridge/config/dataglove/calibration/*_local.json
-/src/teleop_inputs/exoskeleton_bridge/config/dataglove/calibration/*.backup.json
-/src/teleop_inputs/exoskeleton_bridge/config/dataglove/devices/*.bak/
+/src/teleop_inputs/exoskeleton/.pixi-cache/
+/src/teleop_inputs/exoskeleton/.coverage
+/src/teleop_inputs/exoskeleton/dist/
+/src/teleop_inputs/exoskeleton/data/records/
+/src/teleop_inputs/exoskeleton/config/dataglove/calibration/*_local.json
+/src/teleop_inputs/exoskeleton/config/dataglove/calibration/*.backup.json
+/src/teleop_inputs/exoskeleton/config/dataglove/devices/*.bak/
 

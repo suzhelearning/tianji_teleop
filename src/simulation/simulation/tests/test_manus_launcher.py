@@ -21,7 +21,7 @@ class ManusLauncherTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        package = self.root / "src/teleop_inputs/manus_bridge/manus_bridge"
+        package = self.root / "src/teleop_inputs/manus/manus_bridge"
         (self.root / "bash").mkdir(parents=True)
         package.mkdir(parents=True)
         # A stand-in launcher instance: the entry script is copied verbatim and a
@@ -43,7 +43,7 @@ class ManusLauncherTests(unittest.TestCase):
         (self.root / "bash/environment.sh").write_text(
             'export TIANJI_PYTHON="'"$TEST_PYTHON"'"\n'
             'export TIANJI_WORKSPACE="'"$TEST_ROOT"'"\n'
-            'export PYTHONPATH="'"$TEST_ROOT"'/src/teleop_inputs/manus_bridge:$PYTHONPATH"\n')
+            'export PYTHONPATH="'"$TEST_ROOT"'/src/teleop_inputs/manus:$PYTHONPATH"\n')
         (package / "start_hand_teleop.py").write_text(
             "import os\nfrom pathlib import Path\n"
             "Path(os.environ['TEST_ROOT'], 'input-started').touch()\n")

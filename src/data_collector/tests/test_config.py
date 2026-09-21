@@ -15,7 +15,7 @@ def _controller_model() -> Path:
     try:
         return package_share('tianji_description', 'models', 'marvin_m6_wuji2.xml')
     except ResourceNotFound:
-        return workspace() / 'src' / 'tianji' / 'tianji_description' / 'models' / 'marvin_m6_wuji2.xml'
+        return workspace() / 'src' / 'teleop_outputs' / 'tianji' / 'tianji_description' / 'models' / 'marvin_m6_wuji2.xml'
 
 
 def test_metadata_uses_real_model_joint_order():

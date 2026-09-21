@@ -119,7 +119,7 @@ bash bash/run_teleop.sh --sim --user NEW_USER
 无需再写 `--hand-teleop`；仅双臂使用 `--no-hand-teleop`，不占用手部端口。
 没有 Manus 数据时手指保持，不妨碍双臂接入；Manus 不会自动启动。
 两种模式均不导出硬件指令，不等于动力学或真机验收。
-故障处理与详细状态说明见[DLS/Ceres 交互仿真](src/tianji/tianji_controller/native/docs/verification/ceres_interactive_sim.md)。
+故障处理与详细状态说明见[DLS/Ceres 交互仿真](src/teleop_outputs/tianji/tianji_controller/native/docs/verification/ceres_interactive_sim.md)。
 
 ## 4. 结束与下次启动
 
@@ -154,7 +154,7 @@ bash bash/run_teleop.sh --sim --user NEW_USER
 2026-09-20 的历史实验使用 1.62 m 录制构造 11 组合成测试，等比例 1.45～1.95 m 的映射目标几乎一致；
 单独改变肩宽或骨段比例会产生厘米级目标差异。全部组最终几何闭合，
 **不代表真人换人、IK、碰撞或真机验收通过**。
-详见[合成人体映射报告](src/tianji/tianji_controller/native/docs/verification/synthetic_body_mapping_20260920.md)；不是本次迁移重跑的验收结果。
+详见[合成人体映射报告](src/teleop_outputs/tianji/tianji_controller/native/docs/verification/synthetic_body_mapping_20260920.md)；不是本次迁移重跑的验收结果。
 
 ## PICO2 裸手与手势识别遥操
 
@@ -163,8 +163,8 @@ bash bash/run_teleop.sh --sim --user NEW_USER
 
 ```bash
 # 首次／原生代码更新后构建
-pixi install --locked --manifest-path src/teleop_inputs/pico2_hands/tools/wuji_hand_native/pixi.toml
-bash src/teleop_inputs/pico2_hands/build_native.sh
+pixi install --locked --manifest-path src/teleop_inputs/pico_hand/tools/wuji_hand_native/pixi.toml
+bash src/teleop_inputs/pico_hand/build_native.sh
 
 # 连接头显并授权 USB 调试后
 adb devices -l
@@ -176,7 +176,7 @@ bash bash/run_pico2_sim.sh
 S 接管；C 可选前伸 X/Z 标定；H 回 Home；Q／Ctrl+C 回 Home 并退出。
 窗口／终端显示张手、握拳、捏合等观察标签，**手势识别不自动使能或停止**。
 目前仅支持仿真，抖动和跟踪效果仍待验收，不能直接用于真机。
-Python 依赖、录制参数和故障行为见[PICO2 裸手说明](src/teleop_inputs/pico2_hands/README.md)。
+Python 依赖、录制参数和故障行为见[PICO2 裸手说明](src/teleop_inputs/pico_hand/README.md)。
 
 已融合 upstream `90c575f` 的独立**身高＋C 共享根映射＋Franka DLS/Ruckig**模式：
 
@@ -190,7 +190,7 @@ bash bash/run_pico2_sim.sh --mapping-mode shared-root --height-m 1.62
 短时丢帧先制动，满足同连接稳定恢复条件才自动续接；长时断流、重连和主动暂停仍需人工恢复。
 Q／Ctrl+C 回双臂 Home 后退出，退出回程不响应暂停。
 身高模板不是实测肩肘，不等于完整 VR 人体骨架；真实输入精度与实时性仍待现场验收。
-默认 V131 行为不变；详见[新模式说明](src/teleop_inputs/pico2_hands/README.md#身高c共享根dlsruckig-新模式)。
+默认 V131 行为不变；详见[新模式说明](src/teleop_inputs/pico_hand/README.md#身高c共享根dlsruckig-新模式)。
 
 ## PICO＋Manus 双臂＋双手遥操
 
@@ -319,7 +319,7 @@ bash bash/run_teleop.sh --real
 观察录制和带真机执行的采集是不同入口，不互相授予运动权限：
 
 - PICO2 裸手仿真录制：`bash bash/run_pico2_sim.sh --record recordings/pico2_sim/NEW_SESSION.h5`，
-  先创建父目录，每次使用新文件名；完整步骤见[裸手录制说明](src/teleop_inputs/pico2_hands/README.md)。
+  先创建父目录，每次使用新文件名；完整步骤见[裸手录制说明](src/teleop_inputs/pico_hand/README.md)。
 - 独立观察采集器：`pixi run collect --task TASK`，只订阅 DDS，不连接机器人或打开相机；
   先用 `pixi run cameras` 启动官方相机节点。R/S/D 仍在真机执行器的交互终端操作，见[观察采集](README-reference.md#观测数据集采集r--s--d)。
 - 真机任务采集：`bash bash/run_teleop.sh --data --task TASK`，沿用真机预检和人工授权。
@@ -336,7 +336,7 @@ bash bash/run_teleop.sh --real
 ## 共用 Home 与 Mocap／Regrind
 
 SPARK／mapped-palm 部署入口和真机受保护回位共用
-[`src/tianji/tianji_description/config/home.yaml`](src/tianji/tianji_description/config/home.yaml)。
+[`src/teleop_outputs/tianji/tianji_description/config/home.yaml`](src/teleop_outputs/tianji/tianji_description/config/home.yaml)。
 DLS／Ceres 仿真仍使用各自配置中的 Home，不因合并改变其速度或授权流程。
 
 远端新增的 H5 回放、Motive 接入和 Regrind 推理入口保留，详见
@@ -353,12 +353,12 @@ policy 锁定 CPU PyTorch 2.10 与 Zenoh；GPU 运行库及模型权重仍须显
 | Ceres LM＋Ruckig 仿真 | `pixi run sim --user NEW_USER --ik-backend ceres` |
 | 旧 SPARK、双臂＋双手仿真 | [完整仿真参考](README-reference.md#一仿真遥操作)；显式选 `--ik-backend spark` |
 | mapped-palm 后端 | [移植与启动说明](docs/mapped-palm-port.md) |
-| PICO2 裸手仿真 | [独立入口](src/teleop_inputs/pico2_hands/README.md)，不支持真机 |
+| PICO2 裸手仿真 | [独立入口](src/teleop_inputs/pico_hand/README.md)，不支持真机 |
 | 双侧实测标定、完整人员档案 | [人员档案参考](README-reference.md#人员档案与标定版本) |
 | Manus／外骨骼输入 | [输入链路参考](README-reference.md#2-启动-manus-灵巧手输入)，一次只选一种 |
 | 真机遥操 | [真机预检与授权流程](README-reference.md#二真机遥操作)，不沿用仿真放行结论 |
 | 数据集／相机／录制 | [采集参考](README-reference.md#观测数据集采集r--s--d) |
-| 控制器与原生测试 | [原生控制器 README](src/tianji/tianji_controller/native/README.md) |
+| 控制器与原生测试 | [原生控制器 README](src/teleop_outputs/tianji/tianji_controller/native/README.md) |
 | 安装细节、目录与历史说明 | [完整参考页](README-reference.md) |
 
 真机默认不随仿真 DLS 后端改变。`--user` 的上述自动启动方式仅适用于 DLS/Ceres

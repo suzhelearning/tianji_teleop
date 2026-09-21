@@ -7,7 +7,7 @@
 set -euo pipefail
 
 root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
-native="$root/src/tianji/tianji_controller/native"
+native="$root/src/teleop_outputs/tianji/tianji_controller/native"
 core_build="$root/build/control/core"
 palm_build="$root/build/control/mapped-palm"
 install_prefix="$root/install/control"

@@ -3,7 +3,7 @@
 # starts both hands unless the caller overrides hand selection.
 set -euo pipefail
 project_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
-exo_root="$project_root/src/teleop_inputs/exoskeleton_bridge"
+exo_root="$project_root/src/teleop_inputs/exoskeleton"
 if ! command -v pixi >/dev/null 2>&1; then
   printf "%s\n" "Pixi missing; no hardware was contacted." \
     "Install Pixi (https://pixi.sh/latest/installation/) then run bash bash/install.sh --exoskeleton." >&2

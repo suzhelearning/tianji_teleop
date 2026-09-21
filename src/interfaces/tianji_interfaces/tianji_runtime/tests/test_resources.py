@@ -114,8 +114,8 @@ def test_controller_profile_prefers_the_installed_copy(workspace):
 
 
 def test_controller_profile_falls_back_to_the_source_tree(workspace):
-    source = (workspace / "src" / "tianji" / "tianji_controller" / "native" / "config"
-              / "qp_ik_pico_teleop.yaml")
+    source = (workspace / "src" / "teleop_outputs" / "tianji" / "tianji_controller"
+              / "native" / "config" / "qp_ik_pico_teleop.yaml")
     source.parent.mkdir(parents=True)
     source.write_text("controller: {}\n")
     assert resources.controller_profile("qp_ik_pico_teleop.yaml") == source
@@ -172,9 +172,9 @@ def test_controller_resource_preserves_custom_and_explicit_paths(workspace):
 
 
 def test_controller_resource_uses_local_description_before_installed(workspace):
-    profile = workspace / "src/tianji/tianji_controller/native/config/profile.yaml"
+    profile = workspace / "src/teleop_outputs/tianji/tianji_controller/native/config/profile.yaml"
     profile.parent.mkdir(parents=True)
-    local = workspace / "src/tianji/tianji_description/models/custom.urdf"
+    local = workspace / "src/teleop_outputs/tianji/tianji_description/models/custom.urdf"
     local.parent.mkdir(parents=True)
     local.write_text("local description")
     reference = "../../../tianji_description/models/custom.urdf"

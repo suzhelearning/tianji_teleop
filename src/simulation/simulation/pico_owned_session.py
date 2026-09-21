@@ -77,7 +77,7 @@ def run_with_owned_pico(command, user, root):
 
     # The launcher is a package script; it records an owner token so releasing
     # this simulation cannot stop a PICO session it merely reused.
-    launcher = root / "src" / "teleop_inputs" / "pico_bridge" / "scripts" / "ensure_pico_user.py"
+    launcher = root / "src" / "teleop_inputs" / "pico_controller" / "scripts" / "ensure_pico_user.py"
     prefix = [sys.executable, str(launcher)]
     result = 2
     try:

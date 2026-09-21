@@ -5,7 +5,7 @@
     "right_hand"
   ],
   "controller_config": "qp_ik_pico_teleop.yaml",
-  "controller_model": "src/tianji/tianji_description/models/marvin_m6_wuji2.xml",
+  "controller_model": "src/teleop_outputs/tianji/tianji_description/models/marvin_m6_wuji2.xml",
   "controller_velocity_scale": 1.0,
   "command_port": 17000,
   "pico_port": 15000,
@@ -159,7 +159,7 @@
   },
   "staged_motion": {
     "settle_speed_rad_s": 0.03,
-    "home_config": "src/tianji/tianji_description/config/home.yaml",
+    "home_config": "src/teleop_outputs/tianji/tianji_description/config/home.yaml",
     "maximum_speed_rad_s": 0.1,
     "maximum_acceleration_rad_s2": 0.2,
     "timeout_s": 60.0,

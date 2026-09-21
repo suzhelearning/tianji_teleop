@@ -20,19 +20,19 @@ export ROS_DOMAIN_ID="${TIANJI_TEST_ROS_DOMAIN_ID:-121}"
 extra=()
 case "$group" in
   interfaces)  paths=(src/interfaces/tianji_interfaces/tianji_runtime/tests) ;;
-  controller)  paths=(src/tianji/tianji_controller/tianji_controller/tests) ;;
+  controller)  paths=(src/teleop_outputs/tianji/tianji_controller/tianji_controller/tests) ;;
   collection)  paths=(src/data_collector/tests) extra=(--ignore=src/data_collector/tests/test_ros_collection.py) ;;
   ros)         paths=(src/data_collector/tests/test_ros_collection.py) ;;
   simulation)  paths=(src/simulation/simulation/tests) ;;
-  pico)        paths=(src/teleop_inputs/pico_bridge/test) ;;
-  pico2)       paths=(src/teleop_inputs/pico2_hands/python/pico2_hands/tests) ;;
-  retargeting) paths=(src/wuji/wuji_retargeting/tests) ;;
-  manus)       paths=(src/teleop_inputs/manus_bridge/tests) ;;
+  pico)        paths=(src/teleop_inputs/pico_controller/test) ;;
+  pico2)       paths=(src/teleop_inputs/pico_hand/python/pico2_hands/tests) ;;
+  retargeting) paths=(src/teleop_outputs/wuji/wuji_retargeting/tests) ;;
+  manus)       paths=(src/teleop_inputs/manus/tests) ;;
   mocap)       paths=(src/inference/mocap_policy_runtime/tests) ;;
   all)
     paths=(
       src/interfaces/tianji_interfaces/tianji_runtime/tests
-      src/tianji/tianji_controller/tianji_controller/tests
+      src/teleop_outputs/tianji/tianji_controller/tianji_controller/tests
       src/data_collector/tests
       src/simulation/simulation/tests
     )

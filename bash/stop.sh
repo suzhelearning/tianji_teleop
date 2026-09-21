@@ -22,9 +22,9 @@ import time
 root = Path(sys.argv[1])
 
 TARGETS = {
-    "tianji_controller.run_teleop": "src/tianji/tianji_controller/tianji_controller/run_teleop.py",
+    "tianji_controller.run_teleop": "src/teleop_outputs/tianji/tianji_controller/tianji_controller/run_teleop.py",
     "simulation.run_sim": "src/simulation/simulation/run_sim.py",
-    "manus_bridge.start_hand_teleop": "src/teleop_inputs/manus_bridge/manus_bridge/start_hand_teleop.py",
+    "manus_bridge.start_hand_teleop": "src/teleop_inputs/manus/manus_bridge/start_hand_teleop.py",
 }
 # Native viewers are matched by executable name inside the workspace install tree.
 TARGET_NAMES = {

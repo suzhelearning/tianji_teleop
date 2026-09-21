@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>tianji_cmd_pub</name>
+  <version>0.3.0</version>
+  <description>
+    PICO skeleton to TJVR command publisher. Owns the retargeting geometry, the
+    wire protocol and the UDP publisher that the arm controller consumes on
+    port 15000. It publishes commands only; it holds no hardware authority.
+  </description>
+  <maintainer email="ops@example.com">Tianji operators</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>std_msgs</depend>
+  <depend>geometry_msgs</depend>
+
+  <test_depend>ament_cmake_gtest</test_depend>
+  <test_depend>ament_cmake_pytest</test_depend>
+  <test_depend>ament_index_python</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

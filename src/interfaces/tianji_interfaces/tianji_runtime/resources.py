@@ -164,8 +164,8 @@ def controller_profile(name: str) -> Path:
     installed = control_prefix() / "share" / "tianji_controller" / "config" / name
     if installed.is_file():
         return installed
-    source = (workspace() / "src" / "tianji" / "tianji_controller" / "native"
-              / "config" / name)
+    source = (workspace() / "src" / "teleop_outputs" / "tianji" / "tianji_controller"
+              / "native" / "config" / name)
     if source.is_file():
         return source
     raise ResourceNotFound(

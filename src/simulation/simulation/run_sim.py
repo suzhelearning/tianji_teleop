@@ -38,7 +38,7 @@ def _description(*relative) -> Path:
     try:
         return package_share(DESCRIPTION_SHARE, *relative)
     except ResourceNotFound:
-        candidate = workspace() / "src" / "tianji" / "tianji_description" / Path(*relative)
+        candidate = workspace() / "src" / "teleop_outputs" / "tianji" / "tianji_description" / Path(*relative)
         if not candidate.exists():
             raise
         return candidate

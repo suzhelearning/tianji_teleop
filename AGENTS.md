@@ -1,6 +1,6 @@
 # 三条输入路线
 
-工作目录：`~/syz/tianji_teleop`。PICO 手柄 + Manus、PICO 手柄 + 外骨骼两条组合路线共用 `bash bash/run_teleop.sh`；PICO 裸手由 `bash bash/run_pico2_sim.sh` 独立运行，仅支持仿真。输入目录只保留 `pico_bridge`、`manus_bridge`、`exoskeleton_bridge`、`pico2_hands` 四个主输入包；正式 schema-v1 采集器独立于输入目录。
+工作目录：`~/syz/tianji_teleop`。PICO 手柄 + Manus、PICO 手柄 + 外骨骼两条组合路线共用 `bash bash/run_teleop.sh`；PICO 裸手由 `bash bash/run_pico2_sim.sh` 独立运行，仅支持仿真。输入侧物理目录只保留 `src/teleop_inputs/` 下的 `pico_controller`、`manus`、`exoskeleton`、`pico_hand` 四个主输入包（ROS 包名仍为 `pico_bridge`、`manus_bridge`、`exoskeleton_bridge`、`pico2_hands`）；正式 schema-v1 采集器独立于输入目录。
 
 环境由 Pixi 管理，统一为 ROS 2 Jazzy + Fast DDS：`RMW_IMPLEMENTATION=rmw_fastrtps_cpp`、`ROS_DOMAIN_ID=120`、`ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST`（只支持同机采集与共享单调时钟）。大多数 `bash/` 入口会自行进入 Pixi 环境并 `source bash/environment.sh`，确认 `ROS_DISTRO=jazzy`、Python 3.12，并清掉旧 shell 可能残留的 Humble／旧 `tracking/install` overlay；`bash bash/build.sh` 与 `bash bash/test_native.sh` 例外，它们要求调用者已经在 Pixi 环境内（推荐用 `pixi run build`／`pixi run test-native`）。不要手动 source 旧环境。
 
@@ -19,7 +19,7 @@
 
 构建输出按环境分离：`build/<环境>`、`install/<环境>`、`log/<环境>`。colcon 只扫描 `src/`；control 的 core／mapped-palm 分开构建，原生可执行文件安装到 `install/control/bin/` 或 `install/control/lib/mapped_palm/`，统一由资源 helper 定位。不再构建辅助定位、外接 IMU 或旧 PICO 专用录制包。
 
-模型及共用部署 Home 属于 `src/tianji/tianji_description/`，运行时用 `tianji_runtime.package_share()` 读取安装资源；native 程序用 `native_executable()`，不指向旧构建树。根 config／profiles／vendor 由 Pixi 注入的 `TIANJI_WORKSPACE` 定位，不能依赖 cwd。DLS／Ceres 的 Home 保持各自配置。缺少消息包 overlay 的节点必须先构建，不靠源码路径注入或旧环境回退。
+模型及共用部署 Home 属于 `src/teleop_outputs/tianji/tianji_description/`，运行时用 `tianji_runtime.package_share()` 读取安装资源；native 程序用 `native_executable()`，不指向旧构建树。根 config／profiles／vendor 由 Pixi 注入的 `TIANJI_WORKSPACE` 定位，不能依赖 cwd。DLS／Ceres 的 Home 保持各自配置。缺少消息包 overlay 的节点必须先构建，不靠源码路径注入或旧环境回退。
 
 环境保持隔离：default 为 Jazzy／Python 3.12／Fast DDS，control 为无 ROS 的原生工具链，cameras 为官方 RealSense 4.58.3，manus 为无 ROS 的 Python 3.12／Pinocchio 3.8。policy 使用同一 Jazzy／Python ABI，但拥有自己的 overlay，锁定 CPU torch 2.10.0＋Zenoh；模型权重、CUDA wheel／驱动需要显式准备，CPU 验证不等于 GPU 验收。
 
@@ -42,10 +42,10 @@ bash bash/run_exoskeleton.sh
 bash bash/run_teleop.sh --sim
 ```
 
-- 外骨骼实现、标定配置、模型和官方求解器位于 `src/teleop_inputs/exoskeleton_bridge/`，不依赖外部 `~/syz/data_glove_wuji_teleop`。`bash bash/run_exoskeleton.sh` 使用该目录自己的 `pixi.toml`／`.pixi` 环境（独立 Python 3.12）；缺少环境时先执行 `bash bash/install.sh --exoskeleton`。
+- 外骨骼实现、标定配置、模型和官方求解器位于 `src/teleop_inputs/exoskeleton/`，不依赖外部 `~/syz/data_glove_wuji_teleop`。`bash bash/run_exoskeleton.sh` 使用该目录自己的 `pixi.toml`／`.pixi` 环境（独立 Python 3.12）；缺少环境时先执行 `bash bash/install.sh --exoskeleton`。
 - 该入口默认发送双手；附加参数原样传给发送器（单手 `--hand left`／`--hand right`；离线检查 `--check-config`，只检查配置、不发送数据）。默认已带 `--confirm-send --commission-directions`：允许采集与 UDP 发送，不修改方向验收标记，也不代表真机方向与动作已验证。
-- 每帧四连杆／21 通道机构换算和独立 MANO 手型拟合在 `exoskeleton_bridge/native/` 的 C++17 扩展中完成，无 Python 回退路径；修改 C++ 后重跑 `bash bash/install.sh --exoskeleton`。
-- 此路径不运行 `bash bash/run_manus.sh`；外骨骼使用自己的设备身份、零位和方向档案。设备与零位档案在 `exoskeleton_bridge/config/dataglove/devices/`，任务绑定在 `exoskeleton_bridge/config/teleoperation/`，传给入口的相对配置路径以 `exoskeleton_bridge/` 为基准。
+- 每帧四连杆／21 通道机构换算和独立 MANO 手型拟合在 `src/teleop_inputs/exoskeleton/native/` 的 C++17 扩展中完成，无 Python 回退路径；修改 C++ 后重跑 `bash bash/install.sh --exoskeleton`。
+- 此路径不运行 `bash bash/run_manus.sh`；外骨骼使用自己的设备身份、零位和方向档案。设备与零位档案在 `src/teleop_inputs/exoskeleton/config/dataglove/devices/`，任务绑定在 `src/teleop_inputs/exoskeleton/config/teleoperation/`，传给入口的相对配置路径以该目录（ROS 包 `exoskeleton_bridge`）为基准。
 - 默认直接向 `127.0.0.1:16000` 发送控制器的 TJH2 v2 数据，不需要独立桥接进程；源时间使用同机单调时钟，只允许回环 IPv4 目的地址。每侧保留原始帧读取完成时的本机时间，另一侧更新不刷新旧姿态；没有新结果不发包，失败侧清除缓存，退出不补零。
 
 ## Manus + PICO → Tianji + Wuji
@@ -92,7 +92,7 @@ pixi run bash -c 'source bash/environment.sh; python -m tianji_controller.run_te
 
 **同一时刻只运行一套 PICO、一种手部输入和一个执行模式。**外骨骼与 Manus 不可同时向手部控制端发送，仿真与真机也不可同时占用相同输入端口。切换路径时先停止执行端，再停止旧手部输入，切换并检查后重新启动执行端。
 
-回 Home 只操作双臂：`bash bash/run_home.sh`（默认附加 `--confirm-real`，`--dry-run` 只做无硬件检查）。PICO2 裸手仿真为 `bash bash/run_pico2_sim.sh`，默认 V131；`--mapping-mode shared-root --height-m HEIGHT` 选择身高模板＋C 标定＋DLS/Ruckig。新模式先 C 后 S，H 只回双臂、手指保持，P／空格可取消 H 回程；两种模式均不驱动真机、也不在遥操作端口上发布。首次构建 PICO2 原生依赖用 `bash src/teleop_inputs/pico2_hands/build_native.sh`；共享根 worker 另由 `pixi run build` 安装。
+回 Home 只操作双臂：`bash bash/run_home.sh`（默认附加 `--confirm-real`，`--dry-run` 只做无硬件检查）。PICO2 裸手仿真为 `bash bash/run_pico2_sim.sh`，默认 V131；`--mapping-mode shared-root --height-m HEIGHT` 选择身高模板＋C 标定＋DLS/Ruckig。新模式先 C 后 S，H 只回双臂、手指保持，P／空格可取消 H 回程；两种模式均不驱动真机、也不在遥操作端口上发布。首次构建 PICO2 原生依赖用 `bash src/teleop_inputs/pico_hand/build_native.sh`；共享根 worker 另由 `pixi run build` 安装。
 
 ## 相机与数据采集（ROS 节点）
 

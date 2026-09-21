@@ -505,5 +505,61 @@
     "hardware_access": false,
     "original_migration_results_preserved_as_historical_snapshot": true,
     "policy_check_env_passed": true
+  },
+  "layout_cutover": {
+    "human_side_inputs": [
+      "src/teleop_inputs/pico_controller",
+      "src/teleop_inputs/manus",
+      "src/teleop_inputs/exoskeleton",
+      "src/teleop_inputs/pico_hand"
+    ],
+    "robot_side_outputs": [
+      "src/teleop_outputs/tianji/tianji_cmd_pub",
+      "src/teleop_outputs/tianji/tianji_controller",
+      "src/teleop_outputs/tianji/tianji_description",
+      "src/teleop_outputs/wuji/wuji_controller",
+      "src/teleop_outputs/wuji/wuji_retargeting"
+    ],
+    "auxiliary_directory_created": false,
+    "renamed_package_identities": false,
+    "default_build_packages": 16,
+    "policy_build_packages": 16,
+    "test_results": {
+      "native_core": 106,
+      "mapped_palm": 1,
+      "controller": 256,
+      "controller_skipped": 1,
+      "interfaces": 32,
+      "simulation": 42,
+      "collection": 81,
+      "pico": 322,
+      "pico2": 86,
+      "manus": 24,
+      "dds": 29,
+      "mocap": 85,
+      "retargeting": 19,
+      "exoskeleton": 323
+    },
+    "smoke": {
+      "pico2_self_test_cycles": 4104,
+      "installed_dls_window": true,
+      "manus_check": true,
+      "exoskeleton_check_config": true,
+      "cli_and_route_modules": true
+    },
+    "preserved_model_calibration_backup_files": 750,
+    "config_robot_json": "unchanged except two resource paths",
+    "fingerprint_chain_repair": {
+      "file": "src/teleop_inputs/pico_controller/scripts/pico_symmetric_geometry.py",
+      "cause": "auxiliary removal deleted the two-line Odin extrinsics carry-over",
+      "prior_sha256": "68378df1756e08c1f94dab867718a5aeae269782ff94cd6b67edb29beaeb7403",
+      "current_sha256": "47a0669492c0771ee14afb0229f070b70edfa2d0963787e09847847ac5dd1520",
+      "contract_sha256": "11d862cc6f34d3909cc3ea7a9ccfb464fbf94e057f84addffa41b7dfaafbc84b",
+      "geometry_sha256": [
+        "9aafa35858e9673474ab423053b47d4ade26b74f2a661ca14520930d73188f4f",
+        "0d7cdcc7b8a97860108a5cf3e777edc03ce21e2a426fdf655c0c4a964fb19a0d"
+      ]
+    },
+    "hardware_access": false
   }
 }
