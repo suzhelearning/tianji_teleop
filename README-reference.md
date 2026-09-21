@@ -3,28 +3,31 @@
 本页保留原 README 的进阶路线、安装细节及历史验证记录，避免精简首页时丢失信息。
 新人员简化标定和默认 DLS 仿真请优先按[当前快速开始](README.md)操作。
 以下各路线的标定、环境和授权要求不同，不要交叉执行；历史测试数字不代表本轮重新验证。
+当前工作空间为 `bash/`、`config/`、`src/` 和 `vendor/`；默认使用 Jazzy／Python 3.12／Fast DDS。
+本轮安装与图形窗口证据及仍待完成项统一见[迁移验证状态](docs/migration-verification-status.md)。
+本文历史实机、微基准和回归记录保留原日期与范围，不作为迁移后的硬件或全量测试通过声明。
 
 # 天机遥操数据采集
 
-PICO2 裸手已有独立[仿真入口 `pico2_sim.sh`](pico2_hands/README.md)，
-已通过合成输入／假 TCP 测试，用户已进行真实 PICO 输入仿真并录制；
+PICO2 裸手已有独立[仿真入口 `bash/run_pico2_sim.sh`](src/teleop_inputs/pico2_hands/README.md)，
+此前已通过合成输入／假 TCP 测试，用户已进行真实 PICO 输入仿真并录制；
 跟踪抖动仍是已知限制，不能视为性能验收完成；不支持真机。
 现有 VR、Manus、外骨骼输入入口保留；仿真默认后端已切换为 Franka DLS＋Ruckig，真机默认不变。
 详见[实施方案](docs/pico2-hands-design-and-plan.md)。
 
 2026-09-15 已合入 mapped-palm 路线及退出清理修复，保留本工程原生外骨骼输入。
-合并范围、当前环境和验证限制见 [合并记录](docs/merge-mapped-palm-2026-09-15.md)。
+当时的合并范围、环境和验证限制见[历史合并记录](docs/merge-mapped-palm-2026-09-15.md)。
 
 以 **人员标定 → PICO／Manus 输入 → C++ 重定向与控制 → 安全执行 → 数据落盘** 为主链。
 标定、Hand2 retargeting、双臂控制、模型和必要的原生依赖源码均位于本仓库，不需要克隆其他业务仓库或初始化子模块。
 硬件 SDK、ROS、MuJoCo、Pinocchio 等通用库仍须安装；厂商二进制和私钥不由重构替代。
 
 > **三种模式必须区分，且不能同时占用相同输入端口。**
-> - `pixi run sim`（或已配置 Python 的 `bash teleop.sh --sim`）：默认 Franka DLS＋Ruckig 双臂 direct 仿真，按 S 接入；默认接收 Hand2，纯双臂使用 `--no-hand-teleop`。旧双臂＋双手入口用 `--ik-backend spark`，动力学仿真再加 `--simulation-mode dynamics`。
-> - `bash teleop.sh --real`：双臂＋双 Hand2 真机执行与实测／目标双模型窗口；三次 Enter 分别授权慢速对齐、实时遥操、回 HOME 后失能。直接运行 `real_robot/run_teleop.py` 不带使能参数仍为 dry-run。
-> - `bash teleop.sh --data --task TASK`：在相同真机安全门控下采集数据，默认写入根 `dataset/`；用 `--dataset PATH` 指定目录。
+> - `pixi run sim`（或 `bash bash/run_teleop.sh --sim`）：默认 Franka DLS＋Ruckig 双臂 direct 仿真，按 S 接入；默认接收 Hand2，纯双臂使用 `--no-hand-teleop`。旧双臂＋双手入口用 `--ik-backend spark`，动力学仿真再加 `--simulation-mode dynamics`。
+> - `bash bash/run_teleop.sh --real`：双臂＋双 Hand2 真机执行与实测／目标双模型窗口；三次 Enter 分别授权慢速对齐、实时遥操、回 HOME 后失能。激活 default overlay 后执行 `python -m tianji_controller.run_teleop` 不带使能参数仍为 dry-run。
+> - `bash bash/run_teleop.sh --data --task TASK`：在相同真机安全门控下管理相机和独立 DDS 采集器，默认写入 `/data/TianjiData/raw/YYYYMMDD/`；用 `--dataset PATH` 指定根目录。
 > - 当前真机支持双臂与左右两只 Hand2；`all` 表示双臂＋双手，`hands` 表示仅双手。
-> - 已完成离线测试及设备身份读取；双手执行路径需重新做只读预检，尚未验证带运动的实机闭环。
+> - 历史离线测试和设备身份读取不能替代当前只读预检；尚不能宣称迁移后带运动实机闭环已验收。
 
 ## 新用户：左侧标定＋镜像 TCP＋身高骨长（可选）
 
@@ -36,8 +39,8 @@ PICO2 裸手已有独立[仿真入口 `pico2_sim.sh`](pico2_hands/README.md)，
 推荐单终端向导（先停止旧遥操和 PICO 输入，连接 USB 并授权）：
 
 ```bash
-pixi run -e tracking build-tracking
-pixi run -e tracking setup-pico
+pixi run build
+pixi run setup-pico --user NEW_USER --height-m 1.70
 ```
 
 按提示输入人员名、身高并完成 TCP 采集，展示结果后提示“回车确认使用并显示骨架，输入 q 取消”。
@@ -49,15 +52,15 @@ pixi run -e tracking setup-pico
 原始 PICO driver 单独运行时，在另一终端执行（身高为米，示例需替换）：
 
 ```bash
-pixi run -e tracking calibrate-pico --user NEW_USER --height-m 1.70 --accept-symmetric-model
+pixi run -e default bash -c 'source bash/environment.sh; exec python src/teleop_inputs/pico_bridge/scripts/calibrate_pico_simple.py --user NEW_USER --height-m 1.70 --accept-symmetric-model'
 ```
 
 按提示完成左侧掌心 TCP 采集，检查身高派生参数，输入 `publish` 后保存到独立 `pico-simple` 指针。
-停止原始 driver 后，用 `pixi run -e tracking pico-simple --user NEW_USER` 选择该模型。
-首次或更新后执行 `pixi run -e tracking build-tracking`；原始 driver 入口为
-`pixi run -e tracking pico-driver`。标定和输入使用 tracking 的 ROS/Python，
-机械臂另开终端运行 `pixi run sim`；不需要 `.venv`。
-该入口仅启动 PICO 输入，不启动执行器，也不改变旧 `pico.sh --user` 的选择。
+停止原始 driver 后，用 `bash bash/run_pico.sh --user NEW_USER` 选择该简化模型。
+首次或更新后执行 `pixi run build`；原始 driver 入口为 `pixi run -e default bash bash/start_pico_driver.sh`。
+标定和输入使用 default Jazzy／Python 3.12，机械臂另开终端运行 `pixi run sim`。
+该入口仅启动 PICO 输入，不启动执行器；完整双侧实测档案使用下文显式 `--calibration-dir` 流程，
+不把独立 `pico-simple` 指针误当成完整 `profile.yaml`。
 完整设备准备、操作及取消说明见[简化标定](docs/pico-simple-calibration.md)。
 新软件链路已做离线验证，尚未完成真实输入验收；不要直接将其视为真机动作放行。
 
@@ -70,22 +73,22 @@ pixi run -e tracking calibrate-pico --user NEW_USER --height-m 1.70 --accept-sym
 等比例身高 1.45～1.95 m 的机械臂掌心目标与基线几乎一致；单独改变臂长／肩宽时，
 目标出现厘米级差异。全部组最终几何闭合，但不代表 IK、碰撞或真人换人验收通过。
 该结果仅针对共享根映射，不外推到旧 SPARK 或 mapped-palm 的其他映射模式。
-方法、数值和复现入口见[合成人体映射实验](control/docs/verification/synthetic_body_mapping_20260920.md)。
+历史方法、数值和复现记录见[合成人体映射实验](src/tianji/tianji_controller/native/docs/verification/synthetic_body_mapping_20260920.md)。
 
 换人须以新的人员名和实际身高重新标定、明确发布，再检查 MuJoCo 骨架的掌心位置、
 转腕方向及伸臂动作；不要复用上一人的 TCP 或手工改派生骨长文件。
 完整步骤及仍需检查的体型差异见[简化标定说明](docs/pico-simple-calibration.md#换人身高与臂长适配)。
 
-当前控制操作与验收边界见 [DLS/Ceres 交互仿真](control/docs/verification/ceres_interactive_sim.md)；
-旧阶段报告和参数实验已集中到[历史归档索引](control/docs/archive/2026-09-shared-root/README.md)，
+当前控制操作与验收边界见[DLS/Ceres 交互仿真](src/tianji/tianji_controller/native/docs/verification/ceres_interactive_sim.md)；
+旧阶段报告和参数实验已集中到[历史归档索引](src/tianji/tianji_controller/native/docs/archive/2026-09-shared-root/README.md)，
 其中旧命令、旧版本指纹和测试数字不作为当前启动依据。
 
 ## PICO＋VR 手柄：mapped-palm IK＋对称骨架启动
 
-**`bash teleop.sh --sim` 默认使用 Franka DLS＋Ruckig（双臂 direct 仿真）。
-`bash teleop.sh --real` 保持原 SPARK 默认，不随仿真后端切换。**
-仿真按 S 接入、H 平滑回 Home、P/空格停止；不控制灵巧手，不导出硬件指令。
-新增后端与现有 Pixi 流程共用 `control/build`：
+**`bash bash/run_teleop.sh --sim` 默认使用 Franka DLS＋Ruckig（双臂 direct 仿真）。
+`bash bash/run_teleop.sh --real` 保持原 SPARK 默认，不随仿真后端切换。**
+默认 DLS/Ceres 仿真按 S 接入、H 平滑回双臂 Home、P/空格停止；默认接收双手，不导出硬件指令。
+原生构建分别使用 `build/control/core` 与 `build/control/mapped-palm`，安装到 `install/control`：
 
 ```bash
 pixi run build                         # 自动 configure，包含 DLS 和 Ceres
@@ -97,13 +100,14 @@ pixi run test-native
 pixi run test-sim
 ```
 
-`sim` 任务使用 Pixi 自身的 Python，不需要为仿真单独建立 `.venv`。
-已发布简化标定后，也可直接运行 `bash teleop.sh --sim --user zhoujie`；未显式设置
-`TIANJI_PYTHON` 时该 Bash 入口自动进入 Pixi。请替换为实际人员名。
-`--user` 当前仅支持 DLS/Ceres direct 仿真和固定 PICO 端口 15000，不启动灵巧手或真机。
+`sim` 任务使用 default Pixi 环境及其 overlay。
+已发布简化标定后，也可直接运行 `bash bash/run_teleop.sh --sim --user zhoujie`；
+该 Bash 入口自动进入 Pixi。请替换为实际人员名。
+`--user` 当前仅支持 DLS/Ceres direct 仿真和固定 PICO 端口 15000；不自动启动 Manus 或真机。
 无输入会话时启动该人员骨架/输入；已有会话须工程、标定目录及内容指纹一致，并重新通过
-就绪检查，否则拒绝，不会静默换人。旧会话缺少标记时先 `pixi run -e tracking stop-pico`。
-仿真仍须按 S 接入；退出机械臂窗口不停止输入，结束时另执行 `pixi run -e tracking stop-pico`。
+就绪检查，否则拒绝，不会静默换人。旧会话缺少标记时先 `pixi run stop-pico`。
+仿真仍须按 S 接入；退出只按 owner token 清理本次新建的 PICO 会话，复用的会话保留，
+需要时另执行 `pixi run stop-pico`。启动失败／Ctrl+C 同样不杀他人或后来重建的会话。
 首次启用 Ceres 时，CMake 优先寻找已安装库，否则下载并校验固定版本源码。
 显式选项 `--ik-backend ceres`、`--ik-backend spark`、`--ik-backend mapped-palm` 仍保留。
 旧双手仿真、headless 或 dynamics 路线需显式选 `--ik-backend spark`，不自动回退。
@@ -111,9 +115,9 @@ pixi run test-sim
 
 | 选择项 | 入口与参数 | 不选择时 |
 | --- | --- | --- |
-| 左右对称骨长 | `start_mapped_palm_pico.sh --symmetric-geometry` | 使用人员原始骨长 |
-| 新 mapped-palm IK | `teleop.sh --sim --ik-backend mapped-palm` | 仿真使用 Franka DLS＋Ruckig；真机仍为原默认 |
-| 现场末端 X/Z 对齐 | `teleop.sh --mapped-palm-xz-calibration` | 不要求 C，使用原映射 |
+| 左右对称骨长 | 下文 `pico_symmetric_profile.py --resolve` 后显式传 `--calibration-dir` | 使用人员原始骨长 |
+| 新 mapped-palm IK | `bash bash/run_teleop.sh --sim --ik-backend mapped-palm` | 仿真使用 Franka DLS＋Ruckig；真机仍为原默认 |
+| 现场末端 X/Z 对齐 | `bash bash/run_teleop.sh --sim --ik-backend mapped-palm --mapped-palm-xz-calibration` | 不要求 C，使用原映射 |
 
 骨长标定默认 `symmetric_max`：左右完整 TCP/腕心/骨长均通过校验后，自动生成对称快照，
 上臂、前臂分别取左右较大值；不改写原始测量。**自动生成不等于自动启用。**
@@ -121,17 +125,17 @@ C 标定则是人体末端与机器人末端的 X/Z 对齐，不改变骨长，�
 
 ### 1. 环境和构建
 
-在本工程根目录操作，各终端均设置已配置的 Python 环境，例如：
+在本工程根目录操作。便捷包装器自动激活环境；下文需要直接调用 Python／底层脚本的终端先执行：
 
 ```bash
-export TIANJI_PYTHON="$PWD/.pixi/envs/default/bin/python"
+pixi shell -e default
+source bash/environment.sh
 ```
 
-首次安装先按下文安装流程准备依赖；代码更新后构建新后端及 PICO ROS 包：
+首次安装先按下文安装流程准备依赖；代码更新后统一构建原生后端和 `src/` ROS 包：
 
 ```bash
-bash scripts/build_mapped_palm.sh
-bash tracking/scripts/build.sh --all
+pixi run build
 ```
 
 ### 2. 终端一：启动对称骨架输入
@@ -140,17 +144,19 @@ bash tracking/scripts/build.sh --all
 切换前先退出旧执行器及旧 PICO 输入会话，不能重复启动或同时占用端口。
 
 ```bash
-bash pico.sh --list-users
-bash scripts/start_mapped_palm_pico.sh --user YOUR_USER --symmetric-geometry
+python -m tianji profile --list-users
+PICO_PROFILE_DIR=$(python -m tianji profile --user YOUR_USER --component pico) &&
+PICO_SYMMETRIC_DIR=$(python src/teleop_inputs/pico_bridge/scripts/pico_symmetric_profile.py --source "$PICO_PROFILE_DIR" --resolve) &&
+bash bash/start_tianji_pico_teleop.sh --calibration-dir "$PICO_SYMMETRIC_DIR" --pico-world-x-offset 0.20
 ```
 
-此入口选择对称快照，bridge 的 PICO 世界 X 偏移为 +0.20 m。
-确认日志出现 `Explicit symmetric_max runtime geometry`；未生成或已过期的快照会被拒绝，
-不静默退回原配置。已有完整标定但没有快照时，可先离线生成（会新增快照与指针）：
+此入口显式选择对称快照，bridge 的 PICO 世界 X 偏移为 +0.20 m。
+`--resolve` 会校验快照；未生成或已过期时拒绝，不静默退回原配置。
+已有完整标定但没有快照时，可先离线生成（会新增快照与指针），然后重新运行上述解析与启动：
 
 ```bash
-PICO_PROFILE_DIR=$("$TIANJI_PYTHON" -m tianji profile --user YOUR_USER --component pico)
-"$TIANJI_PYTHON" scripts/pico_symmetric_profile.py --source "$PICO_PROFILE_DIR"
+PICO_PROFILE_DIR=$(python -m tianji profile --user YOUR_USER --component pico) &&
+python src/teleop_inputs/pico_bridge/scripts/pico_symmetric_profile.py --source "$PICO_PROFILE_DIR"
 ```
 
 若需 A 键地面初始化，应在真机未使能前完成；执行中不要重置 PICO 坐标系。
@@ -159,7 +165,7 @@ PICO_PROFILE_DIR=$("$TIANJI_PYTHON" -m tianji profile --user YOUR_USER --compone
 ### 3A. 终端二：仿真（不连接真机）
 
 ```bash
-bash teleop.sh --sim \
+bash bash/run_teleop.sh --sim \
   --ik-backend mapped-palm \
   --mapped-palm-xz-calibration \
   --simulation-mode direct
@@ -175,13 +181,13 @@ H 停止跟随并回配置 Home，到位静止且重新准备完成后可按 S �
 先停止仿真执行器，核对设备 IP、左右臂身份、人员标定并做只读预检：
 
 ```bash
-"$TIANJI_PYTHON" -m tianji real --devices arms --inspect
+pixi run -e default bash -c 'source bash/environment.sh; exec python -m tianji real --devices arms --inspect'
 ```
 
 预检失败不要继续。确认活动范围安全、负载妥善处理、硬件急停可用后单独执行：
 
 ```bash
-bash teleop.sh --real \
+bash bash/run_teleop.sh --real \
   --devices arms \
   --ik-backend mapped-palm \
   --mapped-palm-xz-calibration \
@@ -202,36 +208,40 @@ C 本身不使能、不驱动真机。TELEOP 中第三次 Enter 慢速回 Home�
 
 | 目录 | 用途 |
 | --- | --- |
-| `tracking/` | PICO 驱动、人体标定、修正骨架和双臂目标 UDP 桥 |
-| `control/` | 本项目双臂控制算法、MuJoCo 模型与 Viewer |
-| `manus/` | Manus 原始骨架采集、21 点语义适配及手部链路启动器 |
-| `retargeting/` | Hand2 重定向；C++17 分析目标函数／梯度，Python 优化器编排 |
-| `real_robot/` | 真机 SDK、只读设备识别、执行器与安全配置 |
-| `sim/` | 仿真专用执行器、54 关节 MuJoCo 动力学及物理行为测试 |
-| `profiles/` | 按人员保存的档案与完整 PICO 标定版本，不包含机器人硬件配置 |
-| `data_collection/` | 有界采样、HDF5 段生命周期、离线压缩与可视化 |
-| `tianji/` | 统一 CLI 和可移植数据路径策略 |
-| `scripts/` | 根环境选择；不再依赖各子工程的虚拟环境 |
-| `control/third_party/ruckig/` | 固定版本离线轨迹生成源码及许可证 |
+| `bash/` | 安装、构建、环境激活和日常操作包装器 |
+| `config/` | 机器人、设备身份、唯一采集／相机配置及 Fast DDS 配置 |
+| `src/teleop_inputs/` | PICO／IMU／Odin、Manus、外骨骼和 PICO2 输入；PICO 旧录制包为 `pico_recorder` |
+| `src/tianji/tianji_cmd_pub/` | PICO 人体目标映射与 TJVR 发布 |
+| `src/tianji/tianji_controller/` | 原生控制算法、Python 真机执行器和反馈发布 |
+| `src/tianji/tianji_description/` | 安装到 share 的机器人模型、网格及共用 Home |
+| `src/wuji/` | Hand2 硬件适配与重定向 |
+| `src/cameras/` | 官方 RealSense 驱动的启动／检查／订阅预览，以及可选鱼眼节点 |
+| `src/data_collector/` | 独立 DDS 观察采集、HDF5 段生命周期、离线压缩与浏览 |
+| `src/interfaces/` | ROS 接口与轻量 `tianji_runtime` 契约、资源定位 |
+| `src/simulation/`、`src/inference/` | 仿真与 Mocap／Regrind 执行 |
+| `src/tools/tianji_tools/` | `tianji` CLI、`teleop_profile` 及数据路径策略 |
+| `profiles/` | 实际人员档案与 PICO 标定版本；不包含机器人硬件配置 |
+| `vendor/` | 厂商 SDK／第三方资源；许可证和私有凭证边界保留 |
+| `src/tianji/tianji_controller/native/third_party/ruckig/` | 固定版本离线轨迹生成源码及许可证 |
 
 ### C++ 与 Python 边界
 
 - PICO／IMU 桥、Manus 原始采集、双臂 IK／QP／轨迹限制和 UDP 控制协议在 C++ 中运行。
-- Hand2 分析目标函数和梯度位于 `retargeting/wuji_retargeting/native.cpp`，由根安装编译；
+- Hand2 分析目标函数和梯度位于 `src/wuji/wuji_retargeting/wuji_retargeting/native.cpp`，由 Manus 准备步骤在使用环境中编译；
   每次优化迭代借用连续 float64 数组，三维临时量在栈上，缺少扩展时不静默退回 Python。
 - Pinocchio 已有原生 FK／Jacobian 保留；双臂迭代去掉重复 FK，左右臂输入构造合并但安全提交和回退顺序不变。
 - TJRC／TJVR／TJH2 共用 constexpr CRC-32 表，协议布局、校验范围和多项式不变。
 - Python 保留标定交互、配置、SDK 编排、安全状态机和数据段生命周期；NumPy、h5py／HDF5、OpenCV 本身调用原生库。
   不为了换语言重写这些边界，也不改变 schema-v1、人工授权或过期输入拒绝策略。
 
-本次离线微基准：左右 Hand2 实际模型共 240 组状态（含 alpha 端点、thumb mask、正则和耦合项），
+历史原生化离线微基准（非本次迁移复测）：左右 Hand2 实际模型共 240 组状态（含 alpha 端点、thumb mask、正则和耦合项），
 新旧目标函数及梯度一致；含 FK 的目标函数约 **255 μs → 90–91 μs，2.8×**。
 CRC 对 0–656 字节随机数据及标准校验向量一致，360／464／652 字节包约 **4.3×**。
 这是局部计算测量，不代表真机采集帧率或完整闭环延迟提高同样倍数。
 
 ## 通用准备
 
-所有命令从仓库根目录开始。Python 采用 **editable 安装**，资源、SDK、标定和控制器仍从完整 checkout 读取，不是可脱离源码目录分发的独立 wheel。
+所有命令从仓库根目录开始。ROS Python 包由 ament／colcon 安装到对应环境的 overlay；模型从 `tianji_description` 的 share 资源定位，原生程序从 `install/control/bin` 定位。`TIANJI_WORKSPACE` 由 Pixi 包装器固定到 checkout，用于 config、profiles、vendor 和日志，不根据当前目录猜资源，不是脱离 checkout 的独立 wheel。
 
 ### 精简副本：一键安装与编译
 
@@ -260,75 +270,81 @@ sudo apt-get install build-essential libudev1 libusb-1.0-0 zlib1g adb tmux
 然后在本目录执行：
 
 ```bash
-bash install.sh --check  # 只检查基础前置条件，不下载、不编译
-bash install.sh          # 安装依赖并编译全部基础遥操组件
+bash bash/install.sh --check  # 只检查基础前置条件，不下载、不编译
+bash bash/install.sh          # 安装锁定环境并编译，不连接硬件
 ```
 
-脚本使用根 `pixi.lock` 安装默认和 tracking 环境，创建根 Python 3.11 `.venv`，安装 Python
-依赖和原生扩展，编译双臂控制器、Manus 采集器及默认 tracking ROS 包；另外使用
-`exoskeleton/pixi.lock` 安装仓库内独立的 Python 3.12 外骨骼环境并编译其 C++ 数值扩展。
-统一使用副本内的 tracking ROS 环境，不复用原电脑的环境路径。
-Pixi 依赖受锁文件约束；Python pip 依赖仍按 `pyproject.toml` 的版本范围解析。
+脚本按根 `pixi.lock` 安装 default、control、cameras、manus、policy 全部锁定环境；
+另安装 `src/teleop_inputs/exoskeleton_bridge/` 和 PICO2 原生工具的独立锁定环境。
+default 为 Jazzy／Python 3.12／Fast DDS；control 为原生控制工具链；cameras 单独运行官方 RealSense 4.58.3；
+manus 为 ROS-free Python 3.12／Pinocchio 3.8 重定向；policy 与 default 同 Jazzy/Python ABI，
+但有自己的 `install/policy` overlay，锁定 CPU PyTorch 2.10 和 Zenoh。GPU／模型权重须另行显式准备。
+完整安装构建 default/policy ROS 包、control 原生程序、Manus 及 PICO2 原生组件；不创建旧 `.venv`，
+不加载 Humble／tracking overlay，也不把一个环境的 site-packages 注入另一个环境。
 失败时立即停止，修复报错后可重新运行。脚本不会自动调用 sudo，不启动或使能硬件。
 
 请为依赖、下载缓存和构建产物预留充足磁盘空间，不能只按源码包大小预留。
-安装后不要移动或删除本目录，因为 Python 使用 editable 安装。
+安装后不要随意移动或删除 checkout，symlink-install、外骨骼 editable 包和配置资源仍依赖它。
 USB 权限、设备网络地址及个人标定仍须按后续文档配置；已有标定不适用于任意新操作者。
 默认不构建需要另行提供私钥的可选 Odin 组件。
 
-已有主项目环境，仅补装外骨骼输入时执行 `bash install.sh --exoskeleton`。
-该分支安装 `exoskeleton/.pixi/envs/default` 并重建本项目外骨骼扩展，不重装主环境、不编译控制器／Manus／ROS，也不启动硬件。编译需要 `/usr/bin/gcc`、`/usr/bin/g++`（Ubuntu/Debian 的 `build-essential`）。
+已有主项目环境，仅补装外骨骼输入时执行 `bash bash/install.sh --exoskeleton`。
+该分支安装 `src/teleop_inputs/exoskeleton_bridge/.pixi/envs/default` 并重建其扩展，不重装主环境、不编译控制器／Manus／ROS，也不启动硬件。编译需要 `/usr/bin/gcc`、`/usr/bin/g++`（Ubuntu/Debian 的 `build-essential`）。
 
-交付验证：复制文件已进行 SHA-256 对比；安装脚本基础预检及 Manus 原生编译通过。
-受交付机器磁盘空间限制，未在本副本中执行完整依赖安装及双臂／tracking 全量构建。
+历史精简副本交付曾完成文件 SHA-256 对比、基础预检与 Manus 编译，当时因磁盘空间未完成全量安装。
+本轮裸 shell 完整安装已通过，DLS/Ceres 实际安装窗口也已通过合成 S→TELEOP→P/HOLD→H/Home；
+其余当前证据以[迁移验证状态](docs/migration-verification-status.md)为准，不据此宣称真实输入／硬件／GPU 验收通过。
 
 ### 手动分步安装
 
 ```bash
-# 原生编译依赖；不获取其他 Git 仓库。
-pixi install
-pixi run python -m venv .venv
-.venv/bin/python -m pip install -e '.[collection,retargeting,test]'
-pixi run configure
-pixi run build
-pixi run build-manus
+pixi install --locked --all
+pixi run --locked check-env
+pixi run --locked build
+pixi run --locked -e policy build
+pixi run prepare-manus
+bash bash/install.sh --exoskeleton
+pixi install --locked --manifest-path src/teleop_inputs/pico2_hands/tools/wuji_hand_native/pixi.toml
+bash src/teleop_inputs/pico2_hands/build_native.sh
 ```
 
-PICO、Manus 与相机发布器需要与 Python ABI 匹配的 ROS 2。已有系统 ROS 时设置 `ROS_SETUP` 为其 `setup.bash`；
-否则安装根清单的 tracking 工具链。两个工具链都固定 Python 3.11，复用上面创建的 `.venv`，不要重新创建：
+`build` 只扫描 `src/`，默认输出为 `build/default`、`install/default`、`log/default`；
+policy 有自己的同名环境前缀。control 原生目标独立构建到 `build/control/{core,mapped-palm}`，
+安装到 `install/control/bin/`。Manus 原始采集／ROS 适配由 default 启动，通过私有通道接入 manus 重定向，
+不能让 ROS-free manus 环境 source default 的 ROS 或 Python 库。
+
+系统还需 `adb`、`tmux`、USB／网络权限。厂商库通过本仓库 LFS 提供，Odin mTLS 凭证另行配置。
+运行包装器不需要手动激活；需要下面的 `python -m tianji` 等直接模块命令时，在该终端先执行：
 
 ```bash
-pixi install -e tracking
-.venv/bin/python -m pip install -e '.[collection,retargeting,tracking,test]'
-export ROS_SETUP="$PWD/.pixi/envs/tracking/setup.bash"
-pixi run -e tracking bash tracking/scripts/build.sh
+pixi shell -e default
+source bash/environment.sh
 ```
 
-系统还需 `adb`、`tmux`、USB／网络权限。Manus SDK 动态库通过本仓库 LFS 提供；Odin 的可选私钥独立配置。
-主项目运行器使用 `.venv/bin/python`，可显式设置 `TIANJI_PYTHON`；外骨骼入口 `exo.sh` 使用仓库内 `exoskeleton/` 的锁定 Pixi Python 3.12 环境。两者均不搜索外部旧工程或自动回退到旧环境。
-Tracking 启动器同时加载所选 ROS SDK 的 `lib/` 共享库目录，普通 `bash pico.sh --user NAME` 即可加载 GLFW／MuJoCo，无需先进入 `pixi shell`。
+环境激活只 source 当前环境的 `install/<环境>/local_setup.bash`。不要设置旧 `ROS_SETUP`，
+不要使用根 `.venv` 或跨环境 `TIANJI_PYTHON`；外骨骼和相机包装器自行切到各自环境。
 
 ```bash
-.venv/bin/tianji --help
-.venv/bin/tianji profile --list-users
-# PICO、Manus 分别启动，用户必须与实际佩戴者一致。
-bash pico.sh --user syz
-bash manus.sh --user syz
+python -m tianji --help
+python -m tianji profile --list-users
+# PICO 简化标定与 Manus 分别选择，必须对应实际佩戴者。
+bash bash/run_pico.sh --user NEW_USER
+bash bash/run_manus.sh --calibration-user MANUS_USER
 # 在独立交互终端选择以下一种模式，不要同时运行。
-bash teleop.sh --sim
-bash teleop.sh --real
-bash teleop.sh --data --task pick_hammer --dataset /data/tianji
+bash bash/run_teleop.sh --sim
+bash bash/run_teleop.sh --real
+bash bash/run_teleop.sh --data --task pick_hammer --dataset /data/tianji
 # 离线工具无需机器人或输入设备。
-.venv/bin/tianji compress /data/tianji /data/tianji_jpeg50
-.venv/bin/tianji visualize /data/tianji_jpeg50
+python -m tianji compress /data/tianji /data/tianji_jpeg50
+python -m tianji visualize /data/tianji_jpeg50
 ```
 
 `real`／`home` CLI 默认不使能，须明确传入 `--confirm-real`；便捷 shell 入口沿用既有显式授权语义。
-`collect` 入口请求真机采集，但仍受 TTY、设备、相机预检和人工 Enter 门控，不能无人值守使能。
+`collect` 仅运行独立 DDS 观察采集器，无 SDK／运动授权；`bash bash/run_teleop.sh --data` 才管理真机采集，仍受 TTY、设备、相机预检和人工 Enter 门控，不能无人值守使能。
 
 - 首次克隆后运行 `git lfs install` 和 `git lfs pull`，获取由 Git LFS 管理的 Manus SDK 动态库。
-- 可选 Odin Lite SDK 的 `tracking/src/odin/odin-sdk2/sdk/utils/http/certs/certs.h` 含 mTLS 私钥，不纳入版本控制；
-  `tracking/scripts/build.sh --all` 构建该 SDK 时需要通过受控渠道配置此文件。PICO／Manus 基础遥操不使用它。
+- 可选 Odin SDK 的 `src/teleop_inputs/odin/odin-sdk2/sdk/utils/http/certs/certs.h` 含 mTLS 私钥，不纳入版本控制；
+  通过受控渠道提供后再 `pixi run build`，缺失时明确跳过 Odin 包。PICO／Manus 基础遥操不使用它。
 
 真机运行前置条件（本次离线验证不代表已连接硬件）：
 
@@ -342,7 +358,7 @@ bash teleop.sh --data --task pick_hammer --dataset /data/tianji
 
 | 通道 | 默认设置 |
 | --- | --- |
-| ROS 2 | Domain `120` |
+| ROS 2 | Jazzy／Fast DDS，Domain `120`，`ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST`；清除 `ROS_LOCALHOST_ONLY` |
 | PICO 双臂输入 | UDP `127.0.0.1:15000` |
 | Hand2 手部输入 | UDP `127.0.0.1:16000` |
 | 控制器 → 真机执行器 | UDP `127.0.0.1:17000`，仅 loopback |
@@ -352,27 +368,26 @@ bash teleop.sh --data --task pick_hammer --dataset /data/tianji
 
 ## RealSense RGB 相机
 
-`bash realsense.sh` 只读取相机，固定请求 **1280×720、30 FPS、RGB8**；
-不启用深度流，不发布彩深外参或相机到机器人基座的 TF，也不连接机械臂／灵巧手。
-相机或连接方式不支持该模式时由 SDK 报错，不自动降分辨率。
-
-启动器默认使用根 `.venv/bin/python`；该环境需要
-`rclpy`、`sensor_msgs`、`numpy`、`cv2` 和 `pyrealsense2`，并预先加载上述 ROS 环境。
-也可通过 `REALSENSE_PYTHON` 指定显式配置的兼容解释器：
+`pixi run cameras`（或 `bash bash/run_cameras.sh`）从唯一配置 `config/collect_real.json`
+读取启用角色和 serial，在独立 cameras 环境启动官方 `realsense2_camera` 4.58.3，
+固定请求 **1280×720、30 FPS、RGB8**。不启用深度流，不连接机械臂／灵巧手，不降分辨率。
+普通 RGB sensor 使用 `rgb_camera.color_profile/color_format`，D405 使用对应 `depth_module` 参数。
+preflight 枚举目标模式但不打开 pipeline；实际 ready 要求参数读回、Image 与 Metadata 配对及新鲜度全部通过。
 
 ```bash
-bash realsense.sh
-
-# 不打开预览窗口，仅发布 ROS 图像和内参。
-bash realsense.sh --no-preview
+# 在允许访问相机后执行；不会连接机器人。
+pixi run inspect-cameras
+pixi run cameras
+# 另一个桌面终端：只订阅，退出不停止相机发布者。
+pixi run preview
 ```
 
-默认 ROS Domain 为 `120`。发布 `/realsense/color/image_raw`（`rgb8`）和
-`/realsense/color/camera_info`，QoS 为 Best Effort、队列深度 1。
-内参对应当前分辨率，时间戳来自已同步主机时钟的相机采集时间；重复帧不重复发布。
-D405 的 `realsense_inverse_brown_conrady` 畸变系数不能直接作为 OpenCV `plumb_bob` 使用。
-多相机时使用 `--serial SN`；预览中按 `Q`、`Esc`、关闭窗口或 `Ctrl+C` 退出。
-此入口只预览／发布，不会自动保存完整 RGB 数据集。
+默认 ROS Domain 为 `120`。每路发布 `/cameras/<role>/color/image_raw`（`rgb8`），
+同目录 `camera_info` 与 `metadata`；驱动使用 SENSOR_DATA，消费者使用 BEST_EFFORT。
+官方节点拥有唯一 SDK pipeline，内参／畸变使用官方 camera_info，不把 D405 畸变手工冒充 `plumb_bob`。
+monitor 校验 serial、目标 profile／format、源帧号、发布者身份与配对流；不以约 30 Hz 替代模式验收。
+相机更换发布者、参数改变或断流会撤销 ready；不会重打时间戳或自动重启后拼接原录制。
+第二套相同 serial 的 launch 会被会话锁拒绝。预览和采集可同时订阅同一发布者。
 
 ## 观测数据集采集（R / S / D）
 
@@ -382,7 +397,7 @@ D405 的 `realsense_inverse_brown_conrady` 畸变系数不能直接作为 OpenCV
 各流使用独立、以 episode 起点为零的主机单调时间戳；实际采样频率以文件时间戳为准。
 训练时的时间偏移和 state/action 配对由训练端自行完成。
 
-当前 `collection_config.json` 的设备对应：
+当前 `config/collect_real.json` 是相机角色／序列号的唯一配置来源：
 
 | 视角 | 序列号 |
 | --- | --- |
@@ -390,18 +405,27 @@ D405 的 `realsense_inverse_brown_conrady` 畸变系数不能直接作为 OpenCV
 | left_wrist | `409122274621` |
 | right_wrist | `409122273692` |
 
-先启动所需的 PICO 和 Manus 输入，停止独立的 `realsense.sh` 或其他占用这三台相机的程序。
-本入口沿用真机设备连接和安全门槛，不会绕过使能授权：
+先按真机章节完成只读预检，启动所需的 PICO 和 Manus／外骨骼输入。日常一体化入口：
 
 ```bash
-bash collection.sh --task pick_hammer
-
-# 可选：保存到指定的数据集目录。
-bash collection.sh --task pick_hammer --dataset /data/pick_hammer
+bash bash/run_teleop.sh --data --task pick_hammer
+# 可选：指定原始数据根目录，仍按日期保存。
+bash bash/run_teleop.sh --data --task pick_hammer --dataset /data/pick_hammer
 ```
 
-默认输出到根目录 `dataset/`（可用 `TIANJI_DATASET` 或 `--dataset` 覆盖），仍在 `logs/real/` 保留运行日志。按原来的 Enter 流程完成对齐并进入
-TELEOP；**进入 TELEOP 不自动录制**。在启动命令的终端直接按单键，不要追加 Enter：
+`--data` 在连接硬件前启动或验证相机与独立 collector，确认 profile、配置及 writer 已 prepared；
+连接后等待真实反馈 inputs_ready，才进入原有人工授权流程。缺相机／目录不可写时不会先连接设备。
+collector 只通过 DDS 观察实际反馈、执行器状态及 RGB/Metadata，不加载硬件 SDK，也不重复打开相机。
+若需独立运行，可在不同终端先 `pixi run cameras` 与
+`pixi run collect --task pick_hammer`，再运行相同配置／task／dataset 的 `--data`。
+只有身份、配置与就绪状态验证匹配才复用；冲突拒绝，不偷偷接管。退出仅停止本次创建的进程，
+复用的 collector 只结束本执行会话的录制，硬件停止／释放先于自建采集进程的关闭等待。
+普通 `--real` 不要求相机或 collector，collector 故障不授予或撤销硬件运动权限。
+
+默认输出到 `/data/TianjiData/raw/`（可用 `TIANJI_DATASET` 或 `--dataset` 覆盖），
+按原 Enter 流程完成对齐并进入 TELEOP；若需外层 console／退出日志，激活 default overlay 后使用
+`python -m tianji real --devices all --confirm-real --collection --task pick_hammer`，日志保存至 `logs/real/`。
+**进入 TELEOP 不自动录制**。R/S/D 在真机执行器的启动终端直接按单键，不追加 Enter：
 
 | 按键 | 数据操作 | 对机器人模式的影响 |
 | --- | --- | --- |
@@ -410,11 +434,14 @@ TELEOP；**进入 TELEOP 不自动录制**。在启动命令的终端直接按�
 | `d` | 丢弃当前录制段；不会删除以前已保存的数据 | 保持 TELEOP |
 
 看到 `DATASET SAVED` / `DATASET DISCARDED` 后可再次按 `r`；保存/准备尚未完成时不会叠加另一段。
+按键经有界队列异步发送 ROS 服务请求，不阻塞控制循环。start/save/discard 必须匹配当前健康、
+新鲜的 real/TELEOP session 与 phase_revision；服务 accepted 只是入队，不表示写盘完成。
+S/D 的冻结截止时刻是 collector 接受有效请求时，不是按键发出时；超时结果未知时查看状态，不自动重发。
 原有 Enter（进入 HOME）、Ctrl+C 和关闭机器人窗口的停止行为不变。
 离开 TELEOP 或采集故障时，未按 `s` 的当前段保留 `.partial.h5`，不会自动当作成功样本。
 采集故障只结束数据段并报告；机器人自身的反馈、限位、输入新鲜度等保护仍独立生效。
-相机或采样线程已终止时不能直接恢复录制，先排除故障并重启采集会话。
-录制中即使采样线程仍存活，关节反馈/发布超过 300 ms 或图像发布超过 2 s 未更新也会判为采集故障；
+发布者身份变化、反馈／图像回退或断流后，先排除故障，重新建立 ready，再开始新 episode，不能续接旧段。
+录制中即使进程仍存活，真实反馈超过 300 ms 或有效 Image/Metadata 配对超过 2 s 未更新也会判为采集故障；
 结束当前段时再次检查并冻结该段状态。按 `s` 截止后的相机故障不否决已结束的正常录制，
 但截止前的采集故障及该段 HDF5 写入/校验错误仍会阻止成功发布。
 写入者关闭超时会进入 `FAILED`，不允许再次按 `r`，退出时重试清理；
@@ -427,43 +454,42 @@ TELEOP；**进入 TELEOP 不自动录制**。在启动命令的终端直接按�
 完整文件包含 `observations/arms`、`observations/hands` 和
 `images/top`、`images/left_wrist`、`images/right_wrist`，各相机包含 `timestamp_ns` 和 `rgb[N,720,1280,3]`。单个后台 HDF5 写入者处理有界队列和校验，
 控制线程不等待写盘；保存失败保持 `.partial.h5`，不覆盖旧文件。
-`dataset_config.json` 仍只写在数据集根目录；关节/相机/编码契约不匹配时拒绝向该数据集追加。
+`dataset_config.json` 写在每个 `raw/YYYYMMDD/` 日期目录内，与该日 HDF5 文件同级。不同日期可使用不同配置；同一天内关节/相机/编码契约不匹配时拒绝追加，不覆盖已有配置。`raw/` 根目录不再写共享配置。
 已有 JPEG 数据集保留原有契约和数据，不覆盖配置、不补造相机图片。
 原始 RGB 采集请使用新默认目录或另一个空目录，不向旧 JPEG 数据集追加。
 三路 30 Hz 原始图像约 **249 MB/s、14.9 GB/分钟**，需要充足的持续写入带宽和磁盘空间；名义帧率不是实测保证。
 
-采集、压缩和浏览使用统一根 `.venv`，安装方法见通用准备，不再维护独立采集 requirements 或子工程环境。
-`COLLECTION_PYTHON` 仍可显式指定兼容解释器。默认 `dataset/` 和 `dataset_jpeg50/` 已忽略；
-原始图像数据建议通过 `--dataset` 放在容量充足的数据盘，备份由操作者管理。
+采集、压缩和浏览使用 default Pixi 环境及对应 overlay；相机发布者使用隔离 cameras 环境。
+默认原始数据目录为 `/data/TianjiData/raw/`，压缩目录为 `/data/TianjiData/compressed/`；
+请确保当前用户有写入权限且磁盘空间充足，也可通过 `--dataset` 指定其他数据盘，备份由操作者管理。
 
 ### 相机实时预览（不录制）
 
 在桌面终端运行：
 
 ```bash
-bash visualize_oneline.sh
+pixi run preview
 ```
 
-读取 `collection_config.json` 中启用的相机，按 top、left_wrist、right_wrist 顺序在一个窗口中并排显示，
-标注序列号和最近约 2 秒的帧率：`RX` 为后台接收帧率，`UI` 为提交到窗口的新画面帧率（不是显示器的物理刷新率）。
-采集 RGB8 1280×720@30，预览缩小显示；不写数据文件、不启动 ROS、不连接机器人。
-每台相机使用独立阻塞取帧线程，窗口只取最新画面，不积压旧帧；窗口变慢时允许 `UI` 降低，不让绘图拖慢取帧。
-实时预览不编码 JPEG；采集保存原始 RGB，离线压缩脚本另生成 JPEG 质量 50 的副本。
-窗口内按 `Q` / `Esc`、关闭窗口或终端 `Ctrl+C` 退出并释放相机。
-**不能与 `collection.sh`、`realsense.sh` 或其他占用相机的程序同时运行；开始正式采集前先退出预览。**
-需要桌面显示环境和 `.venv` 依赖；支持 `COLLECTION_PYTHON` 和 `--config <配置路径>`。
-缺少相机、打开失败或画面连续超过 2 秒不更新时会报错退出，不把冻结画面当作正常实时流。
+先在另一终端 `pixi run cameras`。预览读取 `config/collect_real.json` 中启用的相机，
+按 top、left_wrist、right_wrist 顺序显示，标注序列号及约 2 秒的帧率：
+`RX` 为接收帧率，`UI` 为提交新画面的帧率，不是显示器物理刷新率，也不是 HDF5 写入率。
+它是 ROS 订阅者，不打开 SDK pipeline，不连接机器人、不写文件；RGB8 1280×720 输入仅在预览缩小。
+窗口只显示最新画面，绘图慢时允许 UI 降低；不编码 JPEG，Q50 由离线压缩另生成副本。
+按 `Q`／`Esc`、关闭窗口或 Ctrl+C 只释放本次订阅者，不停止其他进程拥有的相机。
+可与采集同时运行；不要另启第二套相同 serial 的 driver。需要桌面环境，支持 `--config <配置路径>`。
+图像或 Metadata 缺失、配对失败或有效画面超过 2 秒不更新时会报错，不把冻结画面视为健康实时流。
 
 ### 离线批量压缩（固定 JPEG Q50）
 
 采集并保存若干段后，定期手动运行：
 
 ```bash
-bash compress_data.sh
+bash bash/compress_data.sh
 ```
 
-默认读取 `dataset`，输出到 `dataset_jpeg50`。
-**压缩质量固定为 50；RGB 或已有 JPEG 源文件均不删除、不覆盖。** JPEG 输入先解码再编码为 Q50，会产生额外有损损失，程序启动时会提示源质量。保持 episode 相对路径、所有关节值、时间戳、任务和成功标记。
+默认读取 `/data/TianjiData/raw`，输出到 `/data/TianjiData/compressed`；日期目录 `YYYYMMDD/` 对应输出 `YYYYMMDD_compressed/`，每个日期输出目录包含独立的 `dataset_config.json`，可单独浏览。
+**压缩质量固定为 50；RGB 或已有 JPEG 源文件均不删除、不覆盖。** JPEG 输入先解码再编码为 Q50，会产生额外有损损失，程序启动时会提示源质量。保持文件名、所有关节值、时间戳、任务和成功标记；显式指定输出目录时保持原始相对路径，不追加日期目录后缀。
 脚本跳过 `.partial.h5` 与符号链接；已完成输出通过源身份和 JPEG 格式校验后跳过，之后新增的 episode 会在下次运行时处理。
 中断或失败不会发布半成品为完成文件；可重复运行继续，结束时显示 `converted/skipped/failed`，失败返回非零退出码。
 不要手动改写已压缩文件的源文件；身份不匹配或目标配置冲突时脚本拒绝覆盖。
@@ -471,16 +497,20 @@ bash compress_data.sh
 可显式指定原始目录和独立输出目录：
 
 ```bash
-bash compress_data.sh /data/tianji_raw /data/tianji_jpeg50
-bash visualize_data.sh dataset_jpeg50
+bash bash/compress_data.sh /data/tianji_raw /data/tianji_jpeg50
+bash bash/visualize_data.sh /data/TianjiData/compressed
 ```
 
-按日期处理 `$HOME/Documents/TianjiData` 中的数据：
+按日期处理 `/data/TianjiData/raw` 中的数据（配置从各自的日期目录读取，不同日期独立校验）：
 
 ```bash
-bash compress.sh --date 20260914
-# 输出到 $HOME/Documents/TianjiData/20260914_compressed；不传 --date 时使用当天日期。
+bash bash/compress.sh --date 20260914
+# 输出到 /data/TianjiData/compressed/20260914_compressed；不传 --date 时使用当天日期。
+bash bash/view.sh --date 20260914
 ```
+
+设置 `TIANJI_DATASET` 时，它指向原始数据根目录，压缩根目录为其同级 `compressed/`；采集命令单独传入的 `--dataset` 不会自动传给之后的压缩命令。
+确认压缩命令成功（`failed=0`）且输出可读取后，可自行手动删除对应 `raw/YYYYMMDD/`（包括该日配置）；脚本不会自动删除原始数据。压缩后的 `compressed/YYYYMMDD_compressed/` 自带该日配置，不依赖 `raw/`，两个汇总根目录均不写共享配置。
 
 源/目标不能相同或互相包含。建议在暂停录制时压缩，避免读盘、写盘和编码争抢采集资源。
 压缩会额外占用空间，不会释放原始数据占用的空间；磁盘不足时先将原始数据备份到更大磁盘。
@@ -490,7 +520,7 @@ bash compress.sh --date 20260914
 从项目根目录启动本地网页查看器，不需要启动 PICO、Manus、机器人或相机：
 
 ```bash
-bash visualize_data.sh dataset
+bash bash/visualize_data.sh /data/TianjiData/raw
 ```
 
 浏览器打开 `http://127.0.0.1:8765/`。也可传入整个数据集目录或单个 `.h5` 文件；
@@ -508,25 +538,28 @@ bash visualize_data.sh dataset
 - `.partial.h5` 始终标为未完成、非成功确认。可读取已关闭的部分数据；
   正在写入、损坏或不兼容的文件会明确报错，不绕过 HDF5 文件锁。
 
-查看器只监听本机，使用现有 `.venv` 环境，不修改文件、不连接硬件，
+查看器只监听本机，包装器使用 default Pixi 环境，不修改文件、不连接硬件，
 也不展示数据集中未记录的控制指令。关节名称从上级 `dataset_config.json` 读取。
 
 ## 人员档案与标定版本
 
-从工作区根目录显式选择实际佩戴者：
+从工作区根目录显式选择实际佩戴者。完整双侧档案使用以下入口；简化标定则用首页的 `run_pico.sh --user`：
 
 ```bash
-bash pico.sh --list-users
-bash pico.sh --user syz
+pixi shell -e default
+source bash/environment.sh
+python -m tianji profile --list-users
+PICO_PROFILE_DIR=$(python -m tianji profile --user YOUR_USER --component pico) &&
+bash bash/start_tianji_pico_teleop.sh --calibration-dir "$PICO_PROFILE_DIR"
 
-# 另一个终端使用同一人员档案启动手部输入。
-bash manus.sh --user syz
+# 另一个终端，实际人员档案会映射到对应 Manus 标定。
+bash bash/run_manus.sh --user YOUR_USER
 ```
 
-两个入口都要求 `--user NAME`，不默认选择 syz，不支持 `--syz`。
-统一由 `teleop_profile.py` 解析档案；人员选择与 `--view/--sim/--real` 模式、硬件 IP/SN 分开。
+人员选择不默认使用 syz，不支持 `--syz`。解析失败不要启动输入；不得省略 `--calibration-dir` 退回全局配置。
+完整档案由 `src/tools/tianji_tools/teleop_profile/` 模块解析；人员选择与仿真／真机模式、硬件 IP/SN 分开。
 
-当前档案 `profiles/syz/profile.yaml`：
+历史档案格式示例 `profiles/syz/profile.yaml`（以实际 checkout 和实际佩戴者为准，不保证包含此人标定）：
 
 ```yaml
 schema_version: 1
@@ -537,10 +570,10 @@ manus:
   user: syz
 ```
 
-PICO 从 `profiles/syz/pico/20260908-01/` 加载左右各 3 个文件：
+上述示例会从 `profiles/syz/pico/20260908-01/` 加载左右各 3 个文件：
 `pico_{left,right}_{palm_tcp,wrist_pivot,arm_geometry}.yaml`。
-本版本原样保存已确认属于 syz 的当前标定；原 `~/.config/pico_tracker/` 文件保留且未改写。
-Manus 复用 `manus/calibration/` 下对应用户的左右 `.mcal`，不复制第二套；
+迁移保留已有人员制品，不生成个人标定，也不改写原 `~/.config/pico_tracker/`。
+Manus 复用 `src/teleop_inputs/manus_bridge/calibration/` 下对应用户的左右 `.mcal`，不复制第二套；
 `manus.user` 可以与人员 ID 不同。
 
 按人启动 PICO 时，两侧 TCP、手腕和骨长依赖链都必须通过现有 artifact 校验。
@@ -555,10 +588,9 @@ Manus 与 PICO 独立校验：仅使用双手时，不要求 PICO 标定可用�
 标定用 PICO 驱动并完成地面初始化，然后执行（以 `zjx` 为例）：
 
 ```bash
-cd tracking
-
-bash scripts/calibrate_pico_arm.sh left all --user zjx &&
-bash scripts/calibrate_pico_arm.sh right all --user zjx
+# 本终端先按“通用准备”进入 default Pixi shell 并 source bash/environment.sh。
+bash bash/calibrate_pico_arm.sh left all --user zjx &&
+bash bash/calibrate_pico_arm.sh right all --user zjx
 ```
 
 - `--user NAME` 可以放在侧别／操作之前或之后；同一命令不能指定两个人员。
@@ -578,23 +610,22 @@ bash scripts/calibrate_pico_arm.sh right all --user zjx
 完成后只读检查与启动：
 
 ```bash
-bash scripts/calibrate_pico_arm.sh status --user zjx
-
-cd /path/to/tianji_teleop
-bash pico.sh --user zjx
+bash bash/calibrate_pico_arm.sh status --user zjx
+PICO_PROFILE_DIR=$(python -m tianji profile --user zjx --component pico) &&
+bash bash/start_tianji_pico_teleop.sh --calibration-dir "$PICO_PROFILE_DIR"
 ```
 
 `status --user` 只检查已发布版本，不会创建草稿；首次仅完成一侧时会报告尚无已发布档案。
 新档案默认将 `manus.user` 设为相同人员 ID，但不会生成 Manus 标定。
-仍需准备 `manus/calibration/zjxLeftMetaglovePro.mcal` 和对应的 Right 文件后，
-才能执行 `bash manus.sh --user zjx`。已有人员的 Manus 映射在发布时保持不变。
+仍需准备 `src/teleop_inputs/manus_bridge/calibration/zjxLeftMetaglovePro.mcal` 和对应的 Right 文件后，
+才能执行 `bash bash/run_manus.sh --user zjx`。已有人员的 Manus 映射在发布时保持不变。
 
 不传 `--user` 的旧标定入口仍写入 `~/.config/pico_tracker/`；
 多人适配必须显式指定人员，不能把旧全局结果当作新人员的草稿。
 
 运行中的会话固定使用启动时选定的版本，不因修改 `active_set` 热切换。
-直接调用 PICO 子工程的旧脚本且不传 `--calibration-dir` 仍保留旧全局加载行为；
-多人遥操应使用这里的根目录人员入口。
+直接调用底层 `bash/start_tianji_pico_teleop.sh` 而不传 `--calibration-dir` 仍可加载旧全局配置；
+多人遥操必须显式解析本人的已发布版本，不能依赖该默认值。
 
 ---
 
@@ -605,13 +636,15 @@ bash pico.sh --user zjx
 ### 1. 启动 PICO 双臂输入
 
 若完整 PICO 链路已经正常运行，跳过此步。
-如果仍有单独运行的 `start_pico_driver.sh`，先在其终端按 `Ctrl+C` 停止，避免重复连接头显。
+如果仍有单独运行的 `bash/start_pico_driver.sh`，先在其终端按 `Ctrl+C` 停止，避免重复连接头显。
 
 终端 1：
 
 ```bash
 cd /path/to/tianji_teleop
-bash pico.sh --user syz
+# 完整双侧档案；先进入 default Pixi shell 并 source bash/environment.sh。
+PICO_PROFILE_DIR=$(python -m tianji profile --user YOUR_USER --component pico) &&
+bash bash/start_tianji_pico_teleop.sh --calibration-dir "$PICO_PROFILE_DIR"
 ```
 
 该脚本启动驱动、修正骨架、人体骨架 Viewer 和 UDP 桥。
@@ -624,7 +657,7 @@ Canonical SMPL floor locked ...
 查看后台窗口：
 
 ```bash
-cd tracking
+# 从工作区根目录操作，无需切换到旧 tracking 目录。
 tmux attach -t pico_tianji_teleop
 ```
 
@@ -644,10 +677,10 @@ tmux attach -t pico_tianji_teleop
 cd /path/to/tianji_teleop
 
 # 查看已登记的人员档案。
-bash manus.sh --list-users
+bash bash/run_manus.sh --list-users
 
 # 选择实际佩戴者，档案会映射到已有的 Manus 标定用户。
-bash manus.sh --user syz
+bash bash/run_manus.sh --user YOUR_USER
 ```
 
 该命令统一管理 Manus 采集器、ROS `/hand_input` 适配器及 Hand2 UDP 桥。
@@ -655,34 +688,34 @@ bash manus.sh --user syz
 
 #### 外骨骼手套输入（替代 Manus）
 
-外骨骼源代码、设备／零位档案、手套与 Wuji 模型、官方重定向求解器已纳入本项目 `exoskeleton/`，不再依赖外部 `~/syz/data_glove_wuji_teleop`。终端 2 直接运行发送器；不需要额外桥接终端：
+外骨骼源代码、设备／零位档案、手套与 Wuji 模型、官方重定向求解器位于 `src/teleop_inputs/exoskeleton_bridge/`，不依赖外部旧工程。终端 2 直接运行发送器，不需要额外桥接终端：
 
 ```bash
 # 首次使用，或更新 C++ 内核后重新编译安装：
-bash install.sh --exoskeleton
+bash bash/install.sh --exoskeleton
 
 # 只检查本地身份档案、零位、方向、FK/MANO 和模型，不连接设备：
-bash exo.sh --check-config
+bash bash/run_exoskeleton.sh --check-config
 
 # 采集、重定向并直接向本机控制器发送 TJH2：
-bash exo.sh
-# 等价入口：.venv/bin/tianji exoskeleton <相同参数>
+bash bash/run_exoskeleton.sh
+# 已激活 default overlay 时也可：python -m tianji exoskeleton <相同参数>
 ```
 
-默认启动双手；只启动左手用 `bash exo.sh --hand left`，只启动右手用 `bash exo.sh --hand right`。
+默认启动双手；只启动左手用 `bash bash/run_exoskeleton.sh --hand left`，只启动右手用 `bash bash/run_exoskeleton.sh --hand right`。
 入口默认允许采集发送和未验收方向调试，不需要追加 `--confirm-send` 或 `--commission-directions`。
 当前迁入档案的方向尚未验收；默认调试许可不会修改验收标记，也不代表真机动作已验证。
-`exo.sh` 只管理发送器，不启动 PICO、仿真或真机。
+`bash/run_exoskeleton.sh` 只管理发送器，不启动 PICO、仿真或真机。
 缺少内部环境时会提示安装命令，不借用原工程环境。
 
-后续设备与零位配置修改在 `exoskeleton/config/dataglove/devices/`，任务绑定在
-`exoskeleton/config/teleoperation/`。传给 `exo.sh` 的相对配置路径以 `exoskeleton/` 为基准；
-也可通过 `pixi run --manifest-path exoskeleton/pixi.toml --locked <任务>` 使用迁入的注册、标定等工具。
+后续设备与零位配置修改在 `src/teleop_inputs/exoskeleton_bridge/config/dataglove/devices/`，任务绑定在
+同包的 `config/teleoperation/`。传给包装器的相对配置路径以 `src/teleop_inputs/exoskeleton_bridge/` 为基准；
+也可用 `pixi run --manifest-path src/teleop_inputs/exoskeleton_bridge/pixi.toml --locked <任务>` 使用注册、标定等工具。
 这是独立的仓库内源代码副本，原工程未删除，但两处代码和标定不会自动同步。
 原有录制数据、虚拟环境、缓存和未使用的 STEP/USD 资源未迁入；部署所需的 URDF/MJCF/STL 已保留。
 第三方模型与求解器许可证随资源保留；原手套 URDF 的 BSD 许可声明不完整，不能将整个目录视为统一 MIT 授权。
 
-外骨骼每帧的数值内核已迁入 `exoskeleton/native/`：
+外骨骼每帧的数值内核位于 `src/teleop_inputs/exoskeleton_bridge/native/`：
 
 - `encoder_kinematics.cpp`：四连杆几何求解和 21 通道机构换算，缓存机构参数，保留无解／退化检查。
 - `morphology.cpp`：独立 MANO 手型的前向几何、残差／解析雅可比、初值选择、有界迭代、时序项和捏合二次拟合。固定大小工作数组；拟合期间释放 GIL，每个实例独立保护并原子提交历史状态。
@@ -691,15 +724,15 @@ bash exo.sh
 这是数值内核迁移，不是整套程序 C++ 化：配置与标定、设备采集、软件零位和 URDF 映射调度仍在 Python，
 MuJoCo FK 继续使用现有原生库，官方 Wuji 求解 worker 与 TJH2 发送路径保持不变。
 `setup.py` 使用 C++17、`-O3`、`-ffp-contract=off`，不启用 fast-math。
-运行 `bash install.sh --exoskeleton` 会按锁文件安装依赖并重建本地 editable 包，避免仅修改 C++ 后误用旧扩展；
-运行中的进程不会热更新，重新启动 `exo.sh` 后使用新内核。
+运行 `bash bash/install.sh --exoskeleton` 会按锁文件安装依赖并重建本地 editable 包，避免仅修改 C++ 后误用旧扩展；
+运行中的进程不会热更新，重新启动 `bash/run_exoskeleton.sh` 后使用新内核。
 
-不要同时启动 `manus.sh`。`pico.sh`、`teleop.sh --sim/--real` 保持不变。
+不要同时启动 `bash/run_manus.sh`。PICO 输入和 `bash/run_teleop.sh --sim/--real` 的原有流程不变。
 旧版 JSON UDP 中转已移除；切换前停止旧发送器和旧桥接进程。外骨骼与 Manus 共用协议编码器，但外骨骼直发不依赖 ROS 或 Manus 标定。
 
 发送器默认向 `127.0.0.1:16000` 发送 364 字节的 TJH2 v2 二进制包，含 CRC32、
 递增序号、发布时间和每侧原始测量时间；每侧 20 个有限弧度角。
-关节顺序以 `tianji/hand_protocol.py::JOINT_STEMS` 为准：
+关节顺序以 `src/tools/tianji_tools/tianji/hand_protocol.py::JOINT_STEMS` 为准：
 拇指、食指、中指、无名指、小指，每指 4 个关节。发送官方 Wuji 模型坐标下的 qpos 并重排关节顺序，不额外裁剪或拒绝有限的越界值；真机安全仍由执行端负责。
 
 只有新求解结果触发发送，不再增加 100 Hz 中转重发。未更新侧可以随包携带缓存姿态，
@@ -711,9 +744,9 @@ FK／求解耗时计入帧年龄；发送器保留过期丢弃门禁，执行端
 这一路径要求发送器和控制器共享同机单调时钟，`--udp-host` 仅允许回环 IPv4 地址，
 不能将目的地址改为另一台电脑。`--udp-port` 可显式覆盖默认端口，但必须匹配控制器配置。
 
-使用 `bash exo.sh --help` 查看参数。先仿真逐指验证，再走原有真机安全流程。
-已验证仓库内锁定环境、双手离线配置，以及合成零位帧经真实 FK／官方求解 worker／随机回环 UDP 直发，由原生控制器协议解码和每侧新鲜度逻辑检查；覆盖旧侧过期、故障缓存清除与退出不补包。此次验证没有连接实物手套、修改网络或启动真机；实际外骨骼＋PICO 带运动闭环仍需按安全流程验证。
-原生内核迁移已编译安装，并通过左右手各两帧合成编码器输入运行实际机构换算／FK／手型拟合／官方求解／TJH2 UDP 链路；未运行测试套件或性能基准，不宣称具体加速倍数。
+使用 `bash bash/run_exoskeleton.sh --help` 查看参数。先仿真逐指验证，再走原有真机安全流程。
+历史外骨骼迁入验证覆盖锁定环境、双手离线配置，以及合成零位帧经真实 FK／官方求解 worker／随机回环 UDP 直发，由原生协议解码和每侧新鲜度逻辑检查；覆盖旧侧过期、故障缓存清除与退出不补包。当时未连接实物手套、修改网络或启动真机，实际外骨骼＋PICO 带运动闭环仍需按安全流程验证。
+历史原生内核迁移曾编译安装，并通过左右手各两帧合成编码器输入运行实际机构换算／FK／手型拟合／官方求解／TJH2 UDP 链路；当时未运行测试套件或性能基准，不宣称具体加速倍数，不作为本轮重跑结果。
 
 ### 3. 选择参考显示或动力学仿真
 
@@ -723,13 +756,13 @@ FK／求解耗时计入帧年龄；发送器保留过期丢弃门禁，执行端
 cd /path/to/tianji_teleop
 
 # 参考运动可视化：检查 IK / 重定向结果，不模拟受力后的运动。
-.venv/bin/tianji view
+pixi run -e default bash -c 'source bash/environment.sh; exec python -m tianji view'
 
 # 或：旧双臂＋双手 direct，须显式选择 SPARK，不经过 PD 或动力学积分。
-bash teleop.sh --sim --ik-backend spark
+bash bash/run_teleop.sh --sim --ik-backend spark
 
 # 显式选择动力学积分，仍然不连接任何真机硬件。
-bash teleop.sh --sim --ik-backend spark --simulation-mode dynamics
+bash bash/run_teleop.sh --sim --ik-backend spark --simulation-mode dynamics
 ```
 
 检查顺序：先缓慢、小幅活动双臂，再保持手腕稳定，逐个活动手指。
@@ -747,19 +780,19 @@ bash teleop.sh --sim --ik-backend spark --simulation-mode dynamics
 仿真不做重力补偿，因此存在重力下垂和目标误差，这与 `--view` 的参考姿态显示不同。
 可用 MuJoCo 鼠标交互调整视角；窗口默认隐藏侧栏以完整显示双臂和双手。
 
-**物理仿真不等于经过真机辨识的数字孪生。** 增益位于 `sim/physics.py`，仅为仿真调参，
+**物理仿真不等于经过真机辨识的数字孪生。** 增益位于 `src/simulation/simulation/physics.py`，仅为仿真调参，
 不是硬件标定值。碰撞采用原模型网格的凸包，定点排除肩部安装壳、复合腕关节及复合指根
 装配内部的重叠；其余接触保持启用。原始 XML 不修改。不能据此认定真机抓取或碰撞安全。
 
 无窗口验证使用同一动力学路径：
 
 ```bash
-bash teleop.sh --sim --simulation-mode dynamics --headless --duration 10
+bash bash/run_teleop.sh --sim --ik-backend spark --simulation-mode dynamics --headless --duration 10
 ```
 
 结束时输出 `SIM_SUMMARY`，包括实际物理时间、各路目标误差和输入状态。
 `--duration` 对有窗口与无窗口动力学均有效。关闭动力学窗口或按 `Ctrl+C` 会清理内部控制器。
-统一停止整套遥操使用根目录的 `./stop.sh`：依次停止真机执行器、动力学执行器、
+统一停止整套遥操使用 `bash bash/stop.sh`：依次停止真机执行器、动力学执行器、
 本项目机器人 Viewer、Manus 和受管理的 PICO 会话；不停止其他工程的同名进程。
 
 ### 4. 停止仿真
@@ -769,8 +802,7 @@ bash teleop.sh --sim --simulation-mode dynamics --headless --duration 10
 3. 停止 PICO 链路：
 
 ```bash
-cd tracking
-./scripts/stop_tianji_pico_teleop.sh
+pixi run stop-pico
 ```
 
 ---
@@ -787,7 +819,7 @@ PICO 人体骨架窗口可以保留。单手／双手独立执行不包含双臂
 
 ### 1. 核对设备配置和左右手 SN
 
-配置文件：[`real_robot/config.json`](real_robot/config.json)。
+配置文件：[`config/robot.json`](config/robot.json)。
 当前示例配置为：
 
 - 双臂 IP：`192.168.1.190`。
@@ -796,40 +828,40 @@ PICO 人体骨架窗口可以保留。单手／双手独立执行不包含双臂
 - `active_devices`：双臂、左手、右手；命令行可单独选择设备。
 
 设备更换后，应先确认实际 SN，不能按扫描顺序或 IP 猜测左右手：
-左右 SN 来自已保存的 `hand_devices.json` 固件身份查询结果，连接及使能前仍会再次校验。
+左右 SN 来自已保存的 `config/hand_devices.json` 固件身份查询结果，连接及使能前仍会再次校验。
 两侧不能配置成同一个 SN；双手共用一份 SDK 初始化，但设备句柄、反馈和故障状态独立。
 
-本次内部目标协议升级为 **TJRC v2 / 468 字节**，包含 14 个机械臂关节和左右各 20 个手关节。
+当前内部目标协议为 **TJRC v2 / 468 字节**，包含 14 个机械臂关节和左右各 20 个手关节。
 旧 v1 / 308 字节会被拒绝；升级后停止旧执行器和旧机器人 Viewer，再使用新编译的控制器与执行器。
 
 ```bash
 cd /path/to/tianji_teleop
 
 # 只扫描，不连接设备。
-python3 real_robot/read_hand_serials.py
+pixi run -e default bash -c 'source bash/environment.sh; exec python -m wuji_controller.read_hand_serials'
 
 # 额外读取固件的左右手身份，随后断开，不使能电机。
-python3 real_robot/read_hand_serials.py --read-handedness
+pixi run -e default bash -c 'source bash/environment.sh; exec python -m wuji_controller.read_hand_serials --read-handedness'
 
 # 可选：保存到新文件，不覆盖已有配置，也不自动改写控制配置。
-python3 real_robot/read_hand_serials.py --read-handedness --output hand_devices.json
+pixi run -e default bash -c 'source bash/environment.sh; exec python -m wuji_controller.read_hand_serials --read-handedness --output config/hand_devices.new.json'
 ```
 
 SDK 建立身份查询连接时可能进行时间同步；建议在没有真机控制会话运行时执行。
 
 ### 2. 只读设备预检
 
-从工作区根目录执行，使用已安装的手部 Python 环境：
+从工作区根目录执行；每个需要直接模块命令的终端先按通用准备进入 `pixi shell -e default` 并 `source bash/environment.sh`：
 
 ```bash
 cd /path/to/tianji_teleop
 
 # 左右手身份和各自 20 个关节反馈。
-.venv/bin/python real_robot/run_teleop.py \
+python -m tianji_controller.run_teleop \
   --devices hands --inspect
 
 # 双臂 14 个关节反馈。
-.venv/bin/python real_robot/run_teleop.py \
+python -m tianji_controller.run_teleop \
   --devices arms --inspect
 ```
 
@@ -846,11 +878,11 @@ cd /path/to/tianji_teleop
 cd /path/to/tianji_teleop
 
 # 仅双手干跑，不连接双臂硬件。
-.venv/bin/python real_robot/run_teleop.py \
+python -m tianji_controller.run_teleop \
   --devices hands --duration 10
 
 # 或：双臂＋双手完整干跑。
-.venv/bin/python real_robot/run_teleop.py \
+python -m tianji_controller.run_teleop \
   --devices all --duration 10
 ```
 
@@ -864,7 +896,7 @@ cd /path/to/tianji_teleop
 ```bash
 cd /path/to/tianji_teleop
 
-.venv/bin/python real_robot/run_teleop.py \
+python -m tianji_controller.run_teleop \
   --devices right_hand \
   --confirm-real
 ```
@@ -895,15 +927,16 @@ Enter（直接按回车使能；再次按回车停止并失能）
 因此 0.5 s 是命令轨迹时长，不保证机械关节恰好在该时刻到位。
 全程保留反馈、限位、跟踪误差与输入 watchdog 检查；失败则终止会话。
 
-当前左右手均显式采用 SDK 示例增益 **kp=3.0、kd=0.05**，使能时写入所有 20 个关节。
-连接阶段仍输出设备当前增益用于核对；此次读回的 12/0.3 不作为本次控制增益。
+当前 `config/robot.json` 中左右手增益为 **kp=6.0、kd=0.1**，使能时写入所有 20 个关节。
+历史 SDK 示例曾采用 3.0/0.05；该历史数值不覆盖当前配置，也不是现场调参建议。
+连接阶段仍输出设备当前增益用于核对；历史读回的 12/0.3 不作为当前控制增益。
 此自动回零与半秒过渡尚未验证带运动实机闭环。不要强行掰动机械手；未使能不代表可安全背驱。
 
 右手测试完成后，先按 Ctrl+C 并确认释放，再单独测试左手：
 
 ```bash
 cd /path/to/tianji_teleop
-.venv/bin/python real_robot/run_teleop.py \
+python -m tianji_controller.run_teleop \
   --devices left_hand --confirm-real
 ```
 
@@ -917,10 +950,11 @@ cd /path/to/tianji_teleop
 ```bash
 cd /path/to/tianji_teleop
 
-bash teleop.sh --real
+bash bash/run_teleop.sh --real
 ```
 
-每次 `--real` 自动打印 `run log: <绝对路径>`，在
+通过已激活 default overlay 的 `python -m tianji real --devices all --confirm-real` 启动时，
+外层包装器打印 `run log: <绝对路径>`，在
 `logs/real/<时间戳>-<唯一标识>/` 保存本次运行，不覆盖上次记录：
 
 | 文件 | 内容 |
@@ -944,19 +978,21 @@ bash teleop.sh --real
 日志目录已忽略版本控制，不自动清除旧运行；需自行管理磁盘空间。
 下次失败后可直接提供打印出的日志目录，无需再粘贴整段终端输出。
 
-直接运行 `real_robot/run_teleop.py` 不会默认启用这套会话日志；
-日常联合真机操作使用上述 `bash teleop.sh --real` 入口。
+直接运行 `python -m tianji_controller.run_teleop` 不会默认启用外层日志包装；
+需要上述 console／launcher 日志时，在已激活 default overlay 的终端运行
+`python -m tianji real --devices all --confirm-real`。`bash bash/run_teleop.sh --real` 直接启动执行器，
+不要仅凭入口名字假定存在外层日志；以终端实际打印的路径及生成文件为准。
 
 `all` 指双臂＋左手＋右手，三路输入和反馈均需就绪；只测试双臂可使用
-`.venv/bin/python real_robot/run_teleop.py --devices arms --confirm-real`。
+`python -m tianji real --devices arms --confirm-real`（需先激活 default overlay）。
 
 若显示 `NOT ENABLED: left_hand: source input is not fresh/ready`，且控制器统计
 `hand_datagrams=0`，表示没有收到 Manus 重定向 UDP 输入，不是 Hand2 硬件未连接。
-在独立终端运行 `bash manus.sh --user <实际佩戴者>` 并保持运行，先完成上节干跑检查。
+在独立终端运行 `bash bash/run_manus.sh --user <实际佩戴者>` 并保持运行，先完成上节干跑检查。
 启动时的 `Enter 1...` 是操作说明，不表示预检已通过；等待终端出现 `WAITING | 未使能 | Enter...`
 后，才在启动执行器的终端按 Enter，不要在预检期间提前或连续按回车。
 首次预检默认 30 秒超时，超时退出后需重新启动执行器。
-非只读检查模式会先确认控制器可执行文件存在并独占绑定指令端口，再打开相机、显示窗口和硬件会话；
+非只读检查模式会先确认控制器可执行文件存在并独占绑定指令端口，再进行采集 prepared 检查（仅 `--data`）、显示窗口和硬件会话；
 未编译控制器或端口被占用时，不连接设备。`--inspect` 不依赖控制器文件或指令端口。
 
 包含双臂时采用以下流程，不再要求操作者先手动匹配每个关节：
@@ -985,7 +1021,7 @@ READY 必须同时满足指令已到目标、所有选中设备实测误差在�
 第二次 Enter 也复查静止条件；独立回 HOME 入口使用相同判定。
 回 HOME 前还要求双臂指令停止变化，不能把移动中的遥操指令直接接到零初速轨迹；
 未满足此条件时请求被拒绝并走现有停止／失能流程。微小但持续变化的输入也可能阻止此切换，
-此时应先安全退出遥操，释放设备后使用独立 `home.sh`，不要放宽安全阈值强行切换。
+此时应先安全退出遥操，释放设备后使用独立 `bash/run_home.sh`，不要放宽安全阈值强行切换。
 mapped-palm 可显式选择 `--mapped-palm-resync-policy bounded`，通过私有事件通道
 执行同 epoch 重同步的短时保持及限速衔接；默认仍为 `stop`。
 这是待实机验收的选项，不是取消失鲜/限位/反馈保护；详见
@@ -1007,8 +1043,8 @@ Manus/Hand2 联合真机或长期稳定性；完整命令和证据见
 [mapped-palm 真机说明](docs/mapped-palm-real-readiness.md)。
 
 只读 Viewer 清理时的非零退出、ERROR 或退出超时现在会计入会话 `cleanup_errors`，
-并使入口返回失败状态；硬件停止/释放先于 Viewer 清理。本修复经 170 项软件回归，
-尚未重新验收实际图形退出；此前观察到的 GLFW 警告根因仍待处理。
+并使入口返回失败状态；硬件停止/释放先于 Viewer 清理。历史修复报告记录 170 项软件回归，
+当时尚未重新验收实际图形退出，GLFW 警告根因仍待处理；该记录不作为本轮测试数字或当前窗口验收结论。
 
 正常回 HOME 时只移动双臂，双手保持最后指令姿态，不主动张开。
 HOME 到位判定只针对双臂；双手仍须通过健康和新鲜度检查，
@@ -1028,7 +1064,7 @@ Manus 重定向结果由独立线程统一采样为双手 100 Hz；控制器以 
 按发布时间戳线性插值为 200 Hz 目标，再交给真机执行器的限速和安全检查。
 无插值区间时保持端点，不外推；重复目标保留各手原始输入时间，不能掩盖单手断流。
 线性插值不替代速度限制，超过现有速度上限时实际指令仍会限速。
-这次升级使用 TJH2 v2（364 字节）；需构建新控制器并重启 `manus.sh` 与遥操/采集进程，
+当前使用 TJH2 v2（364 字节）；协议升级后须构建控制器并重启 `bash/run_manus.sh` 与遥操/采集进程，
 旧协议不能混用。`kp/kd`、电流上限和速度上限不因插值而改变。
 
 所有退出路径先向全部设备发出停止请求，再逐个关闭连接和释放 SDK 资源，
@@ -1040,16 +1076,16 @@ Manus 重定向结果由独立线程统一采样为双手 100 Hz；控制器以 
 先停止正在运行的真机遥操／采集会话，等待设备释放，再从项目根目录执行：
 
 ```bash
-bash home.sh --dry-run  # 仅校验配置、显示目标，不连接硬件
-bash home.sh            # 授权使能／接管双臂，慢速回 HOME 后失能
+bash bash/run_home.sh --dry-run  # 仅校验配置、显示目标，不连接硬件
+bash bash/run_home.sh            # 授权使能／接管双臂，慢速回 HOME 后失能
 ```
 
 该入口只连接 Marvin 双臂，不连接、使能、归零或失能任何 Wuji Hand，也不需要 PICO／Manus 输入。
 双臂均未使能时先使能；双臂均已使能且健康时直接接管，先以实测姿态覆盖旧目标，再慢速回位，
 不会先失能再重新使能。接管后本会话负责停止和失能；普通遥操／采集仍拒绝接管已使能设备。
 单臂使能、另一臂未使能的混合状态仍拒绝操作，不自动清错或修复设备状态。
-HOME 由 `real_robot/config.json` 的 `staged_motion.home_config` 指向
-`control/mapped_palm/config/home.yaml`，启动时加载左右臂目标。
+HOME 由 `config/robot.json` 的 `staged_motion.home_config` 指向
+`src/tianji/tianji_description/config/home.yaml`，启动时加载左右臂目标；安装资源由 description 包统一提供。
 速度取 `staged_motion.maximum_speed_rad_s` 与机械臂限速中的较小值（当前 `0.1 rad/s`），
 加速度受 `staged_motion.maximum_acceleration_rad_s2` 限制（当前 `0.2 rad/s²`）。
 先保持接管的实测姿态，收到新鲜且稳定的静止反馈后，再以共享进度的五次轨迹回位。
@@ -1064,7 +1100,9 @@ Ctrl+C／SIGTERM 或故障则停止，不继续回位。
 并且必须实测双臂均到达 `1` 才能开始回位／遥操。失能必须实测到达 `0` 才算完成；
 持续 `101/109` 表示切换未完成，不能当作健康运行或成功失能，也不自动清错重试。
 与同配置遥操共用独占指令端口，端口被占用时在连接硬件前拒绝；不要与其他机器人控制程序同时运行。
-终端日志保存在 `logs/home/`；可用 `--config PATH` 指定另一份本项目格式的配置。
+需要外层终端日志时，在 default overlay 中显式执行 `python -m tianji home --confirm-real`，
+日志写入 `logs/home/`；`bash/run_home.sh` 直接运行回位模块，不承诺外层 console 日志。
+可用 `--config PATH` 指定另一份本项目格式的配置。
 这是关节空间回位，不规划避障路径；执行前清空双臂运动路径，并确保物理急停可用。
 
 #### 真机实测与目标窗口
@@ -1084,7 +1122,7 @@ Ctrl+C／SIGTERM 或故障则停止，不继续回位。
 
 #### 指定 HOME
 
-`real_robot/config.json` 的 `staged_motion.home_config` 指向共用 Home 文件，保存以下 HOME（各侧 Joint1→Joint7，单位 rad），
+`config/robot.json` 的 `staged_motion.home_config` 指向共用 Home 文件，保存以下 HOME（各侧 Joint1→Joint7，单位 rad），
 启动前会验证维数、有限值和关节限位，不会替换为全零或启动姿态：
 
 ```python
@@ -1100,7 +1138,7 @@ right = (-0.9599310886, -1.1344640138,  1.2217304764, -1.0471975512, -1.04719755
 
 | 参数 | 默认值 |
 | --- | --- |
-| 控制器速度比例 | `0.1` |
+| 控制器速度比例（当前配置） | `1.0`；与下列硬件／执行器限速独立 |
 | Marvin 速度／加速度比例 | `10% / 10%` |
 | 双臂 setpoint 最大变化速度 | `0.5 rad/s` |
 | 左／右手各自 setpoint 最大变化速度 | `1.0 rad/s` |
@@ -1112,7 +1150,7 @@ right = (-0.9599310886, -1.1344640138,  1.2217304764, -1.0471975512, -1.04719755
 ### 6. 停止与故障处理
 
 - **正常回位退出（包含双臂）：**在 TELEOP 阶段按 Enter，等待 HOMING、HOME_REACHED 和设备释放。
-- **直接停止：**Ctrl+C、关闭窗口、`./stop.sh` 或对齐／回位中按 Enter，均停止并失能，不追加 HOME 运动。
+- **直接停止：**Ctrl+C、关闭窗口、`bash bash/stop.sh` 或对齐／回位中按 Enter，均停止并失能，不追加 HOME 运动。
 - **异常运动、碰撞风险或软件无响应：立即按硬件急停。** 不要只等待终端退出。
 - 输入断流超过允许窗口、无效输入、反馈异常、越限、跟踪误差或控制器退出会终止已使能会话。
   唯一默认断流恢复例外为 mapped-palm TELEOP 的 PICO `hold-300ms`；其余故障不自动清错恢复。
@@ -1146,12 +1184,11 @@ right = (-0.9599310886, -1.1344640138,  1.2217304764, -1.0471975512, -1.04719755
 终端 1 单独启动驱动，并保持运行；不要与完整 PICO 启动脚本重复运行：
 
 ```bash
-cd tracking
-bash scripts/start_pico_driver.sh
+pixi run -e default bash bash/start_pico_driver.sh
 ```
 
-驱动与标定器默认均使用 `ROS_DOMAIN_ID=120`、`ROS_LOCALHOST_ONLY=1`。
-驱动在加载 ROS SDK 前设置这些默认值，避免 SDK 将驱动改为非 localhost 模式。
+驱动与标定器默认均使用 Jazzy／Fast DDS、`ROS_DOMAIN_ID=120`、`ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST`。
+激活脚本清除旧 `ROS_LOCALHOST_ONLY`，不 source Humble 或旧 tracking overlay。
 若显式覆盖，两个终端必须保持一致；旧进程不会因脚本更新而自动改变环境。
 TCP 标定订阅 `/pico/pose/{left,right}_hand` 并同时需要 `/pico/pose/head`。
 出现“未收到新鲜数据”时，先核对两个进程的 ROS 域和 localhost 设置，不要直接改话题名。
@@ -1159,34 +1196,32 @@ TCP 标定订阅 `/pico/pose/{left,right}_hand` 并同时需要 `/pico/pose/head
 按一次 A 并完成地面初始化后，在终端 2 按顺序执行，每一步成功后再继续：
 
 ```bash
-cd tracking
+pixi shell -e default
+source bash/environment.sh
 
-bash scripts/calibrate_pico_arm.sh left tcp --user zjx
-bash scripts/calibrate_pico_arm.sh left wrist --user zjx
-bash scripts/calibrate_pico_arm.sh left geometry --user zjx
+bash bash/calibrate_pico_arm.sh left tcp --user zjx
+bash bash/calibrate_pico_arm.sh left wrist --user zjx
+bash bash/calibrate_pico_arm.sh left geometry --user zjx
 
-bash scripts/calibrate_pico_arm.sh right tcp --user zjx
-bash scripts/calibrate_pico_arm.sh right wrist --user zjx
-bash scripts/calibrate_pico_arm.sh right geometry --user zjx
+bash bash/calibrate_pico_arm.sh right tcp --user zjx
+bash bash/calibrate_pico_arm.sh right wrist --user zjx
+bash bash/calibrate_pico_arm.sh right geometry --user zjx
 
-bash scripts/calibrate_pico_arm.sh status --user zjx
+bash bash/calibrate_pico_arm.sh status --user zjx
 ```
 
 也可以使用以下顺序引导入口**替代**上面六条标定命令，不要重复执行两套：
 
 ```bash
-bash scripts/calibrate_pico_arm.sh left all --user zjx &&
-bash scripts/calibrate_pico_arm.sh right all --user zjx
+bash bash/calibrate_pico_arm.sh left all --user zjx &&
+bash bash/calibrate_pico_arm.sh right all --user zjx
 ```
 
-完整 TCP 标定包含姿态。以下旧入口仅微调**全局标定**的掌心朝向，不会更新上述人员草稿或已发布版本：
+完整 TCP 标定包含姿态。历史 `calibrate_pico_palm_orientation.sh` 只微调**全局标定**，
+不会更新人员草稿或已发布版本；该旧脚本现归档，不作为当前操作命令。
+当前人员标定需通过上述完整 TCP 流程更新并重新发布相依制品，不在运行中的遥操会话修改标定。
 
-```bash
-bash scripts/calibrate_pico_palm_orientation.sh left
-bash scripts/calibrate_pico_palm_orientation.sh right
-```
-
-姿态微调：身体直立、头朝前，双臂向正前方水平伸直，掌心相对、手腕中立；按空格后保持约 2 秒静止。
+历史姿态微调的站姿要求：身体直立、头朝前，双臂向正前方水平伸直，掌心相对、手腕中立；按空格后保持约 2 秒静止。
 仅微调姿态不改变 TCP 平移、手腕距离或骨长。重做完整 TCP 后，需要重做对应侧手腕和骨长；重做手腕后，需要重做对应侧骨长。
 
 标定结束后先停止单独驱动，再切换到完整 PICO 链路。
@@ -1194,7 +1229,7 @@ bash scripts/calibrate_pico_palm_orientation.sh right
 ## 进一步说明
 
 - [mapped-palm 独立后端：构建、PICO＋VR 仿真及迁移边界](docs/mapped-palm-port.md)
-- [PICO 工程中文说明](tracking/README.zh-CN.md)
-- [双臂控制器与遥测说明](control/README.md)
-- [Wuji 重定向说明](retargeting/README.md)
-- [真机配置](real_robot/config.json)
+- [PICO 工程中文历史说明（旧命令不作为当前入口）](archives/tracking/README.zh-CN.md)
+- [双臂控制器与遥测说明](src/tianji/tianji_controller/native/README.md)
+- [Wuji 重定向说明](src/wuji/wuji_retargeting/README.md)
+- [真机配置](config/robot.json)

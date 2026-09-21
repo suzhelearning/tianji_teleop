@@ -1,0 +1,472 @@
+{
+  "base_commit": "90c575fe1dc6b02929a4f701a2f1263b8b347fd0",
+  "branch": "ros2",
+  "date": "2026-09-21",
+  "hardware_access": false,
+  "pushed": false,
+  "environment": {
+    "python": "3.12.14",
+    "ros": "jazzy",
+    "rmw": "rmw_fastrtps_cpp",
+    "deployment_domain": 120,
+    "dds_acceptance_domain": 121,
+    "policy_torch": "2.10.0+cpu",
+    "mujoco": "3.10.0"
+  },
+  "regressions": {
+    "native_core": {
+      "passed": 106
+    },
+    "mapped_palm": {
+      "passed": 1
+    },
+    "interfaces": {
+      "passed": 32
+    },
+    "controller": {
+      "passed": 256,
+      "skipped": 1,
+      "skip_reason": "explicit offline source checkout for mapped-palm comparison"
+    },
+    "collection": {
+      "passed": 81
+    },
+    "simulation": {
+      "passed": 42
+    },
+    "pico_and_recorder": {
+      "passed": 334
+    },
+    "pico2": {
+      "passed": 86
+    },
+    "manus": {
+      "passed": 24
+    },
+    "retargeting": {
+      "passed": 19
+    },
+    "mocap_policy": {
+      "passed": 85
+    },
+    "dds": {
+      "passed": 29
+    },
+    "exoskeleton": {
+      "passed": 323
+    },
+    "pico2_v131_native": {
+      "passed": 3
+    },
+    "hand_scheduler": {
+      "passed": 1
+    }
+  },
+  "throughput": {
+    "synthetic_only": true,
+    "domain": 121,
+    "duration_s": 60.00841267600481,
+    "requested_rgb_profile": "1280x720x30 RGB8",
+    "requested_state_hz": 120,
+    "dataset": "/data/tianji-migration-acceptance-yPsRF3/throughput/dataset/20260921/20260921_124506_097652_take001.h5",
+    "validation": {
+      "path": "/data/tianji-migration-acceptance-yPsRF3/throughput/dataset/20260921/20260921_124506_097652_take001.h5",
+      "schema_version": 1,
+      "task": "dds acceptance",
+      "success": true,
+      "robot_config": "tianji_wuji2_v1",
+      "cameras": [
+        "top",
+        "left_wrist",
+        "right_wrist"
+      ],
+      "counts": {
+        "arms": 7200,
+        "hands": 7200,
+        "images": {
+          "top": 1801,
+          "left_wrist": 1801,
+          "right_wrist": 1800
+        }
+      },
+      "timestamps_ns": {
+        "arms": {
+          "first": 1202712,
+          "last": 60000954763
+        },
+        "hands": {
+          "first": 1460999,
+          "last": 60001309197
+        },
+        "top": {
+          "first": 5996710,
+          "last": 60006073469
+        },
+        "left_wrist": {
+          "first": 9572100,
+          "last": 60009999316
+        },
+        "right_wrist": {
+          "first": 14250190,
+          "last": 59973209950
+        }
+      },
+      "rates_hz": {
+        "arms": 119.98382916450763,
+        "hands": 119.98363689593414,
+        "top": 29.9999616205491,
+        "left_wrist": 29.999786393520935,
+        "right_wrist": 30.003856090914944
+      },
+      "duration_s": 60.009999316
+    },
+    "streams": {
+      "top": {
+        "received": 1801,
+        "rx_hz": 30.01245858183072,
+        "rx_source_gaps": 0,
+        "max_rx_interval_ms": 53.991263,
+        "written": 1801,
+        "write_hz": 29.9999616205491,
+        "stored_source_gaps": 0,
+        "max_stored_interval_ms": 39.479355,
+        "shape": [
+          1801,
+          720,
+          1280,
+          3
+        ]
+      },
+      "left_wrist": {
+        "received": 1800,
+        "rx_hz": 29.995794251690892,
+        "rx_source_gaps": 0,
+        "max_rx_interval_ms": 84.748016,
+        "written": 1801,
+        "write_hz": 29.999786393520935,
+        "stored_source_gaps": 0,
+        "max_stored_interval_ms": 41.177652,
+        "shape": [
+          1801,
+          720,
+          1280,
+          3
+        ]
+      },
+      "right_wrist": {
+        "received": 1800,
+        "rx_hz": 29.995794251690892,
+        "rx_source_gaps": 0,
+        "max_rx_interval_ms": 82.115876,
+        "written": 1800,
+        "write_hz": 30.003856090914944,
+        "stored_source_gaps": 0,
+        "max_stored_interval_ms": 44.418999,
+        "shape": [
+          1800,
+          720,
+          1280,
+          3
+        ]
+      },
+      "arms": {
+        "written": 7200,
+        "write_hz": 119.98382916450763,
+        "max_stored_interval_ms": 16.416031
+      },
+      "hands": {
+        "written": 7200,
+        "write_hz": 119.98363689593414,
+        "max_stored_interval_ms": 16.270943
+      }
+    }
+  },
+  "driver_certification": [
+    "top: ready=True serial=TESTTOP1 channel=rgb_camera profile='1280,720,30' format='RGB8' pairs=2184 paired_rx_fps=30.00 source_sequence_gaps=0 max_pair_interval_ms=48.610 dropped_unpaired=0 detail=",
+    "left_wrist: ready=True serial=TESTLEFT1 channel=rgb_camera profile='1280,720,30' format='RGB8' pairs=2184 paired_rx_fps=30.00 source_sequence_gaps=0 max_pair_interval_ms=48.813 dropped_unpaired=0 detail=",
+    "right_wrist: ready=True serial=TESTRIGHT1 channel=rgb_camera profile='1280,720,30' format='RGB8' pairs=2184 paired_rx_fps=30.00 source_sequence_gaps=0 max_pair_interval_ms=49.034 dropped_unpaired=0 detail="
+  ],
+  "preview_report": [
+    "preview requested_ui_hz=30.00 actual_ui_hz=29.99 max_ui_interval_ms=107.331",
+    "top: image_rx_hz=29.96 images=2098",
+    "left_wrist: image_rx_hz=29.96 images=2098",
+    "right_wrist: image_rx_hz=29.96 images=2098"
+  ],
+  "compression": {
+    "source_sha256_before": "08693db8374b225ef16084f4f7e299ea304de30c3bc7bb6a487ef92450b54c40",
+    "source_sha256_after": "08693db8374b225ef16084f4f7e299ea304de30c3bc7bb6a487ef92450b54c40",
+    "source_unchanged": true,
+    "explicit_destination_preserved": true,
+    "default_dated_suffix": true,
+    "explicit_episode": "/data/tianji-migration-acceptance-yPsRF3/explicit-compressed/20260921/20260921_124506_097652_take001.h5",
+    "default_episode": "/data/tianji-migration-acceptance-yPsRF3/throughput/compressed/20260921_compressed/20260921_124506_097652_take001.h5",
+    "jpeg_quality": 50,
+    "validated_success": true
+  },
+  "browser": {
+    "regular_wheel_install": true,
+    "module_path": "/data/tianji-migration-acceptance-yPsRF3/regular-install/data_collector/__init__.py",
+    "playback_time_s": 1.0048,
+    "decoded_images": [
+      [
+        1280,
+        720
+      ],
+      [
+        1280,
+        720
+      ],
+      [
+        1280,
+        720
+      ]
+    ],
+    "post_status": 405,
+    "synthetic_episode": true
+  },
+  "standalone_reuse": {
+    "conflicting_task_rejected": "worker identity/configuration mismatch for /data_collector: {'owner_token': '', 'config_path': '/data/tianji-migration-acceptance-yPsRF3/reuse-verified/collect_test.json', 'config_digest': 'dbb02efc2f3db55483e2f08efd68d40b726eb13e821b8e446f5896565ad7087a', 'dataset_path': '/data/tianji-migration-acceptance-yPsRF3/reuse-verified/dataset', 'task': 'dds acceptance', 'model_path': '/home/current/syz/tianji_teleop/src/tianji/tianji_description/models/marvin_m6_wuji2.xml', 'model_digest': 'dcb3040c7cb5b5d1d897c56f9e5834df0c682d179919baa6a1fef60ce782b4ae'}",
+    "reused_without_process_ownership": true,
+    "drained_own_session": true,
+    "external_processes_survived": true,
+    "synthetic_only": true,
+    "domain": 121
+  },
+  "vr_smoke": [
+    {
+      "backend": "franka-dls",
+      "synthetic_tjvr": true,
+      "port": 50100,
+      "states": [
+        "WAITING",
+        "TELEOP",
+        "HOLD",
+        "HOME_REACHED"
+      ],
+      "exit_code": 0
+    },
+    {
+      "backend": "ceres",
+      "synthetic_tjvr": true,
+      "port": 37665,
+      "states": [
+        "WAITING",
+        "TELEOP",
+        "HOLD",
+        "HOME_REACHED"
+      ],
+      "exit_code": 0
+    }
+  ],
+  "isolated_retargeting": [
+    {
+      "environment": "default",
+      "real_isolated_solver": true,
+      "raw_h5_precomputed_shape": [
+        2,
+        20
+      ],
+      "parent_foreign_abi_imports": false,
+      "synthetic_only": true
+    },
+    {
+      "environment": "policy",
+      "real_isolated_solver": true,
+      "raw_h5_precomputed_shape": [
+        2,
+        20
+      ],
+      "parent_foreign_abi_imports": false,
+      "synthetic_only": true
+    }
+  ],
+  "entrypoints": [
+    {
+      "command": [
+        "bash",
+        "bash/run_mocap.sh",
+        "h5-sim",
+        "--help"
+      ],
+      "exit_code": 0,
+      "log": "/data/tianji-migration-acceptance-yPsRF3/entrypoint-0.log"
+    },
+    {
+      "command": [
+        "bash",
+        "bash/run_mocap.sh",
+        "h5-real",
+        "--help"
+      ],
+      "exit_code": 0,
+      "log": "/data/tianji-migration-acceptance-yPsRF3/entrypoint-1.log"
+    },
+    {
+      "command": [
+        "bash",
+        "bash/run_mocap.sh",
+        "infer",
+        "--help"
+      ],
+      "exit_code": 0,
+      "log": "/data/tianji-migration-acceptance-yPsRF3/entrypoint-2.log"
+    },
+    {
+      "command": [
+        "bash",
+        "bash/run_mocap.sh",
+        "live",
+        "--help"
+      ],
+      "exit_code": 0,
+      "log": "/data/tianji-migration-acceptance-yPsRF3/entrypoint-3.log"
+    },
+    {
+      "command": [
+        "bash",
+        "bash/run_mocap.sh",
+        "regrind-real",
+        "--help"
+      ],
+      "exit_code": 0,
+      "log": "/data/tianji-migration-acceptance-yPsRF3/entrypoint-4.log"
+    },
+    {
+      "command": [
+        "bash",
+        "bash/run_mocap.sh",
+        "regrind-hand-sim",
+        "--help"
+      ],
+      "exit_code": 0,
+      "log": "/data/tianji-migration-acceptance-yPsRF3/entrypoint-5.log"
+    },
+    {
+      "command": [
+        "bash",
+        "bash/run_pico.sh",
+        "--help"
+      ],
+      "exit_code": 0,
+      "log": "/data/tianji-migration-acceptance-yPsRF3/entrypoint-6.log"
+    },
+    {
+      "command": [
+        "bash",
+        "bash/run_setup_pico.sh",
+        "--help"
+      ],
+      "exit_code": 0,
+      "log": "/data/tianji-migration-acceptance-yPsRF3/entrypoint-7.log"
+    },
+    {
+      "command": [
+        "bash",
+        "bash/run_manus.sh",
+        "--help"
+      ],
+      "exit_code": 0,
+      "log": "/data/tianji-migration-acceptance-yPsRF3/entrypoint-8.log"
+    },
+    {
+      "command": [
+        "bash",
+        "bash/run_exoskeleton.sh",
+        "--help"
+      ],
+      "exit_code": 0,
+      "log": "/data/tianji-migration-acceptance-yPsRF3/entrypoint-9.log"
+    },
+    {
+      "command": [
+        "bash",
+        "bash/run_pico2_sim.sh",
+        "--help"
+      ],
+      "exit_code": 0,
+      "log": "/data/tianji-migration-acceptance-yPsRF3/entrypoint-10.log"
+    },
+    {
+      "command": [
+        "bash",
+        "bash/run_teleop.sh",
+        "--help"
+      ],
+      "exit_code": 0,
+      "log": "/data/tianji-migration-acceptance-yPsRF3/entrypoint-11.log"
+    },
+    {
+      "command": [
+        "bash",
+        "bash/run_data_collector.sh",
+        "--help"
+      ],
+      "exit_code": 0,
+      "log": "/data/tianji-migration-acceptance-yPsRF3/entrypoint-12.log"
+    },
+    {
+      "command": [
+        "bash",
+        "bash/run_cameras.sh",
+        "--help"
+      ],
+      "exit_code": 0,
+      "log": "/data/tianji-migration-acceptance-yPsRF3/entrypoint-13.log"
+    },
+    {
+      "command": [
+        "bash",
+        "bash/preview_cameras.sh",
+        "--help"
+      ],
+      "exit_code": 0,
+      "log": "/data/tianji-migration-acceptance-yPsRF3/entrypoint-14.log"
+    },
+    {
+      "command": [
+        "bash",
+        "bash/run_manus.sh",
+        "--calibration-user",
+        "syz",
+        "--check"
+      ],
+      "exit_code": 0,
+      "log": "/data/tianji-migration-acceptance-yPsRF3/entrypoint-15.log"
+    },
+    {
+      "command": [
+        "bash",
+        "bash/run_exoskeleton.sh",
+        "--check-config"
+      ],
+      "exit_code": 0,
+      "log": "/data/tianji-migration-acceptance-yPsRF3/entrypoint-16.log"
+    }
+  ],
+  "external_prerequisites": [
+    "Actual operator calibration and physical PICO/Manus/exoskeleton inputs",
+    "Physical RealSense identity/profile/stream verification",
+    "Explicit robot enable/Home/stop and motion safety authorization",
+    "Authorized production policy weights, Motive stream and CUDA environment",
+    "Odin mTLS certs/certs.h",
+    "External mapped-palm reference checkout"
+  ],
+  "artifacts_directory": "/data/tianji-migration-acceptance-yPsRF3",
+  "pico2_legacy": {
+    "complete": true,
+    "samples": 4074,
+    "accepted_equals_processed": true
+  },
+  "cleanup": {
+    "temporary_programs_removed": true,
+    "temporary_raw_episode_removed_after_integrity_check": true,
+    "wheel_install_removed_after_browser_check": true,
+    "explicit_compressed_episode_retained": true,
+    "owned_services_stopped": true
+  },
+  "preservation": {
+    "checked_unchanged_calibration_and_backup_files": 16,
+    "device_backup_directory": "src/teleop_inputs/exoskeleton_bridge/config/dataglove/devices/915.bak/",
+    "generated_builds_and_backups_excluded_from_git": true
+  }
+}

@@ -1,0 +1,874 @@
+#!/usr/bin/env python3
+"""Run the existing controller with an explicit, guarded hardware output boundary.
+
+Default is DRY RUN: no vendor SDK is loaded and no device is contacted.
+--inspect performs feedback/identity reads only. --confirm-real additionally
+requires an operator terminal, fresh sources, healthy feedback and Enter confirmation.
+"""
+from __future__ import annotations
+
+import argparse
+from dataclasses import asdict
+import json
+import math
+import os
+from pathlib import Path
+import select
+import signal
+import shutil
+import socket
+import subprocess
+import sys
+import tempfile
+import time
+import unicodedata
+
+from tianji_runtime import controller_profile, native_executable, package_share, workspace
+from tianji_runtime.resources import ResourceNotFound
+from tianji_runtime.resources import config_path as workspace_config
+
+from tianji_description.home_config import load_home
+from .protocol import DEVICE_READY_FLAGS, decode_packet
+from .run_log import SessionLog
+from .safety import MotionGate, SafetyFault
+from .staged_motion import StagedMotionGate
+from .viewer import RealRobotViewer
+from .feedback import FeedbackHub
+from .observer import ExecutorObserver
+from .collection_supervisor import CollectionSupervisor
+
+DEVICE_SELECTIONS = {
+    "arms": ("arms",),
+    "left_hand": ("left_hand",),
+    "right_hand": ("right_hand",),
+    "hands": ("left_hand", "right_hand"),
+    "all": ("arms", "left_hand", "right_hand"),
+}
+
+_STAGED_STATUS = {
+    "WAITING": "WAITING | 未使能 | Enter: 锁定目标并慢速对齐",
+    "ALIGNING": "ALIGNING | 慢速对齐 | Enter: 中止并失能",
+    "READY": "READY | 已对齐并保持 | Enter: 开始实时遥操",
+    "TELEOP": "TELEOP | 实时遥操 | 保持输入与机械臂静止后 Enter: 回 HOME | Ctrl+C: 直接停止",
+    "HOMING": "HOMING | 双臂回位、双手保持 | Enter: 中止并失能",
+    "HOME_REACHED": "HOME_REACHED | 已回位，正在失能",
+}
+
+
+class StatusLine:
+    """One terminal row; nonterminal consumers receive state changes as lines."""
+
+    def __init__(self):
+        self.stream = sys.stdout
+        self.terminal = self.stream.isatty()
+        self.last = None
+        self.active = False
+
+    def update(self, text):
+        text = " ".join(str(text).splitlines())
+        if text == self.last:
+            return
+        self.last = text
+        if self.terminal:
+            width = max(1, shutil.get_terminal_size((120, 24)).columns - 1)
+            visible = []
+            used = 0
+            for character in text:
+                cells = 0 if unicodedata.combining(character) else (
+                    2 if unicodedata.east_asian_width(character) in ("W", "F") else 1)
+                if used + cells > width:
+                    break
+                visible.append(character)
+                used += cells
+            self.stream.write("\r\x1b[2K" + "".join(visible))
+            self.stream.flush()
+            self.active = True
+        else:
+            print(text, file=self.stream, flush=True)
+
+    def finish(self):
+        if self.active:
+            self.stream.write("\n")
+            self.stream.flush()
+            self.active = False
+        self.last = None
+
+
+def poll_enter():
+    """Poll the operator terminal without buffering input or blocking UDP reception."""
+    fd = sys.stdin.fileno()
+    for _ in range(256):
+        if not select.select([fd], [], [], 0)[0]:
+            return False
+        character = os.read(fd, 1)
+        if not character:
+            raise SafetyFault("operator terminal closed")
+        if character == b"\n":
+            return True
+    return False
+
+
+class CommandReceiver:
+    def __init__(self, port):
+        self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            # Do not reuse ports: a second executor must fail, not split commands.
+            self.socket.bind(("127.0.0.1", port))
+            self.socket.setblocking(False)
+        except BaseException:
+            self.socket.close()
+            raise
+        self.latest = None
+        self.count = 0
+
+    @property
+    def port(self):
+        return self.socket.getsockname()[1]
+
+    def drain(self, validate=None):
+        for _ in range(512):
+            try:
+                data, sender = self.socket.recvfrom(4096)
+            except BlockingIOError:
+                break
+            if sender[0] != "127.0.0.1":
+                raise SafetyFault("non-loopback command source")
+            frame = decode_packet(data)
+            if self.latest and (frame.sequence <= self.latest.sequence or
+                                frame.timestamp_ns < self.latest.timestamp_ns):
+                raise SafetyFault("controller command sequence or timestamp regressed")
+            if validate is not None:
+                validate(frame)
+            self.latest = frame
+            self.count += 1
+        return self.latest
+
+    def close(self):
+        self.socket.close()
+
+
+def resolve(base, value):
+    path = Path(value)
+    return path if path.is_absolute() else (base / path).resolve()
+
+
+def load_configuration(path, device_selection=None):
+    """Load and fully validate the executor configuration.
+
+    Paths inside the file are resolved against the workspace root, not against
+    the config file's own directory: `config/robot.json` addresses resources by
+    their workspace-relative location so that moving the file cannot silently
+    retarget the controller model or the Home vector.
+    """
+    base = workspace()
+    config = json.loads(path.read_text())
+    devices = tuple(config["active_devices"]) if device_selection is None else DEVICE_SELECTIONS[device_selection]
+    # A controller profile is named by basename and resolved to its installed
+    # location; an explicit absolute path is honoured unchanged so an operator
+    # can point at a one-off profile. Resolving here (not at spawn time) makes
+    # the value that reaches the native controller and the run log identical.
+    profile = config.get("controller_config")
+    if not isinstance(profile, str) or not profile.strip():
+        raise ValueError("controller_config must be a nonempty profile name or path")
+    profile = profile.strip()
+    config["controller_config"] = str(
+        Path(profile).expanduser() if Path(profile).is_absolute() else controller_profile(profile)
+    )
+    staged = config.get("staged_motion")
+    if isinstance(staged, dict) and "home_config" in staged:
+        home_path = staged.pop("home_config")
+        if not isinstance(home_path, str) or not home_path.strip():
+            raise ValueError("staged_motion.home_config must be a nonempty path")
+        left, right = load_home(resolve(base, home_path))
+        staged["home_left_rad"] = list(left)
+        staged["home_right_rad"] = list(right)
+    # Validate all output bounds and HOME before loading SDKs.
+    if "arms" in devices:
+        StagedMotionGate(config["safety"], devices, config["staged_motion"])
+    else:
+        MotionGate(config["safety"], devices)
+    for field in ("command_port", "pico_port", "hand_port"):
+        if type(config[field]) is not int or not 1 <= config[field] <= 65535:
+            raise ValueError(f"{field} must be an integer in [1, 65535]")
+    if len({config[key] for key in ("command_port", "pico_port", "hand_port")}) != 3:
+        raise ValueError("command/PICO/hand ports must be distinct")
+    if not math.isfinite(config["startup_timeout_s"]) or config["startup_timeout_s"] <= 0:
+        raise ValueError("startup_timeout_s must be positive and finite")
+    if not 0 < config["controller_velocity_scale"] <= 1:
+        raise ValueError("controller_velocity_scale must be in (0, 1]")
+    serials = set()
+    libraries = set()
+    for device in devices:
+        if device == "arms":
+            continue
+        settings = config[device]
+        serial = settings.get("serial")
+        if not isinstance(serial, str) or not serial.strip():
+            raise ValueError(f"configure the exact {device} serial before hardware use")
+        identity = serial.strip().casefold()
+        if identity in serials:
+            raise ValueError("left and right hands must have distinct device serials")
+        serials.add(identity)
+        libraries.add(resolve(base, settings["sdk_library"]).resolve())
+    if len(libraries) > 1:
+        raise ValueError("both hands must use the same pinned Wuji SDK library")
+    return config, devices
+
+
+def make_hardware(config, devices, base):
+    # Deliberately unreachable from the default dry-run path.
+    from tianji_controller.hardware import MarvinDevice
+    from wuji_controller.hardware import Hand2Device
+    result = {}
+    if "arms" in devices:
+        settings = config["arms"]
+        result["arms"] = MarvinDevice(
+            resolve(base, settings["sdk_directory"]), settings["ip"],
+            velocity_ratio=settings["velocity_ratio"], acceleration_ratio=settings["acceleration_ratio"])
+    for device in ("left_hand", "right_hand"):
+        if device not in devices:
+            continue
+        settings = config[device]
+        result[device] = Hand2Device(
+            resolve(base, settings["sdk_library"]), settings["serial"].strip(),
+            side=device.split("_", 1)[0],
+            kp=settings["kp"], kd=settings["kd"], effort_limit_amps=settings["effort_limit_amps"])
+    return result
+
+
+def fresh_feedback(hardware, timeout_s, feedback_timeout_s):
+    deadline = time.monotonic() + timeout_s
+    reason = "no feedback"
+    while time.monotonic() < deadline:
+        measured = {}
+        try:
+            for name, device in hardware.items():
+                value = device.read_feedback()
+                age = time.monotonic_ns() - value.received_monotonic_ns
+                if not value.healthy or value.received_monotonic_ns <= 0 or not 0 <= age <= feedback_timeout_s * 1e9:
+                    raise SafetyFault(f"{name}: {value.detail or 'feedback unavailable/stale'}")
+                measured[name] = value
+            return measured
+        except RuntimeError as error:
+            reason = str(error)
+            time.sleep(.01)
+    raise SafetyFault(f"feedback preflight timed out: {reason}")
+
+
+def controller_configuration(config, base, feedback, destination):
+    import yaml
+    original = resolve(base, config["controller_config"])
+    data = yaml.safe_load(original.read_text())
+    data["controller"]["rate_hz"] = config["safety"]["rate_hz"]
+    data["controller"]["model_state_only"] = True
+    # Preserve the existing IK/control algorithm; constrain its real-mode speed.
+    data["joint_limits"]["velocity_scale"] = min(
+        data["joint_limits"].get("velocity_scale", 1.0), config["controller_velocity_scale"])
+    if "arms" in feedback:
+        positions = feedback["arms"].position_rad
+        data["controller"]["initial_posture_enabled"] = True
+        data["controller"]["initial_left_q_rad"] = list(positions[:7])
+        data["controller"]["initial_right_q_rad"] = list(positions[7:])
+    elif "home_config" in data["controller"]:
+        # The runtime YAML is written in a different directory.
+        data["controller"]["home_config"] = str(resolve(original.parent, data["controller"]["home_config"]))
+    destination.write_text(yaml.safe_dump(data, sort_keys=False))
+    return destination
+
+
+def enable_sequence(config, devices):
+    """Human-readable arming sequence for the operator prompt."""
+    parts = []
+    for name in devices:
+        ramp = config["safety"][name].get("enable_zero_ramp_seconds")
+        parts.append(f"{name} returns to zero then ramps {ramp:g} s to the current input pose"
+                     if ramp else f"{name} follows the input from the measured pose (pose match required)")
+    return "; ".join(parts)
+
+
+def stop_controller(process):
+    if process is None:
+        return
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        os.killpg(process.pid, signal.SIGKILL)
+        process.wait()
+
+
+def log_phase(gate, fallback):
+    """Run-log sample phase; the staged gate owns the operator-visible names."""
+    return getattr(gate, "phase", None) or fallback
+
+
+def error_reason(error):
+    """Keep the original exception and its machine-readable fault diagnostics."""
+    return f"{type(error).__name__}: {error}", getattr(error, "details", None)
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--config", type=Path, default=workspace_config("robot.json"))
+    parser.add_argument("--ik-backend", choices=("spark", "mapped-palm"), default="spark")
+    parser.add_argument('--mapped-palm-resync-policy',choices=('stop','bounded'),default='stop',
+                        help='bounded: experimental private-event limited hold; default stop')
+    parser.add_argument('--mapped-palm-dropout-policy',choices=('stop','hold-300ms'),default='hold-300ms',
+                        help='mapped-palm arms: hold last commands up to 300 ms from last valid PICO input; default hold-300ms')
+    parser.add_argument('--mapped-palm-xz-calibration',action='store_true',
+                        help='mapped-palm real only: terminal C before first Enter; no motor authority from C')
+    parser.add_argument("--devices", choices=tuple(DEVICE_SELECTIONS),
+                        help="default from config; hands=left+right, all=arms+left+right")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--inspect", action="store_true", help="read hardware feedback/identity only, then exit")
+    mode.add_argument("--confirm-real", action="store_true", help="allow real enable after typed confirmation and preflight")
+    parser.add_argument("--duration", type=float, default=0, help="stop after N seconds (0: until Ctrl+C)")
+    parser.add_argument("--collection", action="store_true",
+                        help="start owned cameras/collector and gate SDK connect on preparation")
+    parser.add_argument("--dataset", type=Path, help="record operator-triggered schema-v1 observation episodes here")
+    parser.add_argument("--task", help="operator task label for the recorded episode")
+    parser.add_argument("--collection-config", type=Path,
+                    default=workspace_config("collect_real.json"))
+    args = parser.parse_args(argv)
+    if args.collection and args.dataset is None:
+        from tianji_runtime import dataset_dir
+        args.dataset = dataset_dir()
+    args.collection = args.collection or args.dataset is not None
+    if not math.isfinite(args.duration) or args.duration < 0:
+        parser.error("--duration must be finite and non-negative")
+    if args.confirm_real and not sys.stdin.isatty():
+        parser.error("real mode requires an operator terminal; no hardware activity performed")
+    configuration_path = args.config.resolve()
+    base = workspace()
+    try:
+        config, devices = load_configuration(configuration_path, args.devices)
+    except (OSError, KeyError, TypeError, ValueError, SafetyFault) as error:
+        parser.error(str(error))
+    if args.dataset is not None and (not args.confirm_real or set(devices) != {"arms", "left_hand", "right_hand"}):
+        parser.error("dataset collection requires --confirm-real and all arms/hands")
+    if args.dataset is not None and (not args.task or not args.task.strip()):
+        parser.error("dataset collection requires --task")
+    if args.task is not None and args.dataset is None:
+        parser.error("--task requires --dataset")
+    bounded = args.mapped_palm_resync_policy=='bounded'
+    real_calibration=args.mapped_palm_xz_calibration
+    dropout=(args.mapped_palm_dropout_policy=='hold-300ms' and
+             args.ik_backend=='mapped-palm' and 'arms' in devices and not args.inspect)
+    if bounded and (args.ik_backend!='mapped-palm' or 'arms' not in devices or args.inspect):
+        parser.error('bounded requires mapped-palm arms, not inspect')
+    if real_calibration and (args.ik_backend!='mapped-palm' or 'arms' not in devices or not args.confirm_real):
+        parser.error('real C calibration requires mapped-palm arms and --confirm-real')
+    event_channel=bounded or real_calibration or dropout
+    config=dict(config,mapped_palm_resync_policy=args.mapped_palm_resync_policy,
+                mapped_palm_xz_calibration=real_calibration,
+                mapped_palm_dropout_policy='hold-300ms' if dropout else 'stop')
+    if args.ik_backend == "mapped-palm":
+        # Only controller assets change; driver settings, measured startup,
+        # physical limits and operator confirmations remain the original path.
+        # Deployment config and assets are description resources; they are
+        # addressed through the shared resolver so an installed layout works.
+        bundle = package_share("tianji_description", "mapped_palm", "assets", "mapped_palm")
+        config = dict(config,
+                      controller_config=str(package_share(
+                          "tianji_description", "config", "deployment.yaml")),
+                      controller_model=str(bundle / "marvin_m6_wuji2.xml"))
+    run_mode = "inspect" if args.inspect else ("real" if args.confirm_real else "dry-run")
+    try:
+        session_log = SessionLog.from_environment(
+            devices=devices, mode=run_mode, config_source=str(configuration_path), config=config)
+    except (OSError, ValueError) as error:
+        print(f"RUN LOG REFUSED: {error}; no hardware activity performed", file=sys.stderr, flush=True)
+        return 1
+    if session_log is not None:
+        print(f"RUN LOG: {session_log.directory}", flush=True)
+    staged = args.confirm_real and "arms" in devices
+    real_viewer = None
+    status = StatusLine()
+    hardware = {}
+    controller = None
+    receiver = None
+    gate = None
+    packet = None
+    result = 0
+    stop_requested = False
+    final_reason = None
+    outcome = None
+    reason = None
+    error_details = None
+    cleanup_errors = []
+    collection = None
+    observer = None
+    sampler = None
+    keyboard = None
+    enter_pressed = poll_enter
+
+    def request_stop(signum, frame):
+        nonlocal stop_requested
+        stop_requested = True
+        raise KeyboardInterrupt
+
+    handlers = {sig: signal.signal(sig, request_stop) for sig in (signal.SIGTERM, signal.SIGINT)}
+    try:
+        measured = {}
+        if not args.inspect:
+            # Refuse static startup failures before opening cameras or SDK sessions.
+            # The native controller is addressed through the single resource
+            # authority, so a missing build fails here with an explicit hint.
+            try:
+                viewer = native_executable(
+                    "mapped_palm_tjrc_controller" if args.ik_backend == "mapped-palm"
+                    else "tianji_qp_ik_viewer")
+            except ResourceNotFound as error:
+                raise RuntimeError(
+                    f"build the current arm controller before starting the real executor: {error}"
+                ) from error
+            receiver = CommandReceiver(config["command_port"])
+            if event_channel:
+                from .mapped_events import EventReceiver
+                receiver=EventReceiver(receiver,bounded=bounded,calibration=real_calibration,dropout=dropout)
+        # Rendering failures also precede sensor workers and device sessions.
+        if staged:
+            # Fail before connecting devices if the required monitor cannot open.
+            real_viewer = RealRobotViewer(resolve(base, config["controller_model"]))
+        if not args.inspect:
+            observer = ExecutorObserver("real" if args.confirm_real else "dry_run",
+                                        collection=args.collection)
+            observer.start()
+        if args.collection:
+            collection = CollectionSupervisor(
+                observer, args.dataset, args.task, args.collection_config,
+                resolve(base, config["controller_model"]))
+            collection.start()
+        if args.inspect or args.confirm_real:
+            hardware = make_hardware(config, devices, base)
+            if not args.inspect:
+                from tianji_runtime import LockedDevice
+                hardware = {name: LockedDevice(device) for name, device in hardware.items()}
+            for name, device in hardware.items():
+                print(f"READ-ONLY CONNECT {name}", flush=True)
+                device.connect()
+            measured = fresh_feedback(hardware, config["startup_timeout_s"], config["safety"]["feedback_timeout_s"])
+            if session_log is not None:
+                session_log.sample(None, measured, "PREFLIGHT", time.monotonic_ns())
+            if args.inspect:
+                # Confirm read-only resource release before reporting success.
+                for device in reversed(tuple(hardware.values())):
+                    device.close()
+                hardware.clear()
+                print(json.dumps({name: asdict(value) for name, value in measured.items()}, indent=2))
+                final_reason = "read-only feedback inspected; no motor commands sent"
+                if session_log is not None:
+                    # Inspection has already released every device, so persist
+                    # here before its early return can hide a logging failure.
+                    session_log.finish(outcome="completed", reason=final_reason, result=0)
+                    session_log = None
+                return 0
+            if any(value.enabled for value in measured.values()):
+                raise SafetyFault("device already enabled; do not take over another control session")
+        else:
+            print("DRY RUN: no SDK loaded, no device connection, no motor commands", flush=True)
+        if hardware:
+            sampler = FeedbackHub(hardware, devices)
+            observer.attach_sampler(sampler)
+            sampler.start()
+        if collection is not None:
+            collection.wait_inputs_ready()
+
+        gate = (StagedMotionGate(config["safety"], devices, config["staged_motion"])
+                if staged else MotionGate(config["safety"], devices))
+        observer.update_state(log_phase(gate, "WAITING"))
+        if bounded and staged:
+            gate.bounded_resync=True
+        if dropout and staged:
+            gate.dropout_hold=True
+        calibration_guard=None
+        if real_calibration:
+            from .mapped_calibration import CalibrationGuard
+            calibration_guard=CalibrationGuard(receiver)
+            gate.calibration_guard=calibration_guard
+        if collection is not None or real_calibration:
+            from tianji_runtime import OperatorKeyboard
+            key_handler = observer.command if collection is not None else lambda key: None
+            keyboard = (OperatorKeyboard(key_handler, on_calibrate=lambda: calibration_guard.calibrate(gate))
+                        if real_calibration else OperatorKeyboard(key_handler))
+            enter_pressed = keyboard.poll_enter
+            if collection is not None:
+                print("TELEOP recording keys (no Enter needed): r=start, s=save success, d=discard current. "
+                      "Recording keys do not change robot mode.", flush=True)
+            if real_calibration:
+                print('MAPPED REAL: focus terminal; C calibrates X/Z while disabled; then Enter aligns, second Enter starts teleop. C never enables motors.',flush=True)
+        enabled_devices = set()
+        confirmation_prompted = False
+        next_visual = 0.0
+        dropout_was_holding=False
+
+        def check_monitor():
+            if real_viewer is not None and not real_viewer.is_running():
+                raise SafetyFault("visualization closed or failed; stopping without HOME")
+
+        def update_monitor(packet, measured, *, force=False):
+            nonlocal next_visual
+            if real_viewer is None:
+                return
+            check_monitor()
+            now_ns = time.monotonic_ns()
+            if not force and now_ns / 1e9 < next_visual:
+                return
+            actual = {
+                name: tuple(value.position_rad) for name, value in measured.items()
+                if value.healthy and 0 <= now_ns - value.received_monotonic_ns
+                <= config["safety"]["feedback_timeout_s"] * 1e9
+            }
+            target = (gate.display_targets if gate.armed else {
+                name: packet.positions(name) for name in devices
+                if packet is not None and packet.flags & DEVICE_READY_FLAGS[name]
+                and -5_000_000 <= now_ns - packet.timestamp_ns
+                <= config["safety"]["command_timeout_s"] * 1e9
+            })
+            phase=gate.phase
+            if calibration_guard is not None and not gate.armed:
+                cal_state=getattr(packet,'calibration_state',0)
+                phase={0:'C REQUIRED',1:'C SAMPLING',2:'C OK - ENTER TO ALIGN',3:'C LOCKED',4:'C FAILED - RETRY'}.get(cal_state,'C REQUIRED')
+            real_viewer.publish(actual, target, phase)
+            next_visual = now_ns / 1e9 + 1.0 / 30.0
+
+        if staged:
+            update_monitor(None, measured, force=True)
+            print("Enter 1: slow alignment; READY then Enter 2: teleop; "
+                  "Enter 3 during teleop: slow HOME then disable.\n"
+                  "Enter during ALIGNING/HOMING, Ctrl+C, or closing the window: "
+                  "stop immediately without HOME. Keep the physical emergency stop reachable.",
+                  flush=True)
+
+        def check_source():
+            check_monitor()
+            if enter_pressed():
+                raise KeyboardInterrupt
+            if args.duration and time.monotonic() - started >= args.duration:
+                raise SafetyFault("session duration expired before enable completed")
+            current = receiver.drain(lambda frame: gate.observe_source(frame, time.monotonic_ns()))
+            if current is None:
+                raise SafetyFault("controller source disappeared during enable")
+            gate.observe_source(current, time.monotonic_ns())
+            for name in enabled_devices:
+                gate.check_feedback(name, hardware[name].read_feedback(), time.monotonic_ns(),
+                                    require_enabled=True)
+
+        with tempfile.TemporaryDirectory(prefix="tianji-real-control-") as temporary:
+            controller_config = controller_configuration(config, base, measured, Path(temporary) / "controller.yaml")
+            if session_log is not None:
+                session_log.persist_controller_configuration(
+                    controller_config, source=str(resolve(base, config["controller_config"])))
+            pico_port = config["pico_port"]
+            if "arms" not in devices:
+                # SPARK keeps its original PICO-enabled control contract, but a
+                # hand-only executor neither consumes the user's arm port nor
+                # authorizes any arm output.
+                with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as reserved:
+                    reserved.bind(("127.0.0.1", 0))
+                    pico_port = reserved.getsockname()[1]
+            command = [str(viewer),
+                       "--config", str(controller_config), "--model", str(resolve(base, config["controller_model"])),
+                       "--headless", "--continuous", "--hand-teleop", "--hand-port", str(config["hand_port"]),
+                       "--pico-port", str(pico_port), "--joint-command-host", "127.0.0.1",
+                       "--joint-command-port", str(receiver.port)]
+            command.append("--pico-teleop")
+            process_options={}
+            if event_channel:
+                command.extend(receiver.arguments())
+                process_options['pass_fds']=(receiver.writer.fileno(),)
+            controller = subprocess.Popen(command, cwd=str(workspace()), start_new_session=True,
+                                          stdin=subprocess.DEVNULL, **process_options)
+            if event_channel: receiver.writer.close()
+            started = time.monotonic()
+            next_report = started
+            last_reason = "waiting for controller packets"
+            period_s = 1.0 / config["safety"]["rate_hz"]
+            while not stop_requested:
+                cycle_deadline = time.monotonic() + period_s
+                observer.update_state(log_phase(gate, "TELEOP" if gate.armed else "WAITING"))
+                check_monitor()
+                if collection is not None:
+                    collection.check()
+                if args.confirm_real and gate.armed and not staged and enter_pressed():
+                    print("ENTER: stopping and disabling selected devices", flush=True)
+                    final_reason = "operator stopped and disabled the selected devices"
+                    break
+                now = time.monotonic()
+                if args.duration and now - started >= args.duration:
+                    final_reason = "session duration expired"
+                    break
+                if controller.poll() is not None:
+                    raise SafetyFault(f"control process exited ({controller.returncode})")
+                packet = receiver.drain(
+                    (lambda frame: gate.observe_source(frame, time.monotonic_ns())) if gate.armed else None)
+                if packet is None:
+                    if now - started > config["startup_timeout_s"]:
+                        raise SafetyFault("controller did not publish joint commands")
+                    time.sleep(.005)
+                    continue
+                if not args.confirm_real:
+                    now_ns = time.monotonic_ns()
+                    if session_log is not None:
+                        session_log.sample(packet, measured, log_phase(gate, "DRY"), now_ns)
+                    try:
+                        gate.validate_targets(packet, now_ns)
+                        last_reason = "target bounds and input freshness valid; hardware feedback NOT tested"
+                    except SafetyFault as error:
+                        last_reason = str(error)
+                    if now >= next_report:
+                        print(f"DRY packets={receiver.count} flags={packet.flags} status={last_reason}", flush=True)
+                        next_report = now + 1
+                elif not gate.armed:
+                    measured = {name: device.read_feedback() for name, device in hardware.items()}
+                    # Blocking SDK reads can outlive the previously received target.
+                    # Check the latest packet and feedback against a post-read clock.
+                    packet = receiver.drain()
+                    now = time.monotonic()
+                    update_monitor(packet, measured)
+                    now_ns = time.monotonic_ns()
+                    calibration_enter=False
+                    if calibration_guard is not None:
+                        # Poll even before readiness, so C is usable while
+                        # calibration deliberately revokes arm readiness.
+                        calibration_enter=enter_pressed()
+                        confirmation_prompted=True
+                        if calibration_guard.lock_pending and calibration_enter:
+                            raise SafetyFault('operator interrupted calibration lock/enable')
+                        if calibration_guard.lock_pending:
+                            calibration_guard.lock_acknowledged(packet,now_ns)
+                    if session_log is not None:
+                        session_log.sample(packet, measured, log_phase(gate, "WAITING"), now_ns)
+                    try:
+                        gate.check_enable_ready(packet, measured, now_ns)
+                    except SafetyFault as error:
+                        last_reason = str(error)
+                        if not confirmation_prompted and now - started > config["startup_timeout_s"]:
+                            raise SafetyFault(f"arming preflight timed out: {last_reason}")
+                        if now >= next_report:
+                            status.update(f"NOT ENABLED: {last_reason}")
+                            next_report = now + 0.5
+                        time.sleep(.005)
+                        continue
+                    if staged:
+                        status.update(_STAGED_STATUS["WAITING"])
+                        confirmation_prompted = True
+                    elif not confirmation_prompted:
+                        print("Physical emergency stop must be reachable.\n"
+                              f"Enable sequence: {enable_sequence(config, devices)}.\n"
+                              f"Press ENTER to enable {', '.join(devices)}; press ENTER again to stop and disable:",
+                              flush=True)
+                        confirmation_prompted = True
+                    if calibration_guard is not None:
+                        if calibration_enter:
+                            calibration_guard.request_lock(packet,now_ns)
+                            continue
+                        enter_authorized=calibration_guard.lock_acknowledged(packet,now_ns)
+                    else:
+                        enter_authorized=enter_pressed()
+                    if not enter_authorized:
+                        remaining = cycle_deadline - time.monotonic()
+                        if remaining > 0:
+                            time.sleep(remaining)
+                        continue
+                    # Reception stays live while waiting. Recheck the latest frame
+                    # and feedback after confirmation, before any motor authority.
+                    measured = {name: device.read_feedback() for name, device in hardware.items()}
+                    packet = receiver.drain()
+                    now_ns = time.monotonic_ns()
+                    if session_log is not None:
+                        session_log.sample(packet, measured, log_phase(gate, "LIVE"), now_ns)
+                    if collection is not None:
+                        collection.check_before_enable()
+                    gate.arm(packet, measured, now_ns)
+                    observer.update_state(log_phase(gate, "TELEOP"))
+                    for name, device in hardware.items():
+                        check_source()
+                        device.enable(guard=check_source)
+                        enabled_devices.add(name)
+                        check_source()
+                    if staged:
+                        status.update(_STAGED_STATUS["ALIGNING"])
+                        update_monitor(packet, measured, force=True)
+                    else:
+                        print("REAL OUTPUT ARMED: returning to zero, then ramping to the current input pose; "
+                              "ENTER stops and disables; stale input, reset or feedback fault also stops this session",
+                              flush=True)
+                else:
+                    measured = {name: device.read_feedback() for name, device in hardware.items()}
+                    if staged:
+                        # Keep every source fault observable during blocking SDK reads.
+                        packet = receiver.drain(
+                            lambda frame: gate.observe_source(frame, time.monotonic_ns()))
+                        if enter_pressed():
+                            if gate.phase == "READY":
+                                gate.start_teleop(packet, measured, time.monotonic_ns())
+                                observer.update_state(gate.phase)
+                            elif gate.phase == "TELEOP":
+                                if collection is not None:
+                                    observer.abort()
+                                gate.start_homing(packet, measured, time.monotonic_ns())
+                                observer.update_state(gate.phase)
+                            else:
+                                status.update("STOPPING")
+                                final_reason = f"operator stopped during {gate.phase}"
+                                break
+                    now_ns = time.monotonic_ns()
+                    if session_log is not None:
+                        # Sampled before the step, so a frame that fails a gate
+                        # check stays in the ring with the exact state it saw.
+                        session_log.sample(packet, measured, log_phase(gate, "LIVE"), now_ns)
+                    outputs = gate.step(packet, measured, now_ns)
+                    observer.update_state(log_phase(gate, "TELEOP"))
+                    if staged:
+                        message=_STAGED_STATUS[gate.phase]
+                        if bounded and gate._resync_since is not None:
+                            message+=' | 同 epoch 重同步待确认：保持最后命令（上限 100 ms）'
+                        holding=dropout and gate._dropout_since is not None
+                        if holding:
+                            message='PICO 短暂掉线：保持最后命令（距最后有效输入最多 300 ms） | '+message
+                        elif dropout_was_holding:
+                            status.update('PICO 已恢复：从保持命令限速继续')
+                            status.finish()
+                        dropout_was_holding=holding
+                        status.update(message)
+                        update_monitor(packet, measured)
+                        if gate.phase == "HOME_REACHED":
+                            final_reason = "staged sequence reached HOME_REACHED"
+                            break
+                    for name, positions in outputs.items():
+                        hardware[name].send(positions)
+                        if session_log is not None:
+                            # Only a successful send is a command; gate output alone is not.
+                            session_log.record_send(name, positions)
+                # Work belongs to this period. Overruns start a fresh cycle;
+                # never accumulate missed deadlines or burst catch-up commands.
+                remaining = cycle_deadline - time.monotonic()
+                if remaining > 0:
+                    time.sleep(remaining)
+            if not args.confirm_real:
+                print(f"DRY COMPLETE packets={receiver.count}; no hardware commands sent", flush=True)
+                final_reason = f"dry run ended without hardware output; packets={receiver.count}"
+                if receiver.count == 0:
+                    result = 1
+    except KeyboardInterrupt as error:
+        status.finish()
+        print("Stopping session", flush=True)
+        outcome = "interrupted"
+        reason = "stop requested before the session completed"
+        for note in getattr(error, "__notes__", ()):
+            print(f"HARDWARE CLEANUP WARNING: {note}; verify physical emergency stop", file=sys.stderr, flush=True)
+            cleanup_errors.append(f"HARDWARE CLEANUP WARNING: {note}")
+            result = 1
+    except (OSError, RuntimeError, ValueError, KeyError, EOFError) as error:
+        status.finish()
+        outcome = "failed"
+        reason, error_details = error_reason(error)
+        print(f"REAL EXECUTOR STOP: {reason}", file=sys.stderr, flush=True)
+        for note in getattr(error, "__notes__", ()):
+            print(f"HARDWARE CLEANUP WARNING: {note}; verify physical emergency stop", file=sys.stderr, flush=True)
+            cleanup_errors.append(f"HARDWARE CLEANUP WARNING: {note}")
+        result = 1
+    finally:
+        pending = sys.exc_info()[1]
+        status.finish()
+        if keyboard is not None:
+            try:
+                keyboard.close()
+            except Exception as error:
+                print(f"operator terminal restore failed: {error}", file=sys.stderr, flush=True)
+                cleanup_errors.append(f"operator terminal restore failed: {error}")
+                result = 1
+        # Ignore repeated terminal interrupts while releasing owned hardware.
+        for sig in handlers:
+            signal.signal(sig, signal.SIG_IGN)
+        if observer is not None:
+            observer.update_state("STOPPED", faulted=result != 0 or pending is not None,
+                                  detail=reason or final_reason or "executor stopping")
+            if collection is not None:
+                observer.abort()
+        if sampler is not None:
+            sampler.request_stop()
+        if session_log is not None:
+            # Include partial successful sends and failures outside gate.step.
+            # This is still an in-memory append; disk writes follow all cleanup.
+            session_log.sample(packet, measured, log_phase(gate, "PREFLIGHT"), time.monotonic_ns())
+        # Stop every selected device before any close can join callbacks or wait
+        # for disconnect/disable feedback and delay another device's stop request.
+        for operation in ("stop", "close"):
+            for name, device in reversed(tuple(hardware.items())):
+                try:
+                    getattr(device, operation)()
+                except Exception as error:
+                    print(f"{name} {operation} could not be confirmed: {error}; use physical emergency stop", file=sys.stderr)
+                    cleanup_errors.append(f"{name} {operation} could not be confirmed: {error}")
+                    result = 1
+        try:
+            stop_controller(controller)
+        except Exception as error:
+            message = f"controller cleanup failed: {error}"
+            print(message, file=sys.stderr, flush=True)
+            cleanup_errors.append(message)
+            result = 1
+        if receiver is not None:
+            try:
+                receiver.close()
+            except Exception as error:
+                message = f"command receiver cleanup failed: {error}"
+                print(message, file=sys.stderr, flush=True)
+                cleanup_errors.append(message)
+                result = 1
+        if real_viewer is not None:
+            try:
+                real_viewer.close()
+            except Exception as error:
+                print(f"visualization cleanup failed: {error}", file=sys.stderr, flush=True)
+                cleanup_errors.append(f"visualization cleanup failed: {error}")
+                result = 1
+        if sampler is not None:
+            try:
+                sampler.close()
+            except Exception as error:
+                cleanup_errors.append(f"feedback sampler cleanup failed: {error}")
+                result = 1
+        if collection is not None:
+            # Motors have been released before camera/manager joins or any
+            # still-pending background save can block. Unconfirmed segments stay partial.
+            try:
+                collection.finish()
+            except (Exception, KeyboardInterrupt) as error:
+                print(f"DATASET NOT PUBLISHED: {error}", file=sys.stderr, flush=True)
+                cleanup_errors.append(f"dataset finalization failed: {error}")
+                result = 1
+        if observer is not None:
+            try:
+                observer.close()
+            except Exception as error:
+                cleanup_errors.append(f"executor DDS cleanup failed: {error}")
+                result = 1
+        # Hardware and controller are stopped before the records are written.
+        if session_log is not None:
+            if outcome is None:
+                if pending is not None:
+                    outcome = "exception"
+                    result = 1
+                    reason, error_details = error_reason(pending)
+                else:
+                    outcome = "failed" if result else "completed"
+                    reason = final_reason or ("cleanup failed" if cleanup_errors else "session ended")
+            try:
+                session_log.finish(outcome=outcome, reason=reason, result=result,
+                                   cleanup_errors=cleanup_errors, error_details=error_details)
+            except (OSError, TypeError, ValueError) as error:
+                print(f"RUN LOG WRITE FAILED: {error}; logs may be incomplete", file=sys.stderr, flush=True)
+                result = 1
+        for sig, handler in handlers.items():
+            signal.signal(sig, handler)
+    return result
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

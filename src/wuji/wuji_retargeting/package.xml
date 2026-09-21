@@ -1,0 +1,54 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>wuji_retargeting</name>
+  <version>0.3.0</version>
+  <description>
+    Owned Wuji hand retargeting: optimizers with the mandatory C++17/pybind11
+    analytical geometry kernel, input-device adapters, the tuning viewer, and the
+    bundled hand model assets (URDF/MJCF/meshes). Imports as `wuji_retargeting`
+    plus the `example` package that ships the runnable commands.
+  </description>
+  <maintainer email="ops@example.com">Tianji operators</maintainer>
+  <license>MIT</license>
+
+  <depend>rclpy</depend>
+  <depend>std_msgs</depend>
+
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-scipy</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
+  <exec_depend>python3-opencv</exec_depend>
+  <exec_depend>mujoco</exec_depend>
+  <exec_depend>nlopt</exec_depend>
+  <exec_depend>pinocchio</exec_depend>
+  <exec_depend>pyrealsense2</exec_depend>
+
+  <!-- Optional device SDKs, imported lazily by the matching input backend. -->
+  <exec_depend>mediapipe</exec_depend>
+  <exec_depend>wuji-sdk</exec_depend>
+  <exec_depend>wujihandpy</exec_depend>
+  <exec_depend>avp-stream</exec_depend>
+  <exec_depend>pyzed</exec_depend>
+
+  <!-- ament_index_python/launch are used by the vendored MuJoCo simulator's
+       display launch files under example/utils/mujoco-sim/. -->
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+
+  <!-- tianji.hand_protocol is the single TJH2 encoder; this package publishes
+       hand targets through it. The edge is one-way: tianji_tools never imports
+       wuji_retargeting. -->
+  <exec_depend>tianji_tools</exec_depend>
+
+  <build_depend>pybind11</build_depend>
+
+  <test_depend>python3-pytest</test_depend>
+  <test_depend>tianji_interfaces</test_depend>
+  <test_depend>tianji_description</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

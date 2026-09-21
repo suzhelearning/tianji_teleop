@@ -1,0 +1,28 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>pico2_hands</name>
+  <version>0.3.0</version>
+  <description>
+    PICO2 bare-hand simulation with default V131 or opt-in shared-root DLS.
+    Ships no ROS nodes and never opens hardware: TCP hand tracking in, MuJoCo
+    direct-joint display out. V131 and Hand2 workers belong to this package;
+    the DLS worker shares the main native controller.
+  </description>
+  <maintainer email="ops@example.com">Tianji operators</maintainer>
+  <license>Apache-2.0</license>
+
+  <exec_depend>tianji_interfaces</exec_depend>
+  <exec_depend>tianji_description</exec_depend>
+  <exec_depend>tianji_controller</exec_depend>
+  <exec_depend>simulation</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-scipy</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

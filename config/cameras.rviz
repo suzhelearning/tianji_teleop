@@ -1,0 +1,105 @@
+# Image panels show raw RGB without requiring transforms between the cameras.
+# Optional frusta below use only the official driver's CameraInfo. Enable them
+# after selecting a fixed frame connected by real, calibrated TF; no extrinsics
+# or camera intrinsics are fabricated here.
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+  - Class: rviz_common/Views
+    Name: Views
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Class: rviz_default_plugins/Image
+      Enabled: true
+      Name: Top RGB
+      Normalize Range: false
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /cameras/top/color/image_raw
+      Value: true
+    - Class: rviz_default_plugins/Image
+      Enabled: true
+      Name: Left Wrist RGB
+      Normalize Range: false
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /cameras/left_wrist/color/image_raw
+      Value: true
+    - Class: rviz_default_plugins/Image
+      Enabled: true
+      Name: Right Wrist RGB
+      Normalize Range: false
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /cameras/right_wrist/color/image_raw
+      Value: true
+    - Class: rviz_common/Group
+      Enabled: false
+      Name: Driver CameraInfo (requires calibrated TF)
+      Displays:
+        - Class: rviz_default_plugins/CameraInfo
+          Enabled: true
+          Name: Top CameraInfo
+          Topic:
+            Depth: 5
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Best Effort
+            Value: /cameras/top/color/camera_info
+          Value: true
+        - Class: rviz_default_plugins/CameraInfo
+          Enabled: true
+          Name: Left Wrist CameraInfo
+          Topic:
+            Depth: 5
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Best Effort
+            Value: /cameras/left_wrist/color/camera_info
+          Value: true
+        - Class: rviz_default_plugins/CameraInfo
+          Enabled: true
+          Name: Right Wrist CameraInfo
+          Topic:
+            Depth: 5
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Best Effort
+            Value: /cameras/right_wrist/color/camera_info
+          Value: true
+      Value: false
+  Enabled: true
+  Global Options:
+    Background Color: 48; 48; 48
+    Fixed Frame: ""
+    Frame Rate: 30
+  Name: root
+  Tools:
+    - Class: rviz_default_plugins/Interact
+    - Class: rviz_default_plugins/MoveCamera
+  Transformation:
+    Current:
+      Class: rviz_default_plugins/TF
+  Value: true
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Distance: 2
+      Name: Current View
+      Target Frame: <Fixed Frame>
+    Saved: ~
+Window Geometry:
+  Height: 900
+  Hide Left Dock: false
+  Hide Right Dock: false
+  Width: 1440

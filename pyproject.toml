@@ -1,40 +1,22 @@
-[build-system]
-requires = ["setuptools>=68,<80", "pybind11>=2.13,<4"]
-build-backend = "setuptools.build_meta"
+# Workspace metadata and development/test configuration only.
+#
+# This file used to build every business module from the workspace root with
+# setuptools. It no longer does: each component is a real ament package under
+# src/ that `pixi run build` builds with colcon, and Pixi owns every runtime
+# dependency. The workspace root therefore ships no importable Python package,
+# no console script (the `tianji` entry point belongs to src/tools/tianji_tools)
+# and no extension module (the retargeting extension belongs to
+# src/wuji/wuji_retargeting).
 
 [project]
 name = "tianji-teleop"
-version = "0.2.0"
+version = "0.3.0"
 description = "Collection-centered Tianji teleoperation, calibration and retargeting"
-requires-python = ">=3.10"
-dependencies = ["numpy>=1.26,<3", "PyYAML>=6,<7"]
-
-[project.optional-dependencies]
-collection = ["h5py>=3.11,<4", "opencv-python>=4.11,<5", "mujoco>=3.3.2,<4", "pyrealsense2>=2.58,<3"]
-retargeting = ["nlopt>=2.9,<3", "pin==3.8.0", "cmeel-urdfdom>=4,<5", "cmeel-tinyxml2>=10,<11", "scipy>=1.11,<2", "wuji-sdk>=0.10", "mujoco>=3.3.2,<4"]
-test = ["pytest>=8,<9"]
-tracking = ["colcon-common-extensions", "setuptools>=68,<80", "empy>=3.3.4,<4", "matplotlib>=3.8,<4"]
-mocap-policy = ["h5py>=3.11,<4", "scipy>=1.11,<2", "torch==2.10.0", "eclipse-zenoh>=1.10,<2", "mujoco>=3.3.2,<4", "Pillow>=10,<13"]
-
-[project.scripts]
-tianji = "tianji.cli:main"
+requires-python = ">=3.12"
 
 [tool.setuptools]
-py-modules = ["teleop_profile"]
-
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["tianji*", "real_robot*", "data_collection*", "sim*", "manus*", "retargeting*", "mocap_policy_runtime*"]
-exclude = ["*.tests*", "*.test*", "*.build*", "*.wuji-description*", "*.mujoco-sim*"]
-namespaces = false
-
-[tool.setuptools.package-data]
-data_collection = ["visualize.html"]
-retargeting = ["LICENSE"]
-"retargeting.wuji_retargeting" = ["wuji-description/**/*"]
-"retargeting.example" = ["config/*.yaml", "config/**/*.yaml", "data/*", "data/**/*", "utils/mujoco-sim/**/*"]
-manus = ["calibration/*.mcal"]
-mocap_policy_runtime = ["configs/*.yaml", "native/*.cpp"]
+# Explicitly empty: nothing at the workspace root is packaged any more.
+packages = []
 
 [tool.pytest.ini_options]
-testpaths = ["tests", "real_robot/tests", "data_collection/tests", "sim/tests", "manus/tests", "retargeting/tests", "tracking/src/pico_bridge/test"]
+testpaths = ["src/data_collector/tests", "src/simulation/simulation/tests"]

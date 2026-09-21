@@ -1,0 +1,8 @@
+# Simulation Python dependencies; the workspace Pixi `default` environment
+# provides these pins. Not a separate virtualenv and not an upgrade of the
+# existing routes.
+numpy==2.4.6
+scipy==1.17.1
+h5py==3.16.0
+PyYAML==6.0.3
+mujoco==3.10.0

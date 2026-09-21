@@ -24,8 +24,8 @@ pixi run manus --calibration-user MANUS_USER --check
 pixi run manus --calibration-user MANUS_USER
 
 # 终端 B：PICO 人员选择 + DLS/Ruckig 双臂 + 默认双手接收
-bash teleop.sh --sim --user NEW_USER
-# 不使用手套：bash teleop.sh --sim --user NEW_USER --no-hand-teleop
+bash bash/run_teleop.sh --sim --user NEW_USER
+# 不使用手套：bash bash/run_teleop.sh --sim --user NEW_USER --no-hand-teleop
 ```
 
 首次使用不要跳过下方安装、PICO 标定和 Manus 准备步骤。PICO 人员名与 Manus 标定名
@@ -46,19 +46,21 @@ git lfs pull
 sudo apt-get update
 sudo apt-get install build-essential libudev1 libusb-1.0-0 zlib1g adb tmux
 
-bash install.sh --check
-bash install.sh
+bash bash/install.sh --check
+bash bash/install.sh
 ```
 
-`install.sh` 使用仓库内 Pixi 环境并编译控制器、tracking、Manus 和外骨骼组件，
-另创建供旧路线／真机／采集使用的根 `.venv`；不会启动设备。
-当前标定与 DLS/Ceres 仿真入口由 Pixi 选择解释器，无需手动激活环境。
+`bash/install.sh` 按锁文件安装 default、control、cameras、manus、policy 及独立外骨骼／PICO2
+环境，构建 default/policy ROS 工作空间、原生控制器和 Manus；不会启动设备。
+默认运行环境为 **ROS 2 Jazzy＋Python 3.12＋Fast DDS**。控制工具链、官方 RealSense
+4.58.3 驱动和 ROS-free Manus 重定向分别隔离，入口自动选择环境，不创建或使用旧 `.venv`。
+构建输出为 `build/<环境>`、`install/<环境>`、`log/<环境>`，原生程序在 `install/control/bin/`。
+不要 source 旧 tracking/Humble 或其他环境的 overlay。
 
 已有环境、更新相关代码后重新编译：
 
 ```bash
 pixi run build
-pixi run -e tracking build-tracking
 ```
 
 不要复制其他电脑的环境、构建产物或个人标定；安装后也不要随意移动工程目录。
@@ -68,12 +70,14 @@ pixi run -e tracking build-tracking
 先退出旧遥操执行端，再停止旧 PICO 输入；真机保持未使能。
 戴好头显，打开 **VR 手柄数据采集 APK**，连接 USB、允许调试，固定手柄握持方式。
 
+运行简化标定向导，显式指定实际人员名和身高：
+
 ```bash
-pixi run -e tracking setup-pico --user NEW_USER --height-m 1.70
+pixi run setup-pico --user NEW_USER --height-m 1.70
 ```
 
-也可运行 `pixi run -e tracking setup-pico`，按提示输入人员名和身高。
-向导自动启动原始 PICO 驱动，**不要同时另开 pico-driver 或 pico.sh**。
+向导自行启动原始 PICO 驱动，**不要同时另开 PICO 驱动或 `bash bash/run_pico.sh`**。
+以下是向导内的步骤；需要双侧实测 TCP／腕轴／骨长时，改用[完整标定流程](README-reference.md#附录pico-标定命令)，不要混用两套流程。
 
 1. 确认接受简化模型：实测左 TCP，右 TCP 镜像推导，双侧骨长按身高估计。
 2. 左 TCP 位置：掌心参考点保持不动，明显改变手柄朝向，按提示采集四次。
@@ -91,7 +95,7 @@ pixi run -e tracking setup-pico --user NEW_USER --height-m 1.70
 骨架检查后，另开终端，在同一工程目录执行：
 
 ```bash
-bash teleop.sh --sim --user NEW_USER
+bash bash/run_teleop.sh --sim --user NEW_USER
 # 等价入口：pixi run sim --user NEW_USER
 ```
 
@@ -115,7 +119,7 @@ bash teleop.sh --sim --user NEW_USER
 无需再写 `--hand-teleop`；仅双臂使用 `--no-hand-teleop`，不占用手部端口。
 没有 Manus 数据时手指保持，不妨碍双臂接入；Manus 不会自动启动。
 两种模式均不导出硬件指令，不等于动力学或真机验收。
-故障处理与详细状态说明见[DLS/Ceres 交互仿真](control/docs/verification/ceres_interactive_sim.md)。
+故障处理与详细状态说明见[DLS/Ceres 交互仿真](src/tianji/tianji_controller/native/docs/verification/ceres_interactive_sim.md)。
 
 ## 4. 结束与下次启动
 
@@ -123,7 +127,7 @@ bash teleop.sh --sim --user NEW_USER
 如果复用了已有会话（例如标定向导启动的骨架），会保留它，结束时再手动停止：
 
 ```bash
-pixi run -e tracking stop-pico
+pixi run stop-pico
 ```
 
 自动清理只匹配本次仿真的会话标记，不停止其他／后来重建的 PICO 会话，也不停止 Manus。
@@ -136,7 +140,7 @@ pixi run -e tracking stop-pico
 同一人员、标定与握持方式未变时，下次无需重新标定，直接运行：
 
 ```bash
-bash teleop.sh --sim --user NEW_USER
+bash bash/run_teleop.sh --sim --user NEW_USER
 ```
 
 换人、改身高或改变手柄固定方式后，先停止旧会话，再重新标定并检查骨架。
@@ -147,65 +151,63 @@ bash teleop.sh --sim --user NEW_USER
 简化标定按身高估计骨长；共享根映射再根据输入肩宽和臂展调整尺度，不固定为 1.62 m。
 但模板骨长不是实际测量，不能保证不同臂长比例的人有完全相同的手感。
 
-1.62 m 录制的 11 组合成测试中，等比例 1.45～1.95 m 的映射目标几乎一致；
+2026-09-20 的历史实验使用 1.62 m 录制构造 11 组合成测试，等比例 1.45～1.95 m 的映射目标几乎一致；
 单独改变肩宽或骨段比例会产生厘米级目标差异。全部组最终几何闭合，
 **不代表真人换人、IK、碰撞或真机验收通过**。
-详见[合成人体映射报告](control/docs/verification/synthetic_body_mapping_20260920.md)。
+详见[合成人体映射报告](src/tianji/tianji_controller/native/docs/verification/synthetic_body_mapping_20260920.md)；不是本次迁移重跑的验收结果。
 
 ## PICO2 裸手与手势识别遥操
 
 头显使用 **裸手跟踪 APK**，不是 VR 手柄 APK。先停止旧 PICO、Manus、外骨骼和执行器；
-本路线不运行 `setup-pico`、`pico.sh` 或 Manus，不使用上面的手柄 TCP 标定。
+本路线不运行 `setup-pico`、`bash/run_pico.sh` 或 Manus，不使用上面的手柄 TCP 标定。
 
 ```bash
 # 首次／原生代码更新后构建
-pixi install --locked --manifest-path pico2_hands/tools/wuji_hand_native/pixi.toml
-bash pico2_hands/build_native.sh
+pixi install --locked --manifest-path src/teleop_inputs/pico2_hands/tools/wuji_hand_native/pixi.toml
+bash src/teleop_inputs/pico2_hands/build_native.sh
 
 # 连接头显并授权 USB 调试后
 adb devices -l
 adb forward tcp:10002 tcp:10002
-bash pico2_sim.sh
+bash bash/run_pico2_sim.sh
 ```
 
 默认显示双臂和双 Hand2，使用原版 V131 IK；只测试机械臂可加 `--disable-hands`。
 S 接管；C 可选前伸 X/Z 标定；H 回 Home；Q／Ctrl+C 回 Home 并退出。
 窗口／终端显示张手、握拳、捏合等观察标签，**手势识别不自动使能或停止**。
 目前仅支持仿真，抖动和跟踪效果仍待验收，不能直接用于真机。
-Python 依赖、录制参数和故障行为见[PICO2 裸手说明](pico2_hands/README.md)。
+Python 依赖、录制参数和故障行为见[PICO2 裸手说明](src/teleop_inputs/pico2_hands/README.md)。
 
-新增独立的**身高＋C 共享根映射＋Franka DLS/Ruckig**模式（仅仿真，现场待验收）：
+已融合 upstream `90c575f` 的独立**身高＋C 共享根映射＋Franka DLS/Ruckig**模式：
 
 ```bash
 pixi run --locked build
-bash pico2_sim.sh --mapping-mode shared-root --height-m 1.62
+bash bash/run_pico2_sim.sh --mapping-mode shared-root --height-m 1.62
 ```
 
-替换实际身高；双臂前伸、双手间距约肩宽、掌心相对，面向前方按 C 保持约 1 秒，
-成功后按 S。H 仅回双臂、手指保持；短时丢帧制动后可有界自动续接，
-长时断流、重连、主动 P/H 仍需人工恢复；P／空格也可在 H 回程中取消回程并制动保持，
-Q／Ctrl+C 退出回程不响应暂停，规则见下方新模式说明。
-这里用头显和 C 建立虚拟人体根，用身高估计肩宽／臂长／腕掌距离，
-复用共享根掌心仿射公式及 DLS 模型和在线 Ruckig；没有实测肩肘，不宣称全身骨架等价。
-输入身份重连后会清除 C；重新 C、静止按 S 时会建立新的求解时间戳 epoch，允许设备重新计时。
-旧 `bash pico2_sim.sh` 行为不变。详细边界见[新模式说明](pico2_hands/README.md)。
+替换为实际身高；双臂前伸、双手间距约肩宽、掌心相对，面向前方按 C 保持约 1 秒，
+成功后按 S。H 仅回双臂、手指保持；P／空格可取消 H 回程并制动保持。
+短时丢帧先制动，满足同连接稳定恢复条件才自动续接；长时断流、重连和主动暂停仍需人工恢复。
+Q／Ctrl+C 回双臂 Home 后退出，退出回程不响应暂停。
+身高模板不是实测肩肘，不等于完整 VR 人体骨架；真实输入精度与实时性仍待现场验收。
+默认 V131 行为不变；详见[新模式说明](src/teleop_inputs/pico2_hands/README.md#身高c共享根dlsruckig-新模式)。
 
 ## PICO＋Manus 双臂＋双手遥操
 
 ### DLS＋Ruckig 双臂＋Manus（新接入）
 
 先按第 2 节完成 PICO 标定。Manus 需要单独的左右 `.mcal` 文件，PICO 标定不会生成它们。
-首次／更新手部原生代码后执行以下准备，Manus 使用仓库内独立 Pixi Python 3.11 环境，
-ROS 使用同仓库 tracking SDK，不再要求根 `.venv`：
+首次／更新手部原生代码后执行以下准备。Manus 采集／ROS 适配由 default Jazzy 环境启动，
+重定向使用独立 Python 3.12＋Pinocchio 3.8、无 ROS 的 manus 环境，经私有通道交接，不混入其他环境的 Python 库：
 
 ```bash
 # SDK 若仍是 Git LFS 占位文件，先取回真实库
-git lfs pull --include="manus/ManusSDK/lib/libManusSDK_Integrated.so"
+git lfs pull --include="vendor/manus_sdk/lib/libManusSDK_Integrated.so"
 pixi run prepare-manus
 ```
 
-该步骤只安装／编译依赖，不连接手套。`pixi run build` 仅编译双臂控制器，不能替代它。
-原有 `bash manus.sh` 的显式 Python／旧环境入口仍保留；推荐使用以下 Pixi 入口。
+该步骤只安装／编译依赖，不连接手套。完整安装已包含它；仅运行 `pixi run build` 不能替代 Manus 准备。
+`bash bash/run_manus.sh` 与下列 Pixi 入口使用同一环境路由，不再使用旧解释器回退。
 两个终端分别运行：
 
 ```bash
@@ -217,13 +219,13 @@ pixi run manus --list-calibration-users
 pixi run manus --calibration-user MANUS_USER
 
 # 终端 B：PICO 人员 + 默认 DLS/Ruckig 双臂 + 手部接收
-bash teleop.sh --sim --user NEW_USER
+bash bash/run_teleop.sh --sim --user NEW_USER
 # 等价：pixi run sim --user NEW_USER
-# 仅双臂：bash teleop.sh --sim --user NEW_USER --no-hand-teleop
+# 仅双臂：bash bash/run_teleop.sh --sim --user NEW_USER --no-hand-teleop
 ```
 
 `--calibration-user` 显式选择 Manus 标定，不依赖旧 `profile.yaml`，不修改人员配置。
-已有完整档案时，终端 A 也可用 `bash manus.sh --user NEW_USER` 保留原映射选择。
+已有完整档案时，终端 A 也可用 `bash bash/run_manus.sh --user NEW_USER` 保留原映射选择。
 不得同时启动两套 Manus 或外骨骼；仿真不自动启动／停止 Manus，退出后在其终端 Ctrl+C。
 
 点击机械臂窗口按 S 后双臂、双手跟随。P／空格停止跟随；H 仅让双臂回 Home，
@@ -245,23 +247,26 @@ Ruckig 用于双臂，手指复用现有插值、时效检查和模型限位，�
 安装完成后，以下三个终端分别运行；`NEW_USER` 必须是实际已有完整档案的佩戴者：
 
 ```bash
-# 终端 A：PICO 输入（与 setup-pico 启动的会话二选一，不重复启动）
-bash pico.sh --user NEW_USER
+# 终端 A：完整档案 PICO 输入（不能与其他输入会话重复启动）
+pixi shell -e default
+source bash/environment.sh
+PICO_PROFILE_DIR=$(python -m tianji profile --user NEW_USER --component pico) &&
+bash bash/start_tianji_pico_teleop.sh --calibration-dir "$PICO_PROFILE_DIR"
 
 # 终端 B：Manus 已开机、配对，保持此终端运行
-bash manus.sh --list-users
-bash manus.sh --user NEW_USER
+bash bash/run_manus.sh --list-users
+bash bash/run_manus.sh --user NEW_USER
 
 # 终端 C：双臂＋双手仿真，必须显式选择旧 SPARK 路线
-bash teleop.sh --sim --ik-backend spark
+bash bash/run_teleop.sh --sim --ik-backend spark
 # 若需要动力学，改用：
-# bash teleop.sh --sim --ik-backend spark --simulation-mode dynamics
+# bash bash/run_teleop.sh --sim --ik-backend spark --simulation-mode dynamics
 ```
 
 此处是旧 SPARK 路线，不能省略 `--ik-backend spark`；新 DLS 路线默认接收手部输入，
 无需再加 `--hand-teleop`。
 先小幅检查双臂，再保持手腕稳定逐指检查左右对应和弯曲方向。
-结束时先退出执行端，再在 Manus 终端 Ctrl+C，最后 `pixi run -e tracking stop-pico`。
+结束时先退出执行端，再在 Manus 终端 Ctrl+C，最后 `pixi run stop-pico`。
 完整接线、环境和诊断见[联合仿真参考](README-reference.md#一仿真遥操作)。
 
 ## 外骨骼替代 Manus
@@ -270,9 +275,9 @@ bash teleop.sh --sim --ik-backend spark
 
 ```bash
 # 已有主环境时补装／更新外骨骼原生组件
-bash install.sh --exoskeleton
-bash exo.sh --check-config
-bash exo.sh
+bash bash/install.sh --exoskeleton
+bash bash/run_exoskeleton.sh --check-config
+bash bash/run_exoskeleton.sh
 ```
 
 默认双手；单侧追加 `--hand left` 或 `--hand right`。
@@ -287,45 +292,57 @@ PICO2 裸手不支持真机。先退出仿真执行端，核对设备 IP、左�
 
 ```bash
 # 只读预检：不使能、不发送目标
-.venv/bin/python real_robot/run_teleop.py --devices all --inspect
+pixi run -e default bash -c 'source bash/environment.sh; exec python -m tianji real --devices all --inspect'
 
 # 所需 PICO 和 Manus／外骨骼输入就绪后，先干跑（不连接硬件）
-.venv/bin/python real_robot/run_teleop.py --devices all --duration 10
+pixi run -e default bash -c 'source bash/environment.sh; exec python -m tianji real --devices all --duration 10'
 
 # 现场安全确认后才运行：双臂＋双 Hand2
-bash teleop.sh --real
+bash bash/run_teleop.sh --real
 ```
 
 `all` 指双臂和左右两手，三路输入／反馈均需就绪。
 默认联合流程在**启动终端**等待提示后依次按 Enter：慢速对齐 → 遥操 → 回 Home 后失能；
 不要提前连续按键，也不要套用仿真窗口 S/H。
-仅双臂可用 `.venv/bin/python real_robot/run_teleop.py --devices arms --confirm-real`，
+仅双臂可用 `pixi run -e default bash -c 'source bash/environment.sh; exec python -m tianji real --devices arms --confirm-real'`，
 仍需先对 `arms` 做只读预检和干跑。mapped-palm 的 C 标定与授权流程另见[专用说明](docs/mapped-palm-real-readiness.md)。
 
 输入失鲜、身份／反馈异常时不要绕过门控；先停止并排查。
 运动使能期间不要按 PICO A 键、重新标定或重启输入。
 正常退出确认设备释放后再停输入；紧急危险使用现场急停。
-`logs/real/` 保存会话日志。软件测试或仿真通过不代表当前设备的真机闭环已验收。
+需要保存外层 console／退出日志时，在已激活 default overlay 的终端使用
+`python -m tianji real --devices all --confirm-real`，日志在 `logs/real/`；
+直接包装器的日志以实际输出为准。软件测试或仿真通过不代表当前设备的真机闭环已验收。
 
 ## 数据采集
 
 观察录制和带真机执行的采集是不同入口，不互相授予运动权限：
 
-- PICO2 裸手仿真录制：`bash pico2_sim.sh --record recordings/pico2_sim/NEW_SESSION.h5`，
-  先创建父目录，每次使用新文件名；完整步骤见[裸手录制说明](pico2_hands/README.md)。
-- 仅观察的数据集录制、相机和 R/S/D 操作见[观察采集](README-reference.md#观测数据集采集r--s--d)。
-- 真机任务采集：`bash teleop.sh --data --task TASK`，沿用真机预检和人工授权，
-  默认写入 `dataset/`，不是只读观察入口。
+- PICO2 裸手仿真录制：`bash bash/run_pico2_sim.sh --record recordings/pico2_sim/NEW_SESSION.h5`，
+  先创建父目录，每次使用新文件名；完整步骤见[裸手录制说明](src/teleop_inputs/pico2_hands/README.md)。
+- 独立观察采集器：`pixi run collect --task TASK`，只订阅 DDS，不连接机器人或打开相机；
+  先用 `pixi run cameras` 启动官方相机节点。R/S/D 仍在真机执行器的交互终端操作，见[观察采集](README-reference.md#观测数据集采集r--s--d)。
+- 真机任务采集：`bash bash/run_teleop.sh --data --task TASK`，沿用真机预检和人工授权。
+  它在设备连接前确认相机验证和 writer 准备完成（prepared），连接后再等待真实反馈 ready。
+  只复用身份、配置和就绪状态匹配的独立会话，退出只停止本次创建的进程，不接管他人会话。
+  默认原始数据为 `/data/TianjiData/raw/YYYYMMDD/`，不是 `dataset/`；
+  `TIANJI_DATASET`／`--dataset` 可覆盖根目录，日期目录内独立保存配置。
+
+`pixi run preview` 是相机话题订阅者，可与采集并行，不再自行打开 SDK pipeline。
+离线压缩使用 `bash bash/compress.sh --date YYYYMMDD`，查看使用
+`bash bash/view.sh --date YYYYMMDD`；默认压缩目录为 `/data/TianjiData/compressed/YYYYMMDD_compressed/`。
+原始文件不删除、不覆盖，显式输出目录不自动追加后缀，详见参考页的[压缩说明](README-reference.md#离线批量压缩固定-jpeg-q50)。
 
 ## 共用 Home 与 Mocap／Regrind
 
 SPARK／mapped-palm 部署入口和真机受保护回位共用
-[`control/mapped_palm/config/home.yaml`](control/mapped_palm/config/home.yaml)。
+[`src/tianji/tianji_description/config/home.yaml`](src/tianji/tianji_description/config/home.yaml)。
 DLS／Ceres 仿真仍使用各自配置中的 Home，不因合并改变其速度或授权流程。
 
 远端新增的 H5 回放、Motive 接入和 Regrind 推理入口保留，详见
-[Mocap／Regrind 操作说明](README-mocap.md)。这些 Pixi task 仍调用独立配置的 `.venv`，
-不是仅安装默认 Pixi 环境即可运行；依赖、模型与设备授权按该说明单独准备。
+[Mocap／Regrind 操作说明](README-mocap.md)。`bash/run_mocap.sh` 将 infer/live/regrind-real/regrind-hand-sim
+路由到同 Jazzy/Python ABI 的 policy 环境及 `install/policy` overlay，H5 回放使用 default。
+policy 锁定 CPU PyTorch 2.10 与 Zenoh；GPU 运行库及模型权重仍须显式准备，CPU 验证不代表 GPU 或真机验收。
 
 ## 进阶说明与测试
 
@@ -336,12 +353,12 @@ DLS／Ceres 仿真仍使用各自配置中的 Home，不因合并改变其速度
 | Ceres LM＋Ruckig 仿真 | `pixi run sim --user NEW_USER --ik-backend ceres` |
 | 旧 SPARK、双臂＋双手仿真 | [完整仿真参考](README-reference.md#一仿真遥操作)；显式选 `--ik-backend spark` |
 | mapped-palm 后端 | [移植与启动说明](docs/mapped-palm-port.md) |
-| PICO2 裸手仿真 | [独立入口](pico2_hands/README.md)，不支持真机 |
+| PICO2 裸手仿真 | [独立入口](src/teleop_inputs/pico2_hands/README.md)，不支持真机 |
 | 双侧实测标定、完整人员档案 | [人员档案参考](README-reference.md#人员档案与标定版本) |
 | Manus／外骨骼输入 | [输入链路参考](README-reference.md#2-启动-manus-灵巧手输入)，一次只选一种 |
 | 真机遥操 | [真机预检与授权流程](README-reference.md#二真机遥操作)，不沿用仿真放行结论 |
 | 数据集／相机／录制 | [采集参考](README-reference.md#观测数据集采集r--s--d) |
-| 控制器与原生测试 | [control/README](control/README.md) |
+| 控制器与原生测试 | [原生控制器 README](src/tianji/tianji_controller/native/README.md) |
 | 安装细节、目录与历史说明 | [完整参考页](README-reference.md) |
 
 真机默认不随仿真 DLS 后端改变。`--user` 的上述自动启动方式仅适用于 DLS/Ceres
@@ -352,6 +369,13 @@ DLS／Ceres 仿真仍使用各自配置中的 Home，不因合并改变其速度
 ```bash
 pixi run test-native
 pixi run test-sim
-pixi run -e tracking test-setup-pico
-pixi run -e tracking test-pico-simple
+pixi run test-pico       # 含旧 PICO 格式的 pico_recorder 回归
+pixi run test-pico2      # 独立裸手路线
+pixi run test-collection
+pixi run test-ros        # 真实 DDS 回环，独立测试域 121；不是硬件验收
+pixi run -e policy test-mocap
 ```
+
+本轮实际安装窗口已完成 DLS/Ceres 的合成输入 S→TELEOP→P/HOLD→H/Home，
+裸 shell 完整安装已通过；这不覆盖真实 PICO／Manus、相机、机器人或 GPU。
+DDS／推理最终回归与证据以[迁移验证状态](docs/migration-verification-status.md)为准，不将历史测试数字当作本轮结果。
