@@ -31,12 +31,7 @@ target_include_directories(pico_tracking_epoch_store PUBLIC
 )
 add_executable(pico_smpl_ground_node src/pico_smpl_ground_node.cpp)
 set_target_properties(pico_smpl_ground_node PROPERTIES OUTPUT_NAME pico_smpl_ground)
-add_executable(pico_foot_imu_fusion_node src/pico_foot_imu_fusion_node.cpp)
-set_target_properties(pico_foot_imu_fusion_node PROPERTIES OUTPUT_NAME pico_foot_imu_fusion)
 target_include_directories(pico_bridge_node PRIVATE
-  ${CMAKE_CURRENT_SOURCE_DIR}/include
-)
-target_include_directories(pico_foot_imu_fusion_node PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 target_include_directories(pico_smpl_ground_node PRIVATE
@@ -49,9 +44,6 @@ ament_target_dependencies(pico_bridge_node
   geometry_msgs
   builtin_interfaces
 )
-ament_target_dependencies(pico_foot_imu_fusion_node
-  rclcpp sensor_msgs geometry_msgs std_srvs
-)
 ament_target_dependencies(pico_smpl_ground_node
   rclcpp std_msgs geometry_msgs
 )
@@ -61,7 +53,6 @@ target_link_libraries(pico_bridge_node pico_tracking_epoch_store)
 
 install(TARGETS pico_bridge_node DESTINATION lib/${PROJECT_NAME})
 install(TARGETS pico_smpl_ground_node DESTINATION lib/${PROJECT_NAME})
-install(TARGETS pico_foot_imu_fusion_node DESTINATION lib/${PROJECT_NAME})
 install(PROGRAMS scripts/smpl_mujoco_visualizer.py DESTINATION lib/${PROJECT_NAME} RENAME smpl_mujoco_visualizer)
 install(PROGRAMS scripts/pico_palm_tcp_calibrator.py DESTINATION lib/${PROJECT_NAME} RENAME pico_palm_tcp_calibrator)
 install(PROGRAMS scripts/pico_palm_wrist_calibrator.py DESTINATION lib/${PROJECT_NAME} RENAME pico_palm_wrist_calibrator)
@@ -94,7 +85,7 @@ install(PROGRAMS
   DESTINATION lib/${PROJECT_NAME})
 install(PROGRAMS scripts/pico_m0_comparison_report.py
   DESTINATION lib/${PROJECT_NAME} RENAME pico_m0_comparison_report)
-install(DIRECTORY launch config DESTINATION share/${PROJECT_NAME})
+install(DIRECTORY launch DESTINATION share/${PROJECT_NAME})
 install(FILES
   test/test_smpl_mujoco_geometry.py
   test/test_pico_palm_tcp_calibrator.py
@@ -120,25 +111,13 @@ if(BUILD_TESTING)
   ament_add_pytest_test(test_sim_user test/test_sim_user.py)
   ament_add_pytest_test(test_pico_startup_safety test/test_pico_startup_safety.py)
   tianji_add_gtest(test_pico_frame test/test_pico_frame.cpp)
-  tianji_add_gtest(test_foot_imu_fusion_math test/test_foot_imu_fusion_math.cpp)
-  tianji_add_gtest(test_foot_imu_input_state test/test_foot_imu_input_state.cpp)
-  tianji_add_gtest(test_auto_calibration_state test/test_auto_calibration_state.cpp)
   tianji_add_gtest(test_smpl_ground_alignment test/test_smpl_ground_alignment.cpp)
   tianji_add_gtest(test_tracking_epoch_store test/test_tracking_epoch_store.cpp)
   target_include_directories(test_tracking_epoch_store PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
   )
   target_link_libraries(test_tracking_epoch_store pico_tracking_epoch_store)
-  target_include_directories(test_auto_calibration_state PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-  )
   target_include_directories(test_pico_frame PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-  )
-  target_include_directories(test_foot_imu_fusion_math PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-  )
-  target_include_directories(test_foot_imu_input_state PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
   )
   target_include_directories(test_smpl_ground_alignment PRIVATE
@@ -163,7 +142,6 @@ if(BUILD_TESTING)
   ament_add_pytest_test(test_pico_m0_comparison_report test/test_pico_m0_comparison_report.py)
   ament_add_pytest_test(test_launch_integration test/test_launch_integration.py)
   ament_add_pytest_test(test_smpl_ground_integration test/test_smpl_ground_integration.py)
-  ament_add_pytest_test(test_imu900_foot_integration test/test_imu900_foot_integration.py)
 endif()
 
 ament_package()

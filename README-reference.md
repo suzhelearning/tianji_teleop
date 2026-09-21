@@ -209,7 +209,7 @@ C 本身不使能、不驱动真机。TELEOP 中第三次 Enter 慢速回 Home�
 | --- | --- |
 | `bash/` | 安装、构建、环境激活和日常操作包装器 |
 | `config/` | 机器人、设备身份、唯一采集／相机配置及 Fast DDS 配置 |
-| `src/teleop_inputs/` | PICO／IMU／Odin、Manus、外骨骼和 PICO2 输入；PICO 旧录制包为 `pico_recorder` |
+| `src/teleop_inputs/` | PICO 手柄、Manus、外骨骼和 PICO 裸手四种主输入；正式观测采集独立位于 `src/data_collector/` |
 | `src/tianji/tianji_cmd_pub/` | PICO 人体目标映射与 TJVR 发布 |
 | `src/tianji/tianji_controller/` | 原生控制算法、Python 真机执行器和反馈发布 |
 | `src/tianji/tianji_description/` | 安装到 share 的机器人模型、网格及共用 Home |
@@ -245,7 +245,7 @@ CRC 对 0–656 字节随机数据及标准校验向量一致，360／464／652 
 ### 精简副本：一键安装与编译
 
 本仓库保留精简副本的源码、模型、厂商 SDK 和现有标定，不包含原仓库历史、旧工程、
-Python／Pixi 环境、构建产物、日志、录制数据及 Odin 私钥。
+Python／Pixi 环境、构建产物、日志、录制数据及私钥。
 Manus SDK 动态库使用 Git LFS 管理；克隆时请先安装 Git LFS，再获取真实库文件：
 
 ```bash
@@ -285,7 +285,6 @@ manus 为 ROS-free Python 3.12／Pinocchio 3.8 重定向；policy 与 default �
 请为依赖、下载缓存和构建产物预留充足磁盘空间，不能只按源码包大小预留。
 安装后不要随意移动或删除 checkout，symlink-install、外骨骼 editable 包和配置资源仍依赖它。
 USB 权限、设备网络地址及个人标定仍须按后续文档配置；已有标定不适用于任意新操作者。
-默认不构建需要另行提供私钥的可选 Odin 组件。
 
 已有主项目环境，仅补装外骨骼输入时执行 `bash bash/install.sh --exoskeleton`。
 该分支安装 `src/teleop_inputs/exoskeleton_bridge/.pixi/envs/default` 并重建其扩展，不重装主环境、不编译控制器／Manus／ROS，也不启动硬件。编译需要 `/usr/bin/gcc`、`/usr/bin/g++`（Ubuntu/Debian 的 `build-essential`）。
@@ -312,7 +311,7 @@ policy 有自己的同名环境前缀。control 原生目标独立构建到 `bui
 安装到 `install/control/bin/`。Manus 原始采集／ROS 适配由 default 启动，通过私有通道接入 manus 重定向，
 不能让 ROS-free manus 环境 source default 的 ROS 或 Python 库。
 
-系统还需 `adb`、`tmux`、USB／网络权限。厂商库通过本仓库 LFS 提供，Odin mTLS 凭证另行配置。
+系统还需 `adb`、`tmux`、USB／网络权限。必需的厂商库通过本仓库 LFS 提供。
 运行包装器不需要手动激活；需要下面的 `python -m tianji` 等直接模块命令时，在该终端先执行：
 
 ```bash
@@ -342,8 +341,6 @@ python -m tianji visualize /data/tianji_jpeg50
 `collect` 仅运行独立 DDS 观察采集器，无 SDK／运动授权；`bash bash/run_teleop.sh --data` 才管理真机采集，仍受 TTY、设备、相机预检和人工 Enter 门控，不能无人值守使能。
 
 - 首次克隆后运行 `git lfs install` 和 `git lfs pull`，获取由 Git LFS 管理的 Manus SDK 动态库。
-- 可选 Odin SDK 的 `src/teleop_inputs/odin/odin-sdk2/sdk/utils/http/certs/certs.h` 含 mTLS 私钥，不纳入版本控制；
-  通过受控渠道提供后再 `pixi run build`，缺失时明确跳过 Odin 包。PICO／Manus 基础遥操不使用它。
 
 真机运行前置条件（本次离线验证不代表已连接硬件）：
 

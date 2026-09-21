@@ -369,7 +369,7 @@ policy 锁定 CPU PyTorch 2.10 与 Zenoh；GPU 运行库及模型权重仍须显
 ```bash
 pixi run test-native
 pixi run test-sim
-pixi run test-pico       # 含旧 PICO 格式的 pico_recorder 回归
+pixi run test-pico       # PICO 手柄输入、标定和会话所有权
 pixi run test-pico2      # 独立裸手路线
 pixi run test-collection
 pixi run test-ros        # 真实 DDS 回环，独立测试域 121；不是硬件验收

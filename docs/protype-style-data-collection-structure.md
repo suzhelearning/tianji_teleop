@@ -20,7 +20,7 @@ updated: 2026-09-21
 - 当前迁移以 `main@90c575f` 为基线，整合原 shared-root DLS／标定／Pixi、Mocap／Regrind 与 PICO2 新模式；最终迁移提交以分支实际提交为准，本文不预填 hash。
 - 早期草案核对过 `6adfb7ab4af93e066e391d1d8acc97037c88873a` 及当时未提交的数据日期目录改动。该历史边界保留：`/data/TianjiData`、按日期配置与压缩规则不能误记为 `6adfb7a` 自带行为。
 - 当前入口在 `bash/`，部署配置在 `config/`，业务包在唯一 `src/` 树，SDK／第三方依赖按其资源闭包归属管理；旧根目录入口不是运行兼容层。
-- 已完成裸 shell 完整安装及安装后的 VR DLS／Ceres 合成输入窗口 `S → TELEOP → P/HOLD → H/Home` 验证。最终 DDS／推理回归仍需按验收记录逐项核对；真实输入、相机、机器人、Odin 凭据和 GPU／模型现场条件不由这些结果覆盖。
+- 已完成裸 shell 完整安装及安装后的 VR DLS／Ceres 合成输入窗口 `S → TELEOP → P/HOLD → H/Home` 验证。DDS／推理回归结果见验收记录；真实输入、相机、机器人和 GPU／模型现场条件不由这些结果覆盖。输入范围现已收敛为 PICO 手柄＋Manus、PICO 手柄＋外骨骼、PICO 裸手仿真三条路线。
 
 ### 1.2 当前路线不能压成一条流水线
 
@@ -80,8 +80,7 @@ tianji_teleop/
 │   │   ├── wuji_controller/             # Hand2 SDK、反馈与命令契约
 │   │   └── wuji_retargeting/            # Python retargeting 包和 _native 扩展
 │   ├── teleop_inputs/
-│   │   ├── pico_bridge/ / pico_recorder/ # recorder 保留原 PICO HDF5＋MP4 格式
-│   │   ├── imu_ros2/ / pico_odin/ / odin_ros_driver/ / odin/
+│   │   ├── pico_bridge/                 # PICO 头显＋手柄
 │   │   ├── manus_bridge/ / exoskeleton_bridge/
 │   │   └── pico2_hands/                 # legacy V131 与显式 shared-root 仿真
 │   ├── cameras/
@@ -265,8 +264,7 @@ Home／fault／离开 TELEOP 或执行器心跳中断保留 partial，不因 col
 
 `bash/environment.sh` 统一校验 Jazzy 和当前环境，加载对应 overlay，清理旧 ROS 前缀污染。
 `bash/install.sh` 安装全部锁定环境、外骨骼和 PICO2，构建 default／policy／control 与 Manus；
-`pixi run build` 和 `pixi run -e policy build` 分别重建自己的 overlay。缺 Odin mTLS 凭据时相关
-Odin 包明确跳过，不能把其他包安装成功说成 Odin 可用。
+`pixi run build` 和 `pixi run -e policy build` 分别重建自己的 overlay，只构建保留的主路线与共用能力。
 `bash/run_mocap.sh` 将 infer/live/regrind-real/regrind-hand-sim 分发到 policy，其余到 default；
 统一 CLI 不意味着统一解释器，shell 保留 `exec`、退出码、终端及信号所有权。
 
@@ -304,7 +302,6 @@ Odin 包明确跳过，不能把其他包安装成功说成 Odin 可用。
 | `retargeting/` | `src/wuji/wuji_retargeting/`；保留 Python 模块 retargeting／_native，按使用环境重建 |
 | PICO／Manus／外骨骼输入 | `src/teleop_inputs/` 对应包；SDK 与自有代码按依赖闭包隔离 |
 | PICO 标定、人员和 owner 管理脚本 | `pico_bridge` 包与 `bash/`；保留发布、取消、人员／版本冲突和 token 限定释放，不补造个人标定 |
-| 原 PICO `data_collector` | `src/teleop_inputs/pico_recorder/`，ROS／Python 包和节点完整改名；保留 `/pico/record_flag` 与 HDF5＋MP4，避免与 schema-v1 collector 冲突 |
 | `pico2_hands/` | `src/teleop_inputs/pico2_hands/`；legacy 默认及显式 shared-root 新模式都仅仿真 |
 | `data_collection/` | `src/data_collector/`；integration→session，writer／压缩／web 随包；订阅预览归 `tianji_cameras` |
 | `mocap_policy_runtime/` | `src/inference/mocap_policy_runtime/`；保留 data／replay／policies／integration／native／configs |
@@ -395,7 +392,7 @@ DLS/Ceres 的 `--user` 仅支持 PICO 端口 `15000`；本次新建的输入会�
 | 一：入口与配置 | `bash/`、`config/`、锁定 Pixi 环境与独立 overlay | 原参数、任务、退出码、信号、人工授权与 Home 差异保留；完整安装不接触硬件 |
 | 二：采集模块 | `src/data_collector/` 独立 DDS collector | schema-v1、日期配置、路径覆盖、显式 destination、partial 与离线读取不变；真实 DDS 服务／失鲜／故障逐项验证 |
 | 三：相机模块 | 官方 4.58.3 节点、统一配置、monitor 与订阅预览 | 单一 pipeline；profile 不匹配失败；真实单台／三台持续采集报告频率与间隔，合成 DDS 不能替代设备验收 |
-| 四：输入模块 | PICO、pico_recorder、Manus、外骨骼、PICO2 两种仿真模式 | 标定发布／取消、人员版本冲突、owner 创建／复用／释放、侧别与失鲜不变；真实佩戴／方向需现场验收 |
+| 四：输入模块 | PICO 手柄、Manus、外骨骼、PICO2 两种仿真模式 | 标定发布／取消、人员版本冲突、owner 创建／复用／释放、侧别与失鲜不变；真实佩戴／方向需现场验收 |
 | 五：控制与模型 | controller／cmd_pub／description，control 安装资源 | 后端、Home、资源定位与原生构建无隐式切换；设备会话、授权、协调停止与释放不回归 |
 | 六：推理与仿真 | simulation 与 inference 包、六个 Mocap 路由及 worker | policy/default 隔离、native worker 和 CPU 可选依赖边界；模型／GPU／Motive／真机显式验收，不混淆录制格式 |
 
@@ -403,7 +400,7 @@ DLS/Ceres 的 `--user` 仅支持 PICO 端口 `15000`；本次新建的输入会�
 
 验证顺序为无硬件导入/构建、协议与数据契约检查、仿真、相机只读实测，最后才是经过现场授权的真机操作。未授权时不启动或使能机器人。
 
-按受影响模块使用 `pixi run test-native`／`test-sim`／`test-collection`／`test-controller`／`test-interfaces`／`test-pico`／`test-pico2`／`test-ros`，以及 `pixi run -e policy test-mocap`。`test-pico` 包含 pico_recorder；PICO 简化标定／owner 子集仍有 `test-pico-simple`／`test-sim-user`。`test-ros` 使用 domain 121 的真实 DDS，不是服务 mock 回显。入口还须实际执行帮助／路径解析和相应窗口 smoke，不能只检查文件存在；本次数字与未完成项统一记录在[迁移验收状态](migration-verification-status.md)，历史功能报告不替代本次部署验收。
+按受影响模块使用 `pixi run test-native`／`test-sim`／`test-collection`／`test-controller`／`test-interfaces`／`test-pico`／`test-pico2`／`test-ros`，以及 `pixi run -e policy test-mocap`。PICO 简化标定／owner 子集仍有 `test-pico-simple`／`test-sim-user`。`test-ros` 使用 domain 121 的真实 DDS，不是服务 mock 回显。入口还须实际执行帮助／路径解析和相应窗口 smoke，不能只检查文件存在；本次数字与未完成项统一记录在[迁移验收状态](migration-verification-status.md)，历史功能报告不替代本次部署验收。
 
 ## 10. 与已有文档的关系
 

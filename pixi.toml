@@ -66,12 +66,8 @@ mujoco-python = "==3.10.0"
 
 # ROS 2 Jazzy.
 #
-# The ROS packages are listed explicitly rather than via `ros-jazzy-desktop`:
-# that metapackage pulls `ros-jazzy-pcl-conversions`, which requires
-# `ros2-distro-mutex >=0.16.0`. That mutex constrains `libprotobuf 7.35.*`,
-# whose only conda-forge builds link `libabseil 20260526.0` — ABI-incompatible
-# with `mujoco-python ==3.10.0` (`libabseil 20260107.1`). Nothing in this
-# workspace uses PCL, so the desktop metapackage is pure cost here.
+# Keep the required ROS packages explicit rather than pulling in ros-jazzy-desktop.
+# The retained input and RGB collection routes do not require PCL.
 ros-jazzy-rmw-fastrtps-cpp = "*"
 # `rosidl-typesupport-c` provides the framework; a concrete implementation is
 # still required or `get_used_typesupports` finds nothing to select.
@@ -105,11 +101,6 @@ ros-jazzy-tf2 = "*"
 ros-jazzy-tf2-ros = "*"
 ros-jazzy-tf2-geometry-msgs = "*"
 ros-jazzy-message-filters = "*"
-# Required by the vendored Odin drivers (depth reprojection, image conversion).
-ros-jazzy-stereo-msgs = "*"
-ros-jazzy-cv-bridge = "*"
-ros-jazzy-tf2-sensor-msgs = "*"
-ros-jazzy-rcpputils = "*"
 ros-jazzy-ros2bag = "*"
 ros-jazzy-ros2launch = "*"
 ros-jazzy-ros2run = "*"
@@ -119,9 +110,6 @@ ros-jazzy-ros2service = "*"
 ros-jazzy-ros2param = "*"
 ros-jazzy-rosbag2-cpp = "*"
 colcon-common-extensions = "*"
-# Required by the vendored Odin driver (post_process_node uses pcl_conversions).
-pcl = ">=1.15,<2"
-ros-jazzy-pcl-conversions = "*"
 
 # RealSense SDK. Device enumeration/stream validation only: the RGB pipeline
 # itself belongs to the official driver in the `cameras` environment.

@@ -1,6 +1,0 @@
-.vscode
-build
-.cache
-cp "$BUILD_DIR/compile_commands.json" "$ROOT_DIR/"
-output
-compile_commands.json

@@ -24,7 +24,7 @@ case "$group" in
   collection)  paths=(src/data_collector/tests) extra=(--ignore=src/data_collector/tests/test_ros_collection.py) ;;
   ros)         paths=(src/data_collector/tests/test_ros_collection.py) ;;
   simulation)  paths=(src/simulation/simulation/tests) ;;
-  pico)        paths=(src/teleop_inputs/pico_bridge/test src/teleop_inputs/pico_recorder/test) ;;
+  pico)        paths=(src/teleop_inputs/pico_bridge/test) ;;
   pico2)       paths=(src/teleop_inputs/pico2_hands/python/pico2_hands/tests) ;;
   retargeting) paths=(src/wuji/wuji_retargeting/tests) ;;
   manus)       paths=(src/teleop_inputs/manus_bridge/tests) ;;

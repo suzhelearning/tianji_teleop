@@ -50,5 +50,3 @@ MUJOCO_LOG.TXT
 /src/teleop_inputs/exoskeleton_bridge/config/dataglove/calibration/*.backup.json
 /src/teleop_inputs/exoskeleton_bridge/config/dataglove/devices/*.bak/
 
-# provision Odin mTLS credentials separately; never commit private keys
-/src/teleop_inputs/odin/odin-sdk2/sdk/utils/http/certs/certs.h

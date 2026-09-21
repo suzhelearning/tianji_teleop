@@ -2,6 +2,8 @@
 
 基线为本地 `main@90c575fe1dc6b02929a4f701a2f1263b8b347fd0`。当前实现已按 [protype-style 结构方案](protype-style-data-collection-structure.md) 切换到 `bash/`、`config/`、`src/` 和分环境安装目录；不是旧根目录入口的兼容层。以下为 2026-09-21 的实际软件验收，硬件边界单列。数值证据见 [JSON 记录](migration-verification-results.json)。
 
+> 范围更新：现已按三条主输入路线移除旧 PICO 专用录制、外接 IMU 与 Odin 辅助包；正式 schema-v1 collector 和 PICO2 仿真录制保留。下方第 1～5 节是删除前的迁移验收快照，历史构建数量和测试数量不反写为本次结果；删除后的验证另记于文末。
+
 ## 1. 环境、安装与原生资源
 
 - 从未激活 Pixi 的 shell 执行 `bash bash/install.sh` 成功：安装锁定环境、重建外骨骼扩展、构建原生目标与 default/policy overlay、构建 Manus 和 PICO2 worker。没有启动设备。
@@ -76,7 +78,22 @@ DDS 回归包括：身份／phase_revision／新鲜度授权、相机先于反�
 - **真实相机**：三台设备的身份、实际目标模式、曝光策略、真实画面、持续采集及断连恢复。合成 profile 认证不能代替物理设备的模式支持验证。
 - **真机闭环**：只读身份检查、现场人工授权、实际反馈与失鲜保护、Home／停止／限幅、机械臂和灵巧手动作、安全空间与方向验收。
 - **真实策略**：操作者授权的模型权重、参考录制、Motive 流及 GPU/CUDA 环境；CPU fixture 和帮助成功不等于这些已可用。
-- **Odin**：缺少 `src/teleop_inputs/odin/odin-sdk2/sdk/utils/http/certs/certs.h`，`odin_ros_driver`、`odin_ros_driver_rev1`、`pico_odin` 未构建；凭据必须现场提供，不入库。
 - **外部源码对照**：上述唯一 skipped 的 mapped-palm 对照需要显式提供外部 checkout。
 
 本轮没有使用真实设备、没有运行 adb 连接命令、没有执行真机 enable/Home，也没有推送远端。
+
+## 7. 主输入路线精简后的验证
+
+按当前需求删除 `pico_recorder`、`imu_ros2`、`pico_odin`、两个 Odin ROS 驱动及其 SDK，
+同时删除 PICO 中仅供外接脚部 IMU 使用的融合节点、启动配置、辅助状态类及专属测试。
+四个主输入包、PICO 人员标定／会话所有权、PICO2 仿真录制和独立 schema-v1 collector 保留。
+既有人体标定与数据没有删除；生成对称档案时不再复制已废弃的 Odin 附件。
+
+- default／policy 的构建均成功，各 **16 个 ROS 包**，不再存在 Odin 凭据检查或跳过分支。
+- 从两个环境的实际 ament index 确认被删除包不可发现，PICO、Manus、PICO2 和正式采集器仍可发现。
+- `test-pico`：**322 passed**；保留的 PICO C++ 帧协议、地面对齐、epoch store：**3/3**。
+- `test-sim`：**42 passed**；`test-pico2`：**86 passed**。
+- `test-collection`：**81 passed**；真实 DDS `test-ros`：**29 passed**。
+- `check-env` 和 `rviz2 --help` 通过；PCL／VTK 及只供已删除组件使用的 ROS 依赖已从 default／policy 锁文件与环境中移除。
+- policy 环境检查通过，`test-mocap`：**85 passed**，确认推理／回放未依赖已移除的组件。
+- 本轮只做构建和无硬件验证，没有启动真实输入设备或机器人。

@@ -48,8 +48,6 @@ def create_profile(source,output):
     for name in FILES:
         shutil.copyfile(source/name,output/name)
         if digest(output/name)!=hashes[name]:raise ValueError('source calibration changed during copy')
-    for name in ('odin_pelvis_extrinsics.yaml',):
-        if (source/name).is_file():shutil.copyfile(source/name,output/name)
     (output/POLICY_FILE).write_text(json.dumps(policy,indent=2)+'\n')
     return policy
 

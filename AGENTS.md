@@ -1,6 +1,6 @@
-# 两种遥操路径
+# 三条输入路线
 
-工作目录：`~/syz/tianji_teleop`。PICO 控制 Tianji 双臂；外骨骼或 Manus 控制 Wuji 双手。两条路径共用 `bash bash/run_teleop.sh`，只替换手部输入来源。
+工作目录：`~/syz/tianji_teleop`。PICO 手柄 + Manus、PICO 手柄 + 外骨骼两条组合路线共用 `bash bash/run_teleop.sh`；PICO 裸手由 `bash bash/run_pico2_sim.sh` 独立运行，仅支持仿真。输入目录只保留 `pico_bridge`、`manus_bridge`、`exoskeleton_bridge`、`pico2_hands` 四个主输入包；正式 schema-v1 采集器独立于输入目录。
 
 环境由 Pixi 管理，统一为 ROS 2 Jazzy + Fast DDS：`RMW_IMPLEMENTATION=rmw_fastrtps_cpp`、`ROS_DOMAIN_ID=120`、`ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST`（只支持同机采集与共享单调时钟）。大多数 `bash/` 入口会自行进入 Pixi 环境并 `source bash/environment.sh`，确认 `ROS_DISTRO=jazzy`、Python 3.12，并清掉旧 shell 可能残留的 Humble／旧 `tracking/install` overlay；`bash bash/build.sh` 与 `bash bash/test_native.sh` 例外，它们要求调用者已经在 Pixi 环境内（推荐用 `pixi run build`／`pixi run test-native`）。不要手动 source 旧环境。
 
@@ -17,7 +17,7 @@
 | 校验环境（Python 3.12 / Jazzy / Fast DDS） | `pixi run check-env`（等价 `python bash/check_env.py`） |
 | 原生 CTest（control core 与 mapped_palm） | `pixi run test-native` |
 
-构建输出按环境分离：`build/<环境>`、`install/<环境>`、`log/<环境>`。colcon 只扫描 `src/`；control 的 core／mapped-palm 分开构建，原生可执行文件统一安装到 `install/control/bin/`。Odin 包需要另行提供 mTLS 凭据；缺失时构建明确跳过，不代表 Odin 已可用。
+构建输出按环境分离：`build/<环境>`、`install/<环境>`、`log/<环境>`。colcon 只扫描 `src/`；control 的 core／mapped-palm 分开构建，原生可执行文件安装到 `install/control/bin/` 或 `install/control/lib/mapped_palm/`，统一由资源 helper 定位。不再构建辅助定位、外接 IMU 或旧 PICO 专用录制包。
 
 模型及共用部署 Home 属于 `src/tianji/tianji_description/`，运行时用 `tianji_runtime.package_share()` 读取安装资源；native 程序用 `native_executable()`，不指向旧构建树。根 config／profiles／vendor 由 Pixi 注入的 `TIANJI_WORKSPACE` 定位，不能依赖 cwd。DLS／Ceres 的 Home 保持各自配置。缺少消息包 overlay 的节点必须先构建，不靠源码路径注入或旧环境回退。
 
@@ -112,8 +112,8 @@ pixi run bash -c 'source bash/environment.sh; python -m tianji_controller.run_te
 
 ## 其余 Pixi 任务
 
-`pixi run` 提供：`test-native`、`test-native-core`、`test-native-mapped-palm`、`test-sim`、`test-collection`、`test-controller`、`test-interfaces`、`test-pico`（含 pico_recorder）、`test-pico2`、`test-ros`（domain 121 真实 DDS）、`test-retargeting`、`test-manus`；Mocap 回归用 `pixi run -e policy test-mocap`。
+`pixi run` 提供：`test-native`、`test-native-core`、`test-native-mapped-palm`、`test-sim`、`test-collection`、`test-controller`、`test-interfaces`、`test-pico`、`test-pico2`、`test-ros`（domain 121 真实 DDS）、`test-retargeting`、`test-manus`；Mocap 回归用 `pixi run -e policy test-mocap`。
 
-输入任务有 `setup-pico`（`bash/run_setup_pico.sh`，按 `tcp`／`wrist`／`geometry` 分步标定）、`stop-pico`（`bash/run_stop_pico.sh`）、`test-pico-simple`／`test-sim-user`，以及 `sim`／`real`／`home`。
+输入任务有 `setup-pico`（`bash/run_setup_pico.sh`，简化人员标定向导）、`stop-pico`（`bash/run_stop_pico.sh`）、`test-pico-simple`／`test-sim-user`，以及 `sim`／`real`／`home`。
 
 Mocap 六个任务保留 `h5_sim`／`h5_real`／`rl_infer`／`rl_live_infer`／`regrind_real`／`regrind_hand_sim`。统一 `tianji mocap` 分发到 `bash/run_mocap.sh`：`infer`／`live`／`regrind-real`／`regrind-hand-sim` 自动进入 policy，其余进入 default。完整流程见 `README-mocap.md`；安装／仿真／合成 DDS 不代表真实输入、相机、机器人、Motive 或 GPU／模型现场验收，最新证据见 `docs/migration-verification-status.md`。

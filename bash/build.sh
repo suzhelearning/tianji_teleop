@@ -25,23 +25,6 @@ printf '== building control native targets ==\n'
 pixi run --locked --manifest-path "$root/pixi.toml" -e control \
   bash "$root/bash/build_native.sh"
 
-# The vendored Odin driver links a sibling SDK static library that colcon does
-# not build. That SDK cannot be compiled without `certs/certs.h`, an mTLS
-# credential the repository deliberately never commits ("provision separately;
-# never commit private keys"). Absent it the Odin packages are skipped with an
-# explicit reason rather than failing the workspace build.
-odin_certs="$root/src/teleop_inputs/odin/odin-sdk2/sdk/utils/http/certs/certs.h"
-skipped_packages=()
-if [[ -r "$odin_certs" ]]; then
-  printf '== building vendored Odin SDK ==\n'
-  bash "$root/src/teleop_inputs/odin/scripts/ensure_odin_sdk.sh"
-else
-  printf '%s\n' \
-    '== skipping Odin packages ==' \
-    "   missing mTLS credential: ${odin_certs#"$root"/}" \
-    '   Provision it to enable the Odin sensor path; the rest of the workspace is unaffected.'
-  skipped_packages+=(--packages-skip odin_ros_driver odin_ros_driver_rev1 pico_odin)
-fi
 
 # Resolve the interpreter once and pass it explicitly: ament's FindPython3 runs
 # inside CMake, where `$CONDA_PREFIX` is not expanded by the caller's shell.
@@ -57,5 +40,4 @@ exec colcon --log-base "$root/log/$environment" build \
   -DCMAKE_INSTALL_PREFIX="$root/install/$environment" \
   -DPython3_EXECUTABLE="$python_bin" \
   -DPython_EXECUTABLE="$python_bin" \
-  "${skipped_packages[@]}" \
   "$@"

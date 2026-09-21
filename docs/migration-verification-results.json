@@ -448,7 +448,6 @@
     "Physical RealSense identity/profile/stream verification",
     "Explicit robot enable/Home/stop and motion safety authorization",
     "Authorized production policy weights, Motive stream and CUDA environment",
-    "Odin mTLS certs/certs.h",
     "External mapped-palm reference checkout"
   ],
   "artifacts_directory": "/data/tianji-migration-acceptance-yPsRF3",
@@ -468,5 +467,43 @@
     "checked_unchanged_calibration_and_backup_files": 16,
     "device_backup_directory": "src/teleop_inputs/exoskeleton_bridge/config/dataglove/devices/915.bak/",
     "generated_builds_and_backups_excluded_from_git": true
+  },
+  "auxiliary_removal": {
+    "retained_inputs": [
+      "pico_bridge",
+      "manus_bridge",
+      "exoskeleton_bridge",
+      "pico2_hands"
+    ],
+    "removed_ros_packages": [
+      "pico_recorder",
+      "imu_ros2",
+      "pico_odin",
+      "odin_ros_driver",
+      "odin_ros_driver_rev1"
+    ],
+    "odin_sdk_removed": true,
+    "foot_imu_fusion_removed": true,
+    "default_build_packages": 16,
+    "policy_build_packages": 16,
+    "ament_indexes_verified": [
+      "default",
+      "policy"
+    ],
+    "test_results": {
+      "pico_python": 322,
+      "pico_cpp": 3,
+      "simulation": 42,
+      "pico2": 86,
+      "collection": 81,
+      "dds": 29,
+      "mocap_policy": 85
+    },
+    "unused_pcl_vtk_dependencies_removed": true,
+    "check_env_passed": true,
+    "rviz_help_passed": true,
+    "hardware_access": false,
+    "original_migration_results_preserved_as_historical_snapshot": true,
+    "policy_check_env_passed": true
   }
 }
