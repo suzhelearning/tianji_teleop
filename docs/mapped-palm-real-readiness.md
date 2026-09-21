@@ -1,7 +1,7 @@
 # mapped-palm 真机执行层补齐
 
 本文现场证据来自合并前的 `tianji_teleop_full/tianji_teleop`，所述日志保留在该来源目录，
-未复制到当前工程。当前目录的合并验证见 [合并记录](merge-mapped-palm-2026-09-15.md)，
+未复制到当前工程。当前目录的软件验证见[迁移验收记录](migration-verification-status.md)，
 来源现场测试不等于本目录已经完成现场验收。
 
 本文记录实现与验收范围，不构成后续真实运动授权；SDK、驱动和 IK 核心保持原实现。

@@ -414,11 +414,9 @@ DLS/Ceres 的 `--user` 仅支持 PICO 端口 `15000`；本次新建的输入会�
 - [Mocap／Regrind 独立工作流](../README-mocap.md)
 - [简化 PICO 标定与会话](pico-simple-calibration.md)
 - [DLS／Ceres 交互仿真边界](../src/tianji/tianji_controller/native/docs/verification/ceres_interactive_sim.md)
-- [本次基线的历史合并验证记录](merge-main-2026-09-20.md)
 - [迁移验收状态与未验证范围](migration-verification-status.md)
 - [当前数据采集契约 schema-v1](../schema-v1.md)
-- [此前的未来重构讨论](../未来重构计划.md)
 - [mapped-palm 真机边界](mapped-palm-real-readiness.md)
-- [Pico2 裸手设计与计划](pico2-hands-design-and-plan.md)
+- [PICO2 裸手仿真与共享根模式](../src/teleop_inputs/pico2_hands/README.md)
 
 最终目标：打开目录就能找到相机、输入、指令转换、控制器、采集器和推理桥；打开 `bash/` 就能按实验流程操作。所有组织调整都服务于稳定地产生可信的遥操作数据。

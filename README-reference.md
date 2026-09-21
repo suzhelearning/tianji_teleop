@@ -13,10 +13,9 @@ PICO2 裸手已有独立[仿真入口 `bash/run_pico2_sim.sh`](src/teleop_inputs
 此前已通过合成输入／假 TCP 测试，用户已进行真实 PICO 输入仿真并录制；
 跟踪抖动仍是已知限制，不能视为性能验收完成；不支持真机。
 现有 VR、Manus、外骨骼输入入口保留；仿真默认后端已切换为 Franka DLS＋Ruckig，真机默认不变。
-详见[实施方案](docs/pico2-hands-design-and-plan.md)。
 
 2026-09-15 已合入 mapped-palm 路线及退出清理修复，保留本工程原生外骨骼输入。
-当时的合并范围、环境和验证限制见[历史合并记录](docs/merge-mapped-palm-2026-09-15.md)。
+当前操作入口与安全边界见 [mapped-palm 使用说明](docs/mapped-palm-port.md)，软件验证结果见[迁移验收记录](docs/migration-verification-status.md)。
 
 以 **人员标定 → PICO／Manus 输入 → C++ 重定向与控制 → 安全执行 → 数据落盘** 为主链。
 标定、Hand2 retargeting、双臂控制、模型和必要的原生依赖源码均位于本仓库，不需要克隆其他业务仓库或初始化子模块。
@@ -1229,7 +1228,7 @@ bash bash/calibrate_pico_arm.sh right all --user zjx
 ## 进一步说明
 
 - [mapped-palm 独立后端：构建、PICO＋VR 仿真及迁移边界](docs/mapped-palm-port.md)
-- [PICO 工程中文历史说明（旧命令不作为当前入口）](archives/tracking/README.zh-CN.md)
+- [PICO 标定与输入会话](docs/pico-simple-calibration.md)
 - [双臂控制器与遥测说明](src/tianji/tianji_controller/native/README.md)
 - [Wuji 重定向说明](src/wuji/wuji_retargeting/README.md)
 - [真机配置](config/robot.json)

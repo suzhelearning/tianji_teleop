@@ -1,7 +1,7 @@
 # mapped-palm 真实录制离线对照
 
 这是合并前的历史对照记录，JSON 中路径与指纹属于当时的来源工作区；
-本次合并没有重新运行该完整录制。当前合并验证见 [合并记录](merge-mapped-palm-2026-09-15.md)。
+迁移没有重新运行该完整录制。当前软件验证见[迁移验收记录](migration-verification-status.md)。
 
 本轮仅测试代码和离线回放工具变更，未修改 IK、生产状态机或设备驱动，未启动硬件。
 原始结果见 [JSON](mapped-palm-real-trace-result.json)。这不是完整调度器或真机验收报告。

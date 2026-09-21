@@ -3,7 +3,7 @@
 已接通 TCP 输入、C++ V131／Hand2、仿真状态机与 MuJoCo 直接关节显示。
 **用户已完成真实 PICO 输入仿真录制；抖动和跟踪误差仍存在，不代表性能验收通过；不支持真机。**
 现有 `bash/run_teleop.sh`、VR、Manus、外骨骼和驱动不改动。
-[实施方案](../../../docs/pico2-hands-design-and-plan.md)列出了剩余接线工作。
+当前工作空间结构和软件验证范围见[迁移验收记录](../../../docs/migration-verification-status.md)。
 
 ## 完整仿真启动
 
