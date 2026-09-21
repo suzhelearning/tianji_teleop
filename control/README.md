@@ -1,6 +1,11 @@
-# TJ Arm PICO SPARK Headroom Feedforward Velocity QP
+# TJ Arm PICO 控制与参考生成
 
-这是采集工作区内的天玑双臂 C++ 控制模块。推荐算法和 Viewer 默认值均为：
+这是采集工作区内的天玑双臂 C++ 控制模块。根入口 `teleop.sh --sim`、`--real` 和 `--data`
+默认选择共享根 Franka DLS＋Ruckig（`--ik-backend franka-dls`）。
+仿真直接显示参考；真机／采集把参考交给独立安全执行器，不把模型状态当作实测反馈。
+旧 SPARK 和 mapped-palm 保留显式选择，Ceres 与 PICO2 裸手入口仍仅仿真。
+
+直接无参数启动原生 Viewer 时，仍使用以下 legacy SPARK 默认算法：
 
 ```text
 spark_upper_qpoases_headroom_feedforward_velocity_qp
@@ -9,11 +14,11 @@ spark_upper_qpoases_headroom_feedforward_velocity_qp
 该路径以 SPARK 两阶段 qpOASES IK 保持人形手臂构型，以 Headroom 余量感知前馈提高跟踪响应，
 并通过 Velocity QP、连续性代价和 settled-hold 抑制关节限位附近及静止阶段的可见抖动。
 默认 Viewer 是 `model_reference` 参考运动显示，不是执行器驱动的动力学积分。
-工作区根目录提供 `bash teleop.sh --sim`（双臂＋双 Hand2 动力学）、
-`--real`（真机显式使能）和 `--data --task TASK`（真机采集）三个互斥入口；
-参考运动显示使用 `.venv/bin/tianji view`，详见[工作区操作说明](../README.md)。
-`--sim` 复用本控制器生成目标，在独立模拟状态上通过有界执行器和 `mj_step` 推进物理时间；
-它不修改本控制器的 IK 算法，也不把模拟反馈伪装成本 Viewer 的 `actual`。
+工作区根目录提供 `bash teleop.sh --sim`（默认双臂＋双 Hand2 direct 显示）、
+`--real`（真机显式使能）和 `--data --task TASK`（真机采集）三个互斥入口，
+详见[工作区操作说明](../README.md)。旧 SPARK 动力学仿真须显式选择
+`--ik-backend spark --simulation-mode dynamics`，才通过模拟执行器和 `mj_step` 推进物理时间；
+模拟反馈不作为真实设备反馈。
 
 ## 构建与测试
 
@@ -56,14 +61,14 @@ pixi shell
 
 该脚本启动 PICO 驱动、corrected M0 骨架、骨架 Viewer 和 TJVR v4 UDP bridge。
 
-天机侧在工作区的 `control/` 目录无参数启动当前主算法：
+天机侧在工作区的 `control/` 目录无参数启动 legacy SPARK Viewer：
 
 ```bash
 OMP_WAIT_POLICY=ACTIVE OMP_PROC_BIND=close OMP_PLACES=cores \
   ./build/tianji_qp_ik_viewer
 ```
 
-### 默认值
+### 原生无参数 Viewer 默认值（不是 teleop.sh 默认后端）
 
 | 项目 | 默认值 |
 |---|---|
@@ -180,11 +185,12 @@ SDK 发现结果本身没有左右字段；默认显示 `unknown`，不能按扫
 
 ## 双臂／双侧 Hand2 真机执行边界
 
-`../real_robot/` 接收本工程控制线程提交的最终关节参考，复用当前 SPARK /
-Headroom / Velocity QP 与 Manus Hand2 重定向；不导入 `dexhand_deploy` 的
-IK、policy、Home 轨迹或 Zenoh coordinator。只提取厂商 SDK 和设备 I/O。
+`../real_robot/` 接收本工程控制线程提交的最终关节参考，默认复用与仿真相同的共享根
+Franka DLS／Ruckig；Manus Hand2 重定向及厂商 SDK／设备 I/O 接线不变。
+`--ik-backend spark` 保留 SPARK／Headroom／Velocity QP，`--ik-backend mapped-palm`
+保留其独立 IK。切换参考后端不替换真机安全执行器、对齐／Home 或授权流程。
 支持 `arms`（双臂）、`left_hand`、`right_hand`、`hands`（双手）及 `all`（双臂＋双手）。
-代码已做离线验证，尚未进行真机使能／运动测试；真机命令须在只读预检通过后由操作者执行。
+默认 DLS 真机路径尚未通过真机使能／运动验收；真机命令须在只读预检通过后由操作者执行。
 
 ### 默认干跑：不加载 SDK、不连接设备
 
@@ -204,6 +210,15 @@ python real_robot/run_teleop.py --devices all --duration 5
 不要同时启动占用相同 PICO/手部接收端口的旧机器人 Viewer。
 单手或仅双手模式不会连接 Marvin，也不占用正常的 PICO 双臂输入端口。
 当前协议为 TJRC v2 / 468 字节，旧 v1 / 308 字节被拒绝；必须同时更新控制器和执行器。
+
+默认 DLS 使用 `config/qp_ik_pico_shared_root_dls.yaml` 和共享根掌心模型。
+执行入口在临时配置中启用共享根，并解析 geometry／mapping artifact 和运动学 URDF 路径。
+原生 `--guarded-dls-export` 是专供该执行器的显式参考导出开关：必须为 DLS、
+共享根启用、model-reference、headless、PICO 开启且具有非零 loopback 指令端口。
+它不能与 simulation-recovery 或 `--sim-allow-pico-jumps` 同用，不开放 Ceres／其他共享根后端导出；
+默认仿真仍不导出。原生进程不加载硬件驱动，TJRC ready 不等于设备使能许可。
+源失鲜、映射／求解失败或 epoch 改变会撤销 DLS 就绪，真机执行器停止已使能会话；
+后续正常帧不能自动恢复，不能套用仿真恢复流程。
 
 ### 设备开机后：先只读检查
 
@@ -244,19 +259,25 @@ Ctrl+C、关闭窗口、输入／反馈故障，或对齐／回位中按 Enter�
 
 双臂模型参考初态由实测关节写入临时配置，原 YAML 不修改；仍使用 `model_reference`
 算法，真实反馈用于初态同步、设备健康和跟踪误差检查，而不是悄悄换成另一套 IK。
-真机配置将控制器速度比例约束为 0.1，并在 SDK 边界限制 setpoint 变化速度：
+默认 DLS 沿用仿真的参考算法、模型／几何及常规加速度／jerk 限值，
+但运行副本的 Ruckig 最大速度取配置限值乘 `controller_velocity_scale` 与真机速度上限的较小值；
+旧 SPARK 的控制器速度比例仍受真机配置约束。所有后端还在 SDK 边界限制 setpoint 变化速度：
 双臂实时跟随默认 0.5 rad/s，每只手实时跟随为 1.0 rad/s；
 包含双臂时对齐／回位统一额外限制为 0.1 rad/s。仅手部模式的半秒启动插值仍是原有例外。
 Marvin 只在 SDK 边界 rad→degree；Hand2 使用 finger-major 的 20 个 rad 关节值。
+同一 DLS／Ruckig 参考算法不意味着仿真显示与硬件实测轨迹相同；
+真机执行限速、反馈、驱动与负载仍会影响最终运动。
 
-输入／反馈超时、严重设备故障／失能、跟踪误差、限位违规、控制器退出、PICO reset/resync
-都会终止已使能会话；锁存故障不能被后续正常帧覆盖。没有自动故障恢复或清错。
+默认 DLS 的输入／反馈超时、严重设备故障／失能、双臂跟踪误差、限位违规、
+控制器退出、映射／IK 拒绝或 PICO epoch 改变都会终止已使能会话；
+锁存故障不能被后续正常帧覆盖，没有仿真自动恢复或清错。
+显式 mapped-palm 的短时保持例外见[其真机说明](../docs/mapped-palm-real-readiness.md)，不适用于默认 DLS。
 Hand2 诊断由 SDK 目录分级：`Warning` 记录并在反馈 detail 中显示，
 包含左右手、SN、NID、故障名和处理建议；停止类级别、未知码、解码失败仍停机。
 警告不跳过任何状态、时效、限位或跟踪检查；编码器警告持续出现仍需检查硬件。
 Ctrl+C 会尝试停止并释放本命令拥有的设备会话，随后停止内部控制器。
 如果 SDK 无法确认清理，会明确要求检查硬件急停，不把异常当作成功。
-PICO 目标新鲜度使用 YAML 的 `cartesian_servo.target_timeout_seconds`（当前遥操配置为 0.5 s）；
+PICO 目标新鲜度使用所选 YAML 的 `cartesian_servo.target_timeout_seconds`；
 启用 `--pico-teleop` 不再将其强制覆盖成 50 ms。配置变化需重启控制器才能生效。
 PICO bridge 发送时间到真机指令输出的年龄上限为 300 ms；它独立于
 `target_timeout_seconds`，不会随该 YAML 配置自动改变。未来时间戳仍被拒绝。
@@ -265,7 +286,7 @@ PICO bridge 发送时间到真机指令输出的年龄上限为 300 ms；它独�
 它不替代物理急停及设备自身保护。Hand2 使能瞬间的目标保持行为、反馈时钟和
 固件独立断流保护必须在后续受控带电测试中核实，不能由离线通过推断。
 
-## 主算法
+## Legacy SPARK 主算法
 
 ```text
 PICO TJVR v4
@@ -428,12 +449,12 @@ control_level=velocity
 标准 `pixi run build` 已启用 `TIANJI_ENABLE_CERES=ON`，产物统一在 `control/build`。
 直接使用 CMake 的旧构建仍可关闭该选项。当前仅允许模型状态仿真、禁止关节导出；
 已同步源 `f615b8c` 的 Pinocchio 路径及 Ruckig 修复，见[最新移植验证](docs/verification/shared_root_ceres_f615b8c.md)；
-左臂残差明显改善但仍未通过跟踪验收。原生 Viewer 与真机默认保持不变；
-上层 `teleop.sh --sim` 已按用户选择默认 Franka DLS＋Ruckig。
+左臂残差明显改善但仍未通过跟踪验收。原生无参数 Viewer 的默认值保持不变；
+上层 `teleop.sh --sim`、`--real` 和 `--data` 默认 Franka DLS＋Ruckig，真机仍受独立执行器保护。
 
 交互仿真可选 `bash teleop.sh --sim --ik-backend ceres`（在仓库根目录运行）：
 S 接入、H 平滑回 Home 后等待、P/Space 停止，详见
-[DLS/Ceres 交互仿真与验收清单](docs/verification/ceres_interactive_sim.md)。仅双臂 direct 仿真，无硬件指令输出。
+[DLS/Ceres 交互仿真与验收清单](docs/verification/ceres_interactive_sim.md)。该仿真入口默认接收双手，无硬件指令输出。
 阶段报告与历史消融集中在[历史归档](docs/archive/2026-09-shared-root/README.md)，不作为当前运行指令。
 
 Hierarchical QP、null-space DLS、Cartesian OTG velocity/acceleration、旧 SPARK A/B

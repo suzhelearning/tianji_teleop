@@ -2,9 +2,11 @@
 
 实验配置：`control/config/qp_ik_pico_shared_root.yaml`，默认 `enabled: false`。
 关闭时直接进入原 legacy SPARK；不改变 mapped-palm、PICO2 裸手或手部来源。
-当前不是现场或真机验收许可，实验 Viewer 禁止导出关节命令。
-当前仿真默认后端为 Franka DLS＋Ruckig；本页说明共用映射及 SPARK 分支，
-不是默认后端选择说明。运行入口与当前验收清单见[交互仿真说明](verification/ceres_interactive_sim.md)。
+当前不是现场或真机验收许可；共享根 SPARK 实验 Viewer 仍禁止导出关节命令。
+`teleop.sh --sim`、`--real` 和 `--data` 默认后端均为共享根 Franka DLS＋Ruckig；
+仅真机执行入口显式启用受保护的 DLS loopback 参考导出，仍由独立执行器授权和保护设备。
+本页说明共用映射及 SPARK 分支，不是默认后端选择说明。
+运行入口、导出限制与验收边界见[交互仿真说明](verification/ceres_interactive_sim.md)。
 [R3 阶段交付索引](archive/2026-09-shared-root/shared_root_r3_handoff.md)保留历史指纹与测试，不代表当前文件指纹。
 
 R3 状态：闭合几何 artifact v2、读取核验和纯几何闭合函数已实现，
@@ -12,7 +14,7 @@ R3 状态：闭合几何 artifact v2、读取核验和纯几何闭合函数已�
 TargetBuilder 的 raw/filtered、恢复 blend 和控制分支接受现已接入闭合函数。
 掌心目标不变，由固定腕掌外参及两连杆闭合得到肘腕；只有同周期双侧外部参考
 接受才提交肘分支历史。详见 [R3 接线验证](archive/2026-09-shared-root/shared_root_r3_wiring.md)。
-维持默认关闭；软件与离线通过不替代代表性动作覆盖率及设备验收。
+上述 SPARK 实验配置维持默认关闭；DLS 启动器在运行副本中启用共享根。软件与离线通过不替代代表性动作覆盖率及设备验收。
 连续失效时长、分侧几何原因和未标注动作边界见
 [R3 覆盖率补充](archive/2026-09-shared-root/shared_root_r3_coverage.md)。
 人工动作区间的格式与离线命令见

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import fcntl
+import os
 from pathlib import Path
+import subprocess
 import sys
 
 import cv2
@@ -18,11 +20,12 @@ from data_collection.dataset import ensure_dataset_config, load_dataset_config, 
 
 
 def make_source(
-    root: Path, name: str = 'day/episode.h5', *, success: bool = False, jpeg_quality: int | None = None
+    root: Path, name: str = 'day/episode.h5', *, success: bool = False,
+    jpeg_quality: int | None = None, robot_config: str = 'tianji_wuji2_v1',
 ) -> Path:
     config = {
         'schema_version': 1,
-        'robot_config': 'tianji_wuji2_v1',
+        'robot_config': robot_config,
         'joint_names': [f'joint_{index}' for index in range(54)],
         'joint_unit': 'rad',
         'policy_rate_hz': 30,
@@ -209,3 +212,90 @@ def test_existing_output_must_validate_and_destination_lock_excludes_concurrent_
     damaged = target.read_bytes()
     assert compress.main([str(source), str(destination)]) == 1
     assert target.read_bytes() == damaged
+
+
+def test_daily_configs_remain_independent_and_resume_from_root_or_day(tmp_path: Path, capsys) -> None:
+    source, destination = tmp_path / 'raw', tmp_path / 'jpeg'
+    first = make_source(source / '20260920', 'episode.h5')
+    second = make_source(
+        source / '20260921', 'nested/episode.h5', jpeg_quality=90, robot_config='another_robot',
+    )
+    originals = {path: path.read_bytes() for path in source.rglob('*') if path.is_file()}
+    assert compress.main([str(source), str(destination)]) == 0
+    assert not (destination / 'dataset_config.json').exists()
+    assert not (source / 'dataset_config.json').exists()
+    for episode in (first, second):
+        day = episode.relative_to(source).parts[0]
+        config = load_dataset_config(destination / f'{day}_compressed')
+        assert config == {**load_dataset_config(source / day), 'image_encoding': 'jpeg', 'jpeg_quality': 50}
+        validate_episode(destination / f'{day}_compressed' / episode.relative_to(source / day), config)
+    target = destination / '20260920_compressed' / first.name
+    original, before = target.read_bytes(), target.stat()
+    assert compress.main([str(source / '20260920'), str(destination / '20260920_compressed')]) == 0
+    assert compress.main([str(source), str(destination)]) == 0
+    assert 'Summary: converted=0 skipped=2 failed=0' in capsys.readouterr().out
+    assert target.read_bytes() == original
+    assert (target.stat().st_ino, target.stat().st_mtime_ns) == (before.st_ino, before.st_mtime_ns)
+    assert {path: path.read_bytes() for path in source.rglob('*') if path.is_file()} == originals
+
+
+def test_daily_destination_config_conflict_does_not_block_another_day(tmp_path: Path) -> None:
+    source, destination = tmp_path / 'raw', tmp_path / 'jpeg'
+    first = make_source(source / '20260920', 'episode.h5')
+    second = make_source(source / '20260921', 'episode.h5', robot_config='another_robot')
+    ensure_dataset_config(destination / '20260920_compressed', {
+        **load_dataset_config(second.parent), 'image_encoding': 'jpeg', 'jpeg_quality': 50,
+    })
+    original = (destination / '20260920_compressed/dataset_config.json').read_bytes()
+    assert compress.main([str(source), str(destination)]) == 1
+    assert not (destination / '20260920_compressed' / first.name).exists()
+    validate_episode(destination / '20260921_compressed' / second.name, load_dataset_config(destination / '20260921_compressed'))
+    assert (destination / '20260920_compressed/dataset_config.json').read_bytes() == original
+
+
+def test_daily_root_honors_explicit_day_lock(tmp_path: Path) -> None:
+    source, destination = tmp_path / 'raw', tmp_path / 'jpeg'
+    episode = make_source(source / '20260921', 'episode.h5')
+    output_day = destination / '20260921_compressed'
+    output_day.mkdir(parents=True)
+    with compress._destination_lock(output_day):
+        assert compress.main([str(source), str(destination)]) == 1
+    assert not (output_day / episode.name).exists()
+    assert compress.main([str(source), str(destination)]) == 0
+
+
+def test_nested_config_is_not_silently_replaced_by_parent_config(tmp_path: Path) -> None:
+    source, destination = tmp_path / 'archive', tmp_path / 'jpeg'
+    make_source(source, 'episode.h5')
+    nested = make_source(source / '20260921', 'episode.h5', robot_config='another_robot')
+    assert compress.main([str(source), str(destination)]) == 1
+    assert not (destination / nested.relative_to(source)).exists()
+    validate_episode(destination / 'episode.h5', load_dataset_config(destination))
+
+
+def test_daily_source_skips_partial_and_symlinked_days(tmp_path: Path) -> None:
+    source, destination = tmp_path / 'raw', tmp_path / 'jpeg'
+    episode = make_source(source / '20260921', 'episode.h5')
+    (source / '20260921/unfinished.partial.h5').write_bytes(b'active')
+    (source / '20260922').symlink_to(episode.parent, target_is_directory=True)
+    assert compress.main([str(source), str(destination)]) == 0
+    assert sorted(path.relative_to(destination).as_posix() for path in destination.rglob('*.h5')) == [
+        '20260921_compressed/episode.h5',
+    ]
+
+
+def test_date_wrapper_uses_shared_dataset_override(tmp_path: Path) -> None:
+    source = tmp_path / 'custom raw'
+    episode = make_source(source / '20260921', 'episode.h5')
+    make_source(source / '20260920', 'episode.h5')
+    original = episode.read_bytes()
+    result = subprocess.run(
+        ['bash', str(Path(__file__).resolve().parents[2] / 'compress.sh'), '--date', '20260921'],
+        env={**os.environ, 'TIANJI_PYTHON': sys.executable, 'TIANJI_DATASET': str(source)},
+        capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    destination = source.parent / 'compressed'
+    validate_episode(destination / '20260921_compressed/episode.h5', load_dataset_config(destination / '20260921_compressed'))
+    assert not (destination / '20260920_compressed').exists()
+    assert episode.read_bytes() == original

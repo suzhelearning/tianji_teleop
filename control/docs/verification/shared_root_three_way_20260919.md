@@ -1,14 +1,14 @@
 # 共享根三后端在线 MuJoCo 对照（2026-09-19）
 
 本页保留该次对照与 DLS 来源核对，不据此判断当前默认选择或全场景性能优劣。
-当前默认 Franka DLS＋Ruckig，启动与验收边界见[交互仿真](ceres_interactive_sim.md)。
+当前仿真、真机和采集均默认 Franka DLS＋Ruckig；真机参考导出与独立执行保护见[当前入口和验收边界](ceres_interactive_sim.md)，不由本页历史结果授予运动许可。
 
 ## 范围与复现
 
 三组均在当前工程 Viewer 中，按录制时间回放原始 UDP 输入，在线运行映射、IK、
 运动参考生成和模型状态提交。不是预先计算关节轨迹后播放。
 
-- SPARK：`qp_ik_pico_shared_root_reachable.yaml`，保留当前默认 SPARK／速度 QP 参数。
+- SPARK：`qp_ik_pico_shared_root_reachable.yaml`，保留当时的 SPARK／速度 QP 参数。
 - Ceres LM＋Ruckig：`qp_ik_pico_shared_root_ceres.yaml`，无新备用初值或搜索调参。
 - Franka DLS＋Ruckig：新增 `qp_ik_pico_shared_root_dls.yaml`，独立后端，不替换旧通用 DLS。
 
@@ -56,7 +56,7 @@ pixi run python control/scripts/report_shared_root_three_way.py \
 - 候选 FK/Jacobian 使用 Pinocchio；复用已校验源 URDF、显式 TCP 与源版 Ruckig limiter。
   实际／显示状态来自 MuJoCo。
 - 为保持当前工程安全语义，双臂提交是事务式的；输入过期时朝当前参考有界停止、丢弃旧 IK 初值。
-  不照搬原工程继续追逐旧目标等行为。仅允许模型状态模式，禁止关节导出。
+  不照搬原工程继续追逐旧目标等行为。该次对照仅用模型状态模式，禁止关节导出；当前受保护 DLS 真机导出见页首。
 - 本轮不是重新运行原工程完整应用的跨工程 A/B；不据此宣称全部会话／故障语义与原工程相同。
 
 ## 历史软件验证（当时使用 build-ceres；当前统一 control/build）

@@ -175,7 +175,7 @@ def dataset_config_bytes(config: Mapping[str, Any]) -> bytes:
 
 
 def ensure_dataset_config(dataset_dir: Path | str, config: Mapping[str, Any]) -> None:
-    """Publish immutable root metadata atomically, or require an identical config."""
+    """Publish immutable metadata in the specified directory, or require an identical config."""
     normalized = normalize_dataset_config(config)
     directory = Path(dataset_dir)
     directory.mkdir(parents=True, exist_ok=True)
@@ -223,9 +223,9 @@ class _State(enum.Enum):
 class EpisodeWriter:
     """Writes one schema-v1 episode through a single background HDF5 thread.
 
-    The constructor reserves a dated timestamp/take `.partial.h5`, publishes the
-    immutable dataset config and waits for the worker to be ready, so every
-    initialization error surfaces before hardware is enabled.
+    The constructor publishes immutable config in the episode's local-date
+    directory, reserves a timestamp/take `.partial.h5` there and waits for the
+    worker to be ready, so initialization errors surface before hardware is enabled.
 
     If construction times out or is interrupted, cancellation is handed to the
     worker without waiting for blocked filesystem calls. Once opening returns,
@@ -542,7 +542,6 @@ class EpisodeWriter:
             self._closed.set()
 
     def _open_episode(self) -> None:
-        ensure_dataset_config(self._dataset_dir, self._config)
         number, path = self._reserve_episode()
         self._episode_number = number
         self._partial_path = path
@@ -614,7 +613,7 @@ class EpisodeWriter:
     def _reserve_episode(self) -> tuple[int, Path]:
         stamp = datetime.fromtimestamp(time.time_ns() / 1e9).strftime('%Y%m%d_%H%M%S_%f')
         directory = self._dataset_dir / stamp[:8]
-        directory.mkdir(parents=True, exist_ok=True)
+        ensure_dataset_config(directory, self._config)
         for _ in range(_RESERVE_ATTEMPTS):
             number = next(_TAKE_NUMBERS)
             stem = f'{stamp}_take{number:03d}'

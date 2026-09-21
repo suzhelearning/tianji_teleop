@@ -314,6 +314,32 @@ class StagedMotionGate(MotionGate):
             self._last_commands[device] = tuple(float(value) for value in feedback[device].position_rad)
         self.armed = True
         self._enter_phase(ALIGNING, now_ns)
+        self._enable_completion_allowed = True
+
+    def complete_enable(self, frame, feedback, now_ns):
+        """End SDK setup before timing the first alignment control interval.
+
+        Only callable once, before any step. Keep the operator's frozen target
+        and the pre-enable measured seed; fresh rest must still be established.
+        """
+        if (not self.armed or self.fault or self.phase != ALIGNING or
+                not self._enable_completion_allowed):
+            raise SafetyFault("enable completion requires a newly armed alignment")
+        self._enable_completion_allowed = False
+        try:
+            if now_ns < self._last_step_ns:
+                raise SafetyFault("enable completion monotonic clock moved backwards")
+            self.observe_source(frame, now_ns)
+            for device in self.devices:
+                measured = self.check_feedback(device, feedback[device], now_ns, require_enabled=True)
+                drift = max(abs(a - b) for a, b in zip(measured, self._last_commands[device]))
+                if drift > self.configuration[device]["alignment_rad"]:
+                    raise SafetyFault(f"{device}: moved {drift:.4f} rad during enable; restart alignment")
+            self._enter_phase(ALIGNING, now_ns)
+            self._last_step_ns = now_ns
+        except SafetyFault as error:
+            self.fault = str(error)
+            raise
 
 
     def start_teleop(self, frame, feedback, now_ns):
@@ -386,12 +412,20 @@ class StagedMotionGate(MotionGate):
     def step(self, frame, feedback, now_ns):
         if not self.armed or self.fault:
             raise SafetyFault(self.fault or "hardware output requires explicit arming")
+        self._enable_completion_allowed = False
         try:
             self.observe_source(frame, now_ns)
             phase = self._staged_phase
             elapsed_ns = now_ns - self._last_step_ns
-            if elapsed_ns <= 0 or (phase in _SLOW_PHASES and elapsed_ns > self.command_timeout_ns):
-                raise SafetyFault("execution monotonic clock stalled or did not advance")
+            if elapsed_ns <= 0:
+                raise SafetyFault("execution monotonic clock did not advance")
+            if phase in _SLOW_PHASES and elapsed_ns > self.command_timeout_ns:
+                raise SafetyFault(
+                    f"{phase.lower()} control interval {elapsed_ns / 1e6:.1f} ms exceeds "
+                    f"{self.command_timeout_ns / 1e6:.1f} ms",
+                    details={"kind": "control_interval_timeout", "phase": phase,
+                             "elapsed_ms": elapsed_ns / 1e6,
+                             "limit_ms": self.command_timeout_ns / 1e6})
             # Keep legacy capped live slew. Slow trajectories use real elapsed
             # time: abruptly capping it would itself jump commanded velocity.
             dt = elapsed_ns / 1e9

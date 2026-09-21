@@ -76,6 +76,70 @@ def held(value=0.0):
 
 
 class StagedMotionGateTests(unittest.TestCase):
+    def test_enable_completion_keeps_frozen_goal_and_waits_for_new_rest(self):
+        motion = gate()
+        motion.arm(frame(value=.2), feedback(), NOW)
+        completed = NOW + 550_000_000
+        motion.complete_enable(frame(value=.8, stamp=completed),
+                               feedback(enabled=True, stamp=completed), completed)
+        self.assertEqual(motion.display_targets, held(.2))
+        current = completed + TICK
+        output = motion.step(frame(value=.8, stamp=current),
+                             feedback(enabled=True, stamp=current), current)
+        self.assertEqual(output, held())
+        now, output = settle(motion, .8, output, current)
+        self.assertEqual(motion.phase, "READY")
+        for values in output.values():
+            for value in values:
+                self.assertAlmostEqual(value, .2)
+
+    def test_enable_completion_rechecks_source_and_enabled_feedback(self):
+        completed = NOW + 550_000_000
+        for failure in ("stale_source", "epoch", "unready", "stale_feedback",
+                        "disabled", "drift", "clock"):
+            with self.subTest(failure=failure):
+                motion = gate()
+                motion.arm(frame(value=.2), feedback(), NOW)
+                target = frame(stamp=completed)
+                measured = feedback(enabled=True, stamp=completed)
+                clock = completed
+                if failure == "stale_source":
+                    target = frame(stamp=NOW)
+                elif failure == "epoch":
+                    target = frame(epoch=8, stamp=completed)
+                elif failure == "unready":
+                    target = frame(flags=3, stamp=completed)
+                elif failure == "stale_feedback":
+                    measured["right_hand"].received_monotonic_ns = NOW
+                elif failure == "disabled":
+                    measured["left_hand"].enabled = False
+                elif failure == "drift":
+                    measured["arms"].position_rad = (.06,) * 14
+                elif failure == "clock":
+                    clock = NOW - 1
+                with self.assertRaises(SafetyFault):
+                    motion.complete_enable(target, measured, clock)
+                with self.assertRaises(SafetyFault):
+                    motion.step(frame(stamp=completed + TICK),
+                                feedback(enabled=True, stamp=completed + TICK), completed + TICK)
+
+    def test_enable_completion_cannot_hide_a_later_control_stall(self):
+        motion = gate()
+        motion.arm(frame(value=.2), feedback(), NOW)
+        completed = NOW + 550_000_000
+        motion.complete_enable(frame(stamp=completed),
+                               feedback(enabled=True, stamp=completed), completed)
+        with self.assertRaises(SafetyFault):
+            motion.complete_enable(frame(stamp=completed + TICK),
+                                   feedback(enabled=True, stamp=completed + TICK), completed + TICK)
+        current = completed + TICK
+        motion.step(frame(stamp=current), feedback(enabled=True, stamp=current), current)
+        current += 160_000_000
+        with self.assertRaises(SafetyFault) as caught:
+            motion.step(frame(stamp=current), feedback(enabled=True, stamp=current), current)
+        self.assertEqual(caught.exception.details["kind"], "control_interval_timeout")
+        self.assertEqual(caught.exception.details["limit_ms"], 150.)
+
     def test_tracking_fault_identifies_worst_joint_and_previous_setpoint(self):
         motion = gate()
         motion.arm(frame(value=.5), feedback(), NOW)

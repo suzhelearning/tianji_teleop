@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import argparse
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 import fcntl
 import hashlib
 import os
@@ -18,6 +18,7 @@ import h5py
 import numpy as np
 
 from .dataset import (
+    DATASET_CONFIG_NAME,
     dataset_config_bytes,
     ensure_dataset_config,
     load_dataset_config,
@@ -193,58 +194,104 @@ def _compress_episode(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('source', nargs='?', type=Path, default=DEFAULT_SOURCE,
-                        help=f'RGB or JPEG dataset root (default: {DEFAULT_SOURCE})')
-    parser.add_argument('destination', nargs='?', type=Path, default=DEFAULT_DESTINATION,
-                        help=f'JPEG Q50 dataset root (default: {DEFAULT_DESTINATION})')
+                        help=f'RGB or JPEG config directory or root of daily datasets (default: {DEFAULT_SOURCE})')
+    parser.add_argument('destination', nargs='?', type=Path,
+                        help=f'JPEG Q50 output directory (default root: {DEFAULT_DESTINATION}; daily folders get _compressed)')
     args = parser.parse_args(argv)
     converted = skipped = failed = 0
     interrupted = False
     try:
         source = args.source.expanduser().resolve(strict=True)
-        destination = args.destination.expanduser().resolve()
+        single_dataset = (source / DATASET_CONFIG_NAME).exists() or (source / DATASET_CONFIG_NAME).is_symlink()
+        destination = (args.destination.expanduser().resolve() if args.destination is not None else
+                       DEFAULT_DESTINATION / f'{source.name}_compressed' if single_dataset else
+                       DEFAULT_DESTINATION)
         if source == destination or source in destination.parents or destination in source.parents:
             raise ValueError('source and destination roots must not overlap')
-        source_config = load_dataset_config(source)
-        if source_config['image_encoding'] == 'jpeg':
-            print(f"Source images: JPEG Q{source_config['jpeg_quality']} -> Q{JPEG_QUALITY}; "
-                  'lossy re-encoding, source files remain unchanged.')
-        destination_config = normalize_dataset_config({
-            **source_config, 'image_encoding': 'jpeg', 'jpeg_quality': JPEG_QUALITY,
-        })
+        if single_dataset:
+            datasets = [source]
+        else:
+            children = sorted(source.iterdir())
+            if any(path.name.endswith('.h5') and not path.name.endswith('.partial.h5')
+                   and not path.is_symlink() for path in children):
+                raise ValueError(f'episodes in {source} have no dataset configuration')
+            datasets = [path for path in children if path.is_dir() and not path.is_symlink()]
+            if not datasets:
+                raise ValueError(f'no dataset configuration or daily datasets found in {source}')
         destination.mkdir(parents=True, exist_ok=True)
         with _destination_lock(destination):
-            ensure_dataset_config(destination, destination_config)
+            if source not in datasets and (
+                (destination / DATASET_CONFIG_NAME).exists() or (destination / DATASET_CONFIG_NAME).is_symlink()
+            ):
+                raise ValueError('daily dataset destination must not have a root dataset configuration')
 
             def walk_error(error: OSError) -> None:
                 nonlocal failed
                 failed += 1
                 print(f'FAILED scanning source: {error}', file=sys.stderr)
 
-            for directory, directories, names in os.walk(source, followlinks=False, onerror=walk_error):
-                directories[:] = sorted(name for name in directories if not (Path(directory) / name).is_symlink())
-                for name in sorted(names):
-                    if not name.endswith('.h5') or name.endswith('.partial.h5'):
-                        continue
-                    episode = Path(directory) / name
-                    if episode.is_symlink():
-                        continue
-                    relative = episode.relative_to(source)
-                    try:
-                        changed = _compress_episode(
-                            episode, destination, relative, source_config, destination_config,
-                        )
-                    except Exception as exc:
-                        failed += 1
-                        print(f'FAILED {relative}: {exc}', file=sys.stderr)
-                        continue
-                    if changed:
-                        converted += 1
-                        print(f'CONVERTED {relative}')
-                    else:
-                        skipped += 1
-                        print(f'SKIPPED {relative} (verified source identity and JPEG output)')
-            if load_dataset_config(source) != source_config:
-                raise RuntimeError('source dataset configuration changed during compression')
+            for dataset in datasets:
+                dataset_relative = dataset.relative_to(source)
+                try:
+                    config_path = dataset / DATASET_CONFIG_NAME
+                    if config_path.is_symlink():
+                        raise ValueError(f'source dataset configuration must not be a symlink: {config_path}')
+                    source_config = load_dataset_config(dataset)
+                    if source_config['image_encoding'] == 'jpeg':
+                        print(f"{dataset_relative}: JPEG Q{source_config['jpeg_quality']} -> Q{JPEG_QUALITY}; "
+                              'lossy re-encoding, source files remain unchanged.')
+                    destination_config = normalize_dataset_config({
+                        **source_config, 'image_encoding': 'jpeg', 'jpeg_quality': JPEG_QUALITY,
+                    })
+                    output_relative = (Path('.') if dataset == source else
+                                       Path(f'{dataset.name}_compressed'))
+                    output = _destination_parent(destination, output_relative / DATASET_CONFIG_NAME)
+                    # Lock each day as well, so root and explicit-day invocations
+                    # cannot concurrently publish into the same dataset.
+                    with _destination_lock(output) if output != destination else nullcontext():
+                        if (output / DATASET_CONFIG_NAME).is_symlink():
+                            raise ValueError(f'destination dataset configuration must not be a symlink: {output}')
+                        ensure_dataset_config(output, destination_config)
+                        for directory, directories, names in os.walk(
+                            dataset, followlinks=False, onerror=walk_error,
+                        ):
+                            directory = Path(directory)
+                            if directory != dataset and DATASET_CONFIG_NAME in names:
+                                directories[:] = []
+                                failed += 1
+                                print(f'FAILED {directory.relative_to(source)}: nested dataset configuration '
+                                      'requires a separate source directory', file=sys.stderr)
+                                continue
+                            directories[:] = sorted(
+                                name for name in directories if not (directory / name).is_symlink()
+                            )
+                            for name in sorted(names):
+                                if not name.endswith('.h5') or name.endswith('.partial.h5'):
+                                    continue
+                                episode = directory / name
+                                if episode.is_symlink():
+                                    continue
+                                relative = episode.relative_to(source)
+                                try:
+                                    changed = _compress_episode(
+                                        episode, output, episode.relative_to(dataset),
+                                        source_config, destination_config,
+                                    )
+                                except Exception as exc:
+                                    failed += 1
+                                    print(f'FAILED {relative}: {exc}', file=sys.stderr)
+                                    continue
+                                if changed:
+                                    converted += 1
+                                    print(f'CONVERTED {relative}')
+                                else:
+                                    skipped += 1
+                                    print(f'SKIPPED {relative} (verified source identity and JPEG output)')
+                        if config_path.is_symlink() or load_dataset_config(dataset) != source_config:
+                            raise RuntimeError('source dataset configuration changed during compression')
+                except Exception as exc:
+                    failed += 1
+                    print(f'FAILED {dataset_relative}: {exc}', file=sys.stderr)
     except KeyboardInterrupt:
         interrupted = True
         failed += 1

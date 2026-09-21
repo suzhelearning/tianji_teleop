@@ -25,12 +25,18 @@
 ## 3. 文件结构
 
 ```text
-TianjiData_3cam_raw/
-├── dataset_config.json
-└── 20260913/
-    ├── 20260913_143025_123456_take001.h5
-    └── 20260913_143102_654321_take002.h5
+/data/TianjiData/raw/
+├── 20260921/
+│   ├── dataset_config.json
+│   ├── 20260921_143025_123456_take001.h5
+│   └── 20260921_143102_654321_take002.h5
+└── 20260922/
+    ├── dataset_config.json
+    └── 20260922_091500_123456_take003.h5
 ```
+
+日期使用每段准备文件时的本地时间；同一段跨午夜不拆分，新准备的段按新日期创建。
+`--dataset` 和 `TIANJI_DATASET` 指定的是日期目录的上级根目录，已有数据不自动迁移。
 
 ```text
 20260913_143025_123456_take001.h5
@@ -62,11 +68,11 @@ TianjiData_3cam_raw/
 
 `Na`、`Nh` 和各相机帧数独立，不要求相等。同一组内时间戳数量必须与数据行数一致。
 只创建实际使用的相机组，不创建空流；相机配置值为整数 `0` 时表示禁用，不生成全零图片。
-当前默认启用 top、left_wrist、right_wrist 三路，写入新数据集 `TianjiData_3cam_raw`。
+当前默认启用 top、left_wrist、right_wrist 三路，写入 `/data/TianjiData/raw/YYYYMMDD/`。
 原两相机及三相机 JPEG 数据集仍按各自的 `dataset_config.json` 读取，不覆盖旧契约或补造缺失相机流。
 
 原始 `rgb[i]` 是一帧 RGB 通道顺序的 uint8 像素，HDF5 chunks 为 `(1,720,1280,3)`，不启用压缩或其他过滤器。
-离线压缩后在独立数据集 `TianjiData_3cam_jpeg50` 中，将每路 `rgb` 替换为 `jpeg: vlen uint8 [F]`；
+离线压缩后在独立目录 `/data/TianjiData/compressed/YYYYMMDD_compressed/` 中，将每路 `rgb` 替换为 `jpeg: vlen uint8 [F]`；
 每个 `jpeg[i]` 是一帧完整 JPEG 的编码字节。一个相机组只包含 `timestamp_ns` 和对应编码的数据集，不同时保存两份图像。
 旧 JPEG Q90 数据继续兼容；固定 Q50 的批量脚本同时接受原始 RGB 和已有 JPEG。JPEG 输入经解码后二次有损编码为 Q50，仅写入独立输出目录，不修改源数据或其配置。
 
@@ -102,7 +108,7 @@ TianjiData_3cam_raw/
 
 ## 6. 数据集级配置
 
-`dataset_config.json` 保存一份共享配置，不在每个 episode 重复完整内容。
+每个日期目录内的 `dataset_config.json` 保存当天共享配置，不在每个 episode 重复完整内容，也不在 `raw/` 根目录创建共享配置。
 
 | 字段 | 要求 |
 |---|---|
@@ -117,15 +123,15 @@ TianjiData_3cam_raw/
 | `decoded_color_order` | `RGB` |
 | `jpeg_quality` | `rgb` 必须为 JSON `null`；批量压缩输出为 `50`，旧 JPEG 数据保留其原质量值 |
 
-同一数据集保持上述契约一致。配置不匹配时拒绝追加，不覆盖旧配置。
+同一日期目录保持上述契约一致。配置不匹配时拒绝追加，不覆盖旧配置；不同日期的配置独立检查。
 运行用的相机序列号与禁用槽位放在 `collection_config.json`；数据集配置不保存禁用相机。
 相机内外参不是本版训练字段，不纳入此 schema。
 
 ### 离线批量压缩
 
-`bash compress_data.sh [原始目录 [输出目录]]` 默认从 `TianjiData_3cam_raw` 生成 `TianjiData_3cam_jpeg50`，JPEG 质量固定为 50。
+`bash compress_data.sh [原始目录 [输出目录]]` 默认从 `/data/TianjiData/raw` 生成 `/data/TianjiData/compressed/YYYYMMDD_compressed/`，逐日期读取和保存配置，JPEG 质量固定为 50；只指定单日源目录也自动选择对应压缩日期目录，显式输出目录则保持调用者指定的位置。
 只处理已完成 `.h5`（包括明确标记 `success=false` 的完成文件），跳过 `.partial.h5` 和符号链接；
-不删除或覆盖原始数据。保持相对路径、关节值、时间戳、任务与成功标记和其他属性，输出另加源文件 SHA256、源配置 SHA256 和相对路径溯源属性。
+不删除或覆盖原始数据。日期输出目录增加 `_compressed` 后缀，目录内文件相对路径、关节值、时间戳、任务与成功标记和其他属性保持不变；输出另加源文件 SHA256、源配置 SHA256 和配置目录内相对路径溯源属性。
 输出先写独有临时文件，校验并同步后以不覆盖的原子方式发布；中断后重复运行可继续，已完成输出须通过源身份与格式校验才跳过。
 源/目标目录不得重叠，目标配置冲突、活动文件锁或坏文件会明确失败；独立文件可继续处理，最终返回非零状态并汇总失败数。
 原始图像约 249 MB/s、14.9 GB/分钟，压缩输出另占空间；原始保留策略意味着压缩本身不会释放采集盘空间。

@@ -36,11 +36,13 @@ void DualArmController::initializeCeres(IkAlgorithm algorithm) {
   const Vec7 home_right = dls ? d.home_right_rad : c.home_right_rad;
   if (dls && (d.planner_enabled || d.direct_velocity_limit_enabled))
     throw std::invalid_argument("Franka DLS port requires raw IK followed by Ruckig");
-  // This first port is model-reference simulation only. Hardware command
-  // authority and feedback supervision must not be inferred from an IK option.
+  // This controller produces model references only. Hardware authority and
+  // feedback supervision belong to the separate guarded executor.
   if (!(dls ? d.enabled : c.enabled) || !config_.controller.model_state_only ||
       config_.control_level != ControlLevel::kVelocity ||
       !p.enabled || p.velocity_scale != 1.0 ||
+      !std::isfinite(config_.joint_limits.velocity_scale) ||
+      config_.joint_limits.velocity_scale <= 0.0 || config_.joint_limits.velocity_scale > 1.0 ||
       config_.upper_arm_outward.minimum_outward_distance_m != 0.0 ||
       !home_left.allFinite() || !home_right.allFinite() ||
       !p.max_velocity_rad_s.allFinite() || !p.max_acceleration_rad_s2.allFinite() ||
@@ -89,6 +91,7 @@ void DualArmController::initializeCeres(IkAlgorithm algorithm) {
   }
   const auto make = [&](ArmSide side) {
     auto limits = robot_.mapping(side).limits;
+    limits.velocity *= config_.joint_limits.velocity_scale;
     limits.lower_position.array() += config_.joint_limits.margin_rad;
     limits.upper_position.array() -= config_.joint_limits.margin_rad;
     return std::make_unique<CeresTrajectoryLimiter7>(p, limits, 1.0/config_.controller.rate_hz);

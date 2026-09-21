@@ -60,7 +60,11 @@ class CalibrationTests(unittest.TestCase):
                 return inner.calls==2
             def close(inner): pass
         child=MagicMock(); child.poll.return_value=None
+        # The controller process is mocked; its optional build is not a fixture.
+        original_is_file = run_teleop.Path.is_file
         with patch('real_robot.run_teleop.sys.stdin.isatty',return_value=True), \
+             patch('real_robot.run_teleop.Path.is_file', autospec=True,
+                   side_effect=lambda path: path.name == 'mapped_palm_tjrc_controller' or original_is_file(path)), \
              patch('real_robot.run_teleop.make_hardware',return_value={'arms':device}), \
              patch('real_robot.run_teleop.RealRobotViewer'), \
              patch('real_robot.run_teleop.CommandReceiver'), \

@@ -108,6 +108,22 @@ TEST_F(FrankaDlsController, RejectsHardwareDisabledAndRelaxedEnvelope) {
   c=config; c.pico_ee_franka_dls.post_smoothing.max_velocity_rad_s[0]=std::numeric_limits<double>::quiet_NaN();
   EXPECT_THROW(DualArmController(robot,c),std::invalid_argument);
 }
+TEST_F(FrankaDlsController, ScaledRobotVelocityLimitBoundsCommittedReference) {
+  config.joint_limits.velocity_scale = .02;
+  DualArmController controller(robot, config);
+  auto t = target();
+  t.left.position.x() += .02;
+  t.right.position.x() += .02;
+  for (int n = 0; n < 150; ++n) {
+    const auto result = controller.step(t, .005);
+    ASSERT_TRUE(result.accepted);
+    for (auto side : {ArmSide::kLeft, ArmSide::kRight}) {
+      const Vec7 cap = (config.joint_limits.velocity_scale * robot.mapping(side).limits.velocity)
+          .cwiseMin(config.pico_ee_franka_dls.post_smoothing.max_velocity_rad_s);
+      EXPECT_TRUE((controller.referenceState(side).qdot.cwiseAbs().array() <= cap.array() + 1e-8).all());
+    }
+  }
+}
 TEST_F(FrankaDlsController, StationaryAndMovingPoseRemainBounded) {
   DualArmController controller(robot,config);
   auto t=target();

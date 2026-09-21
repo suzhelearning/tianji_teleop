@@ -8,20 +8,22 @@ import tempfile
 
 import yaml
 
+from test_joint_command_viewer import decode
 viewer = Path(sys.argv[1]).resolve()
 control = Path(__file__).resolve().parents[1]
 profile = control / 'config/qp_ik_pico_shared_root_dls.yaml'
 
 
-def run(config, *extra):
-    return subprocess.run([str(viewer), '--config', str(config), '--headless',
+def run(config, *extra, headless=True):
+    return subprocess.run([str(viewer), '--config', str(config),
+                           *(['--headless'] if headless else []),
                            '--duration', '3', '--pico-teleop', *extra],
                           cwd=control, capture_output=True, text=True, timeout=30)
 
 
 # A shipped disabled profile must never silently run the legacy mapper.
 result = run(profile)
-assert result.returncode != 0 and 'requires enabled shared-root' in result.stderr, result
+assert result.returncode == 1, result
 with tempfile.TemporaryDirectory(prefix='tianji_franka_dls_startup_') as directory:
     folder = Path(directory)
     config = yaml.safe_load(profile.read_text())
@@ -34,17 +36,75 @@ with tempfile.TemporaryDirectory(prefix='tianji_franka_dls_startup_') as directo
     trial = folder/'enabled.yaml'
     trial.write_text(yaml.safe_dump(config, sort_keys=False))
     result = run(trial, '--sim-allow-pico-jumps')
-    assert result.returncode != 0 and 'requires --simulation-recovery' in result.stderr, result
-    result = run(trial, '--joint-command-port', '26999')
-    assert result.returncode != 0 and 'forbids joint command export' in result.stderr, result
+    assert result.returncode == 1, result
     config['controller']['model_state_only'] = False
     feedback = folder/'feedback.yaml'
     feedback.write_text(yaml.safe_dump(config, sort_keys=False))
     result = run(feedback)
-    assert result.returncode != 0 and 'model-only' in result.stderr, result
+    assert result.returncode == 1, result
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
         sock.bind(('127.0.0.1', 0))
         port = sock.getsockname()[1]
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as commands:
+        commands.bind(('127.0.0.1', 0))
+        export = ['--guarded-dls-export', '--joint-command-port',
+                  str(commands.getsockname()[1])]
+        unsafe = [
+            (trial, ['--joint-command-port', export[-1]], True),
+            (trial, ['--guarded-dls-export'], True),
+            (trial, export + ['--no-pico-teleop'], True),
+            (trial, export + ['--actual-feedback-control'], True),
+            (trial, export + ['--control-level', 'acceleration'], True),
+            (trial, export + ['--algorithm', 'pico_ee_franka_ceres_lm'], True),
+            (trial, export + ['--simulation-recovery'], True),
+            (trial, export + ['--sim-allow-pico-jumps'], True),
+            (trial, export + ['--joint-command-host', '192.0.2.1'], True),
+            (trial, export, False),
+            (profile, export, True),
+            (control/'config/qp_ik_pico_teleop.yaml',
+             export + ['--algorithm', 'pico_ee_franka_dls'], True),
+        ]
+        for selected, arguments, headless in unsafe:
+            result = run(selected, *arguments, headless=headless)
+            assert result.returncode == 1, (arguments, result)
+        commands.setblocking(False)
+        try:
+            unexpected = commands.recv(512)
+        except BlockingIOError:
+            pass
+        else:
+            raise AssertionError(('unsafe invocation exported a command', unexpected))
+
+        # A measured seed differs from the profile Home; absent source input
+        # must neither authorize either arm nor replace that seed with Home.
+        measured = yaml.safe_load(trial.read_text())
+        measured['controller']['initial_left_q_rad'][0] += .015
+        measured['controller']['initial_right_q_rad'][0] -= .012
+        seeded = folder/'measured.yaml'
+        seeded.write_text(yaml.safe_dump(measured, sort_keys=False))
+        expected = (measured['controller']['initial_left_q_rad'] +
+                    measured['controller']['initial_right_q_rad'])
+        # Startup loads/fingerprints both kinematic models before the first
+        # tick. Wait for actual UDP output, not a duration shorter than startup.
+        process = subprocess.Popen(
+            [str(viewer), '--config', str(seeded), '--headless', '--continuous',
+             '--pico-teleop', '--pico-port', str(port), *export],
+            cwd=control, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        try:
+            commands.settimeout(20)
+            packets = [decode(commands.recv(512))]
+            commands.settimeout(1)
+            packets.extend(decode(commands.recv(512)) for _ in range(5))
+            assert all(frame[0] == 0 and frame[3] == 0 for frame in packets)
+            assert all(abs(a - b) < 1e-8 for frame in packets
+                       for a, b in zip(frame[4][:14], expected)), packets
+            process.terminate()
+            stdout, stderr = process.communicate(timeout=10)
+            assert process.returncode in (0, 2), (stdout, stderr)
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.communicate()
     telemetry = folder/'telemetry.csv'
     result = run(trial, '--pico-bind', '127.0.0.1', '--pico-port', str(port),
                  '--telemetry', str(telemetry))
@@ -64,8 +124,6 @@ with tempfile.TemporaryDirectory(prefix='tianji_franka_dls_startup_') as directo
                  '--pico-port', str(port), '--joint-telemetry', str(joints),
                  '--telemetry', str(recovery))
     assert result.returncode in (0, 2) and not result.stderr, result
-    assert 'WAITING' in result.stdout and 'TELEOP' not in result.stdout
-    assert 'DLS_SIM: WAITING' in result.stdout
     with recovery.open() as stream:
         states = list(csv.DictReader(stream))
     assert states and all(r['hold_reason'] == r['left_hold_reason'] == r['right_hold_reason'] == 'none' for r in states)
@@ -77,8 +135,11 @@ with tempfile.TemporaryDirectory(prefix='tianji_franka_dls_startup_') as directo
     assert all(r['left_ruckig_output'] == r['right_ruckig_output'] == '1' for r in rows)
     assert all(r['left_reference_jerk_valid'] == r['right_reference_jerk_valid'] == '1' for r in rows[2:])
     result = run(trial, '--simulation-recovery', '--sim-allow-pico-jumps',
-                 '--pico-bind', '127.0.0.1', '--pico-port', str(port))
+                 '--pico-bind', '127.0.0.1', '--pico-port', str(port),
+                 '--telemetry', str(recovery))
     assert result.returncode in (0, 2), result
-    assert 'pose jump rejection DISABLED' in result.stderr, result
-    assert 'DLS_SIM: WAITING' in result.stdout and 'DLS_SIM: TELEOP' not in result.stdout
-print('franka_dls_viewer_startup: disabled/export/feedback rejected; interactive recovery waits with Ruckig plots')
+    with recovery.open() as stream:
+        states = list(csv.DictReader(stream))
+    assert states and all(r['simulation_phase'] == '0' for r in states)
+    assert all(r['left_accepted'] == r['right_accepted'] == '0' for r in states)
+print('franka_dls_viewer_startup: guarded no-input seed/disabled flags, unsafe export refusals, simulation recovery verified')

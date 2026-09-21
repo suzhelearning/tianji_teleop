@@ -1,7 +1,7 @@
 # mapped-palm 独立后端移植
 
 本入口移植 `dexhand_deploy` 的 C++ `pico_ee_mapped_corrected_palm_velocity_qp`，
-在本工程中用 `--ik-backend mapped-palm` 选择。默认仍为 SPARK。
+在本工程中用 `--ik-backend mapped-palm` 显式选择；`--sim`、`--real` 和 `--data` 默认均为共享根 Franka DLS＋Ruckig。
 源码基线为 `a6ff1bd9a32e0a2b3dac2c131abf0cf0c2ea00b4`；数学核心、模型/TCP、
 原始参数与来源关系见 `control/mapped_palm/migration_manifest.json`。
 
@@ -14,13 +14,14 @@
 - 位置跟踪松弛权重 90000，姿态权重 30000，原生 QP/OTG 逻辑保留。
 - `bandwidth.yaml` 保留来源参考配置；现场 `deployment.yaml` 仅替换启动 Home：
   左 `[55,-65,-70,-60,60,0,0]°`，右 `[-55,-65,70,-60,-60,0,0]°`。
-- 采用随库模型的 `hand_tcp_frame_L/R`，不借用默认 SPARK 模型/TCP。
+- 采用随库模型的 `hand_tcp_frame_L/R`，不借用 legacy SPARK 模型/TCP。
 - 真机入口只新增后端选择；仍经过原有实际反馈初始化、降速、限位、
   多次 Enter 确认和退出处理。**离线通过不代表真机验收。**
 - 输入失鲜撤销机械臂 ready；已接管后 tracking epoch/reset 改变会锁住 ready，
-  不静默跨 epoch 恢复。新仿真入口可用下面的 P/R/S 受控恢复；真机默认仅对 TELEOP
+  不静默跨 epoch 恢复。新仿真入口可用下面的 P/R/S 受控恢复；显式 mapped-palm 真机默认仅对 TELEOP
   的纯 PICO 断流提供从最后有效输入起 300 ms 的保持/恢复窗口，其他故障仍锁存。
   详见 [真机断流策略](mapped-palm-real-readiness.md)；可用 `--mapped-palm-dropout-policy stop` 禁用该例外。
+- 上述短时保持仅属于 mapped-palm；默认 DLS 真机在源失鲜、epoch 改变或映射／IK 拒绝时停止，不启用仿真自动恢复。
 
 ## 构建
 
@@ -212,7 +213,7 @@ MuJoCo 目标标记显示 C++ 实际 IK 目标（独立只读 MPT1 UDP），失�
 后续 TCP、腕心或骨长变化后，选择旧快照会因指纹不匹配被拒绝，不静默使用过期数据。
 只需原始独立骨长时，标定命令追加 `--geometry-policy original`。
 
-**自动生成不等于自动启用。** 为保持默认 SPARK 和原映射不变，显式选择新快照：
+**自动生成不等于自动启用。** 后端选择不自动改变人员骨长策略，需显式选择新快照：
 
 ```bash
 bash scripts/start_mapped_palm_pico.sh --user YOUR_USER --symmetric-geometry

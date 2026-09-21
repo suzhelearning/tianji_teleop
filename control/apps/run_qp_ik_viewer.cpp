@@ -65,6 +65,7 @@ struct Options {
   std::uint16_t joint_command_port{0U};
   bool continuous{false};
   bool headless{false};
+  bool guarded_dls_export{false};
   bool simulation_recovery{false};
   bool sim_allow_pico_jumps{false};
   double duration_seconds{0.0};
@@ -129,6 +130,7 @@ Options parseOptions(int argc, char** argv) {
                    "[--solver qpoases] [--headless] [--duration SECONDS|--continuous] "
                    "[--telemetry FILE] [--joint-telemetry FILE] "
                    "[--joint-command-host LOOPBACK_IPV4] [--joint-command-port PORT (0=disabled)] "
+                   "[--guarded-dls-export (shared-root DLS references for guarded executor)] "
                    "[--pico-teleop|--no-pico-teleop] "
                    "[--simulation-recovery (Ceres model-only S/H/P gate)] "
                    "[--sim-allow-pico-jumps (requires simulation recovery)] "
@@ -149,6 +151,10 @@ Options parseOptions(int argc, char** argv) {
                    "[--model-state-only|--actual-feedback-control] "
                    "[--arm-angle-mode pico|default_down|outward_only|pico_outward]\n";
       std::exit(0);
+    }
+    if (argument == "--guarded-dls-export") {
+      options.guarded_dls_export = true;
+      continue;
     }
     if (argument == "--sim-allow-pico-jumps") {
       options.sim_allow_pico_jumps = true;
@@ -739,6 +745,7 @@ void controlLoop(MujocoRobot& robot, QpIkConfig config,
   std::int64_t hand_input_after_ns = 0;
   JointCommandArmReadiness joint_command_arm_readiness;
   std::uint64_t joint_command_resynchronization_generation = 0U;
+  bool pico_latest_frame_applied = false;
   std::int64_t pico_left_source_timestamp_ns = 0;
   std::int64_t pico_right_source_timestamp_ns = 0;
   std::int64_t pico_applied_bridge_send_monotonic_ns = 0;
@@ -875,13 +882,15 @@ void controlLoop(MujocoRobot& robot, QpIkConfig config,
 
     PicoTeleopFrame pico_frame;
     if (pico_frames != nullptr && pico_frames->tryReadLatest(pico_frame)) {
-      joint_command_epoch = pico_frame.tracking_epoch;
+      pico_latest_frame_applied = false;
       joint_command_stream_reset =
+          pico_frame.tracking_epoch != joint_command_epoch ||
           pico_frame.stream_discontinuity ||
           pico_frame.resynchronization_generation !=
               joint_command_resynchronization_generation;
       joint_command_resynchronization_generation =
           pico_frame.resynchronization_generation;
+      joint_command_epoch = pico_frame.tracking_epoch;
       const PicoTeleopButtonAction button_action =
           pico_session.observeButton(pico_frame);
       if(recovery&&button_action==PicoTeleopButtonAction::kPause)
@@ -919,13 +928,17 @@ void controlLoop(MujocoRobot& robot, QpIkConfig config,
             if (reset_epoch) {
               joint_takeover_active = false;
               spark_guidance->cancelJointSpaceTakeover();
-              (void)spark_guidance->reset(
-                  spark_direct_qpos
-                      ? direct_left_state
-                      : controller->referenceState(ArmSide::kLeft),
-                  spark_direct_qpos
-                      ? direct_right_state
-                      : controller->referenceState(ArmSide::kRight));
+              const bool reset = shared_root_mode && usesSharedRootDirectIk(controller->algorithm())
+                  ? spark_guidance->resetMappingSession(
+                        controller->referenceState(ArmSide::kLeft),
+                        controller->referenceState(ArmSide::kRight))
+                  : spark_guidance->reset(
+                        spark_direct_qpos ? direct_left_state
+                                          : controller->referenceState(ArmSide::kLeft),
+                        spark_direct_qpos ? direct_right_state
+                                          : controller->referenceState(ArmSide::kRight));
+              if (!reset)
+                throw std::runtime_error("PICO epoch mapping reset failed");
             }
             SparkUpperTargets spark_targets;
             if (shared_root_mode) {
@@ -978,6 +991,7 @@ void controlLoop(MujocoRobot& robot, QpIkConfig config,
               ++pico_reset_applies;
             }
             pico_session.commitApplied(pico_frame);
+            pico_latest_frame_applied = true;
             pico_applied_bridge_send_monotonic_ns =
                 pico_frame.bridge_send_monotonic_ns;
             latest_pico_upper_limb_skeleton = pico_frame.upper_limb_skeleton;
@@ -1108,6 +1122,7 @@ void controlLoop(MujocoRobot& robot, QpIkConfig config,
     acceleration_controller->setArmAngleReferenceMode(
         arm_angle_reference_mode);
     bool recovery_plot_valid = false;
+    bool shared_root_reference_accepted = false;
     const bool recovery_home_sample = recovery &&
         recovery->phase() == SimulationRecovery::Phase::kHoming;
     if(recovery&&!recovery->teleop()) {
@@ -1206,10 +1221,16 @@ void controlLoop(MujocoRobot& robot, QpIkConfig config,
           recovery->stop(motionPair());
       }
       if (shared_root_mode) {
-        (void)spark_guidance->confirmSharedRootReference(
-            spark_diagnostics.shared_root_cycle,
+        shared_root_reference_accepted =
             accepted && diagnostics.left.accepted && diagnostics.right.accepted &&
-            pico_freshness.live && spark_diagnostics.target_valid);
+            diagnostics.left.ik.status == SolverStatus::kSolved &&
+            diagnostics.right.ik.status == SolverStatus::kSolved &&
+            pico_freshness.live && spark_diagnostics.accepted &&
+            spark_diagnostics.target_valid;
+        // Confirmation returns a recovery-transition event, not per-tick
+        // acceptance: repeated control ticks can consume the same source frame.
+        (void)spark_guidance->confirmSharedRootReference(
+            spark_diagnostics.shared_root_cycle, shared_root_reference_accepted);
       }
       if (spark_guidance != nullptr &&
           usesSparkHeadroomFeedforwardVelocityQp(controller->algorithm()) &&
@@ -2228,7 +2249,10 @@ void controlLoop(MujocoRobot& robot, QpIkConfig config,
           snapshot.left_ik.status == SolverStatus::kSolved &&
           snapshot.right_ik.status == SolverStatus::kSolved &&
           !desired.left_stale && !desired.right_stale &&
-          (!spark_mode || spark_diagnostics.accepted);
+          (!spark_mode || spark_diagnostics.accepted) &&
+          (!shared_root_mode ||
+           (pico_latest_frame_applied && shared_root_reference_accepted &&
+            !spark_diagnostics.reference_reset_required));
       const bool hands_allowed =
           !paused && !pico_paused && !plot_reset_requested &&
           hand_configured && robot.hasHandMappings();
@@ -2240,7 +2264,8 @@ void controlLoop(MujocoRobot& robot, QpIkConfig config,
           right_hand_freshness.live(output.source_timestamp_ns);
       output.flags = static_cast<std::uint8_t>(
           (joint_command_arm_readiness.update(
-               arms_ready, plot_reset_requested || joint_command_stream_reset)
+               arms_ready, plot_reset_requested || joint_command_stream_reset ||
+                   (shared_root_mode && spark_diagnostics.reference_reset_required))
                ? kJointCommandArmsReadyFlag : 0U) |
           (left_hand_ready ? kJointCommandLeftHandReadyFlag : 0U) |
           (right_hand_ready ? kJointCommandRightHandReadyFlag : 0U));
@@ -3981,18 +4006,33 @@ int run(int argc, char** argv) {
   if (options.algorithm_override.has_value()) {
     config.ik_algorithm = *options.algorithm_override;
   }
+  if (options.model_state_only_override.has_value()) {
+    config.controller.model_state_only = *options.model_state_only_override;
+  }
+  if (options.guarded_dls_export &&
+      (config.ik_algorithm != IkAlgorithm::kPicoEeFrankaDls ||
+       config.shared_root_profile_path.empty() || !config.controller.model_state_only ||
+       config.control_level != ControlLevel::kVelocity ||
+       !options.headless || !options.pico_teleop || options.joint_command_port == 0U ||
+       options.simulation_recovery || options.sim_allow_pico_jumps))
+    throw std::invalid_argument(
+        "--guarded-dls-export requires shared-root DLS, model-reference, headless, PICO, "
+        "nonzero loopback export; simulation recovery/jump bypass forbidden");
   if (!config.shared_root_profile_path.empty()) {
     if ((!usesSparkHeadroomFeedforwardVelocityQp(config.ik_algorithm) &&
          !usesSharedRootDirectIk(config.ik_algorithm)) ||
         config.control_level != ControlLevel::kVelocity || !options.pico_teleop)
       throw std::invalid_argument("shared-root requires PICO headroom/feedforward velocity mode");
-    if (options.joint_command_port != 0U)
-      throw std::invalid_argument("shared-root experimental mode forbids joint command export");
+    if (options.joint_command_port != 0U && !options.guarded_dls_export)
+      throw std::invalid_argument("shared-root export requires --guarded-dls-export");
     const auto shared = loadSharedRootOptions(config.shared_root_profile_path);
+    if (!shared.enabled)
+      throw std::invalid_argument("shared-root profile must be enabled");
     if (!options.model_path_explicit) options.model_path = shared.mujoco_path;
     if (sharedRootSha256File(options.model_path) != sharedRootSha256File(shared.mujoco_path))
       throw std::invalid_argument("shared-root requires its frozen palm TCP model");
-    std::cout << "shared_root=experimental; device_acceptance=false; joint_export=disabled\n";
+    std::cout << "shared_root=experimental; device_acceptance=false; joint_export="
+              << (options.guarded_dls_export ? "guarded_dls_reference" : "disabled") << '\n';
   }
   if (usesSparkGuidance(config.ik_algorithm)) {
     if (!options.pico_teleop) {
@@ -4007,13 +4047,12 @@ int run(int argc, char** argv) {
       config.joint_limits.hard_jerk_enabled = true;
     }
   }
-  if (options.model_state_only_override.has_value()) {
-    config.controller.model_state_only = *options.model_state_only_override;
-  }
   if (usesSharedRootDirectIk(config.ik_algorithm)) {
-    if (config.shared_root_profile_path.empty() || !config.controller.model_state_only ||
-        options.joint_command_port != 0U)
-      throw std::invalid_argument("Ceres viewer requires enabled shared-root model-only mode; joint export forbidden");
+    if (config.shared_root_profile_path.empty() || !config.controller.model_state_only)
+      throw std::invalid_argument("direct IK requires enabled shared-root model-reference mode");
+    if (options.joint_command_port != 0U &&
+        (config.ik_algorithm != IkAlgorithm::kPicoEeFrankaDls || !options.guarded_dls_export))
+      throw std::invalid_argument("direct IK export requires guarded DLS; Ceres export forbidden");
     if (config.ik_algorithm == IkAlgorithm::kPicoEeFrankaCeresLm && !PicoEeFrankaCeresLmIk7::available())
       throw std::invalid_argument("Ceres not built: configure TIANJI_ENABLE_CERES=ON");
   }

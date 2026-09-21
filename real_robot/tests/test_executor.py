@@ -138,8 +138,8 @@ class ExecutorTests(unittest.TestCase):
         self.assertIn("physical emergency stop", stderr.getvalue())
 
     def _delayed_preflight(self, delay, *, stop_source_at=None, confirm=True, arm_pose=None, model=None,
-                           log_dir=None):
-        clock = SimpleNamespace(now=NOW, reads=0, streaming=True, entered=False, enabled=False)
+                           log_dir=None, enable_delay=0.0, exercise_alignment=False):
+        clock = SimpleNamespace(now=NOW, reads=0, streaming=True, entered=False, enabled=False, sent=False)
         receiver = Mock(port=17001)
         receiver.latest = frame(stamp=clock.now)
 
@@ -159,13 +159,15 @@ class ExecutorTests(unittest.TestCase):
 
         def enter():
             if clock.enabled:
-                return True  # Stop immediately after fake enable; never send motion.
+                return not exercise_alignment or clock.sent
             if confirm and not clock.entered:
                 clock.entered = True
                 return True
             return False
 
         def enable(guard):
+            guard()
+            clock.now += int(enable_delay * 1e9)
             guard()
             clock.enabled = True
 
@@ -176,6 +178,10 @@ class ExecutorTests(unittest.TestCase):
         device = Mock()
         device.read_feedback.side_effect = read_feedback
         device.enable.side_effect = enable
+        def send(positions):
+            clock.sent = True
+            self.assertEqual(tuple(positions), (0.0,) * 14)
+        device.send.side_effect = send
         controller = Mock()
         controller.poll.return_value = None
         config_path = ROOT / "real_robot/config.json"
@@ -221,8 +227,16 @@ class ExecutorTests(unittest.TestCase):
             stack.enter_context(redirect_stderr(output))
             result = main(["--config", str(config_path), "--devices", "arms",
                            "--confirm-real", "--duration", "1"])
-        device.send.assert_not_called()
+        if exercise_alignment:
+            device.send.assert_called_once()
+        else:
+            device.send.assert_not_called()
         return result, device.enable.call_count, clock.entered, output.getvalue()
+
+    def test_slow_sdk_enable_does_not_consume_first_alignment_tick(self):
+        result, enables, entered, output = self._delayed_preflight(
+            .005, enable_delay=.55, exercise_alignment=True)
+        self.assertEqual((result, enables, entered), (0, 1, True), output)
 
     def test_feedback_read_latency_does_not_make_fresh_feedback_future_dated(self):
         result, enables, entered, output = self._delayed_preflight(.01)
@@ -326,6 +340,7 @@ class ExecutorTests(unittest.TestCase):
                 with patch("real_robot.run_teleop.make_hardware", return_value=hardware), \
                         patch("real_robot.run_teleop.ROOT", executor_root), \
                         patch("real_robot.run_teleop.RealRobotViewer"), \
+                        patch("real_robot.run_teleop.CommandReceiver"), \
                         patch("real_robot.run_teleop.sys.stdin.isatty", return_value=True), \
                         redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
                     result = main(["--config", str(ROOT / "real_robot/config.json"),

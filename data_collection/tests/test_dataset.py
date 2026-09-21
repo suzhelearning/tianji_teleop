@@ -139,7 +139,8 @@ def test_partial_then_complete_roundtrip(tmp_path: Path) -> None:
     assert writer.partial_path == writer.final_path.with_suffix('.partial.h5')
     assert writer.partial_path.is_file()
     assert writer.final_path.parent.parent == tmp_path
-    written = json.loads((tmp_path / DATASET_CONFIG_NAME).read_text('utf-8'))
+    assert not (tmp_path / DATASET_CONFIG_NAME).exists()
+    written = json.loads((writer.final_path.parent / DATASET_CONFIG_NAME).read_text('utf-8'))
     assert normalize_dataset_config(written) == normalize_dataset_config(config)
 
     writer.start(START_NS)
@@ -238,15 +239,28 @@ def test_finish_requires_stop_and_refuses_empty_episode(tmp_path: Path) -> None:
     make_config(camera_names=['top']),
     make_config(image_encoding='rgb', jpeg_quality=None),
 ], ids=['camera-mismatch', 'encoding-mismatch'])
-def test_config_conflict_is_rejected_without_touching_files(tmp_path: Path, conflicting) -> None:
-    target = tmp_path / DATASET_CONFIG_NAME
+def test_config_conflict_is_rejected_without_touching_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, conflicting,
+) -> None:
+    now = datetime(2026, 9, 13, 12, 34, 56)
+    monkeypatch.setattr(dataset.time, 'time_ns', lambda: int(now.timestamp() * 1e9))
+    directory = tmp_path / '20260913'
+    directory.mkdir()
+    target = directory / DATASET_CONFIG_NAME
     target.write_text(json.dumps(conflicting, indent=2, sort_keys=True) + '\n', encoding='utf-8')
     original = target.read_bytes()
+    completed = directory / 'prior.h5'
+    partial = directory / 'prior.partial.h5'
+    completed.write_bytes(b'completed')
+    partial.write_bytes(b'partial')
 
     with pytest.raises(RuntimeError, match='does not match'):
         EpisodeWriter(tmp_path, make_config(), TASK)
     assert target.read_bytes() == original
-    assert not list(tmp_path.rglob('*.h5'))
+    assert completed.read_bytes() == b'completed'
+    assert partial.read_bytes() == b'partial'
+    assert set(tmp_path.rglob('*.h5')) == {completed, partial}
+    assert not (tmp_path / DATASET_CONFIG_NAME).exists()
 
     with pytest.raises(ValueError, match='unknown'):
         EpisodeWriter(tmp_path, make_config(extra='nope'), TASK)
@@ -254,6 +268,52 @@ def test_config_conflict_is_rejected_without_touching_files(tmp_path: Path, conf
         EpisodeWriter(tmp_path, make_config(joint_names=['a', 'b']), TASK)
     with pytest.raises(ValueError, match='joint_unit'):
         EpisodeWriter(tmp_path, make_config(joint_unit='deg'), TASK)
+
+
+def test_midnight_keeps_reserved_date_and_next_day_has_independent_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    now = datetime(2026, 9, 13, 23, 59, 59)
+    monkeypatch.setattr(dataset.time, 'time_ns', lambda: int(now.timestamp() * 1e9))
+    original_ensure = dataset.ensure_dataset_config
+
+    def midnight_during_config(directory, config):
+        nonlocal now
+        original_ensure(directory, config)
+        now = datetime(2026, 9, 14, 0, 0, 1)
+
+    monkeypatch.setattr(dataset, 'ensure_dataset_config', midnight_during_config)
+    # A legacy root config is neither reused, moved nor deleted.
+    legacy_config = tmp_path / DATASET_CONFIG_NAME
+    legacy_config.write_text(json.dumps(make_config(robot_config='legacy')), encoding='utf-8')
+    legacy_bytes = legacy_config.read_bytes()
+    first_config = make_config()
+    first = EpisodeWriter(tmp_path, first_config, TASK)
+    try:
+        first.start(START_NS)
+        fill(first, 1)
+        first.stop()
+        path = first.finish(True)
+    finally:
+        first.abort()
+    assert path.parent == tmp_path / '20260913'
+    assert path.name.startswith('20260913_235959_')
+    assert load_dataset_config(path.parent) == normalize_dataset_config(first_config)
+    assert validate_episode(path, load_dataset_config(path.parent))['success'] is True
+    original_config = (path.parent / DATASET_CONFIG_NAME).read_bytes()
+    original_episode = path.read_bytes()
+
+    second_config = make_config(camera_names=['top'])
+    second = EpisodeWriter(tmp_path, second_config, TASK)
+    try:
+        assert second.partial_path.parent == tmp_path / '20260914'
+        assert second.partial_path.name.startswith('20260914_000001_')
+        assert load_dataset_config(second.partial_path.parent) == normalize_dataset_config(second_config)
+    finally:
+        second.abort()
+    assert (path.parent / DATASET_CONFIG_NAME).read_bytes() == original_config
+    assert path.read_bytes() == original_episode
+    assert legacy_config.read_bytes() == legacy_bytes
 
 
 def test_timestamp_takes_never_overwrite(tmp_path: Path, monkeypatch) -> None:
@@ -684,7 +744,10 @@ def test_config_round_trip_and_validation() -> None:
 def test_load_dataset_config(tmp_path: Path) -> None:
     writer = EpisodeWriter(tmp_path, make_config(), TASK)
     writer.abort()
-    assert load_dataset_config(tmp_path) == normalize_dataset_config(make_config())
-    (tmp_path / DATASET_CONFIG_NAME).write_text('{not json', encoding='utf-8')
-    with pytest.raises(ValueError, match='JSON'):
+    directory = writer.partial_path.parent
+    assert load_dataset_config(directory) == normalize_dataset_config(make_config())
+    with pytest.raises(ValueError, match='cannot read'):
         load_dataset_config(tmp_path)
+    (directory / DATASET_CONFIG_NAME).write_text('{not json', encoding='utf-8')
+    with pytest.raises(ValueError, match='JSON'):
+        load_dataset_config(directory)

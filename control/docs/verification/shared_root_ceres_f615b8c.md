@@ -2,8 +2,12 @@
 
 ## 当前后端与限位
 
-默认交互仿真使用 Franka DLS＋Ruckig，Ceres 和 SPARK 为显式可选后端；
-真机默认不随仿真切换。入口见[交互仿真](ceres_interactive_sim.md)，
+默认交互仿真、真机和采集均使用共享根 Franka DLS＋Ruckig；
+SPARK／mapped-palm 为显式可选后端，Ceres 与 PICO2 裸手入口仍仅仿真。
+真机共用参考生成算法，由独立安全执行器保留实测初态、限速、反馈和 Enter／对齐／Home 门控；
+源失鲜、epoch 改变、映射／IK 拒绝停止，不启用仿真自动恢复，尚未获真机运动验收。
+同算法不保证模拟与硬件实测轨迹相同。入口见[交互仿真与导出边界](ceres_interactive_sim.md)
+和[真机流程](../../../README-reference.md#二真机遥操作)，
 DLS 核心来源与参数核对见[三后端对照](shared_root_three_way_20260919.md)。
 
 - DLS/Ceres：共享根校验、映射/投影/恢复 → 末端 IK → Ruckig → 模型参考；

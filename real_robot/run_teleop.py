@@ -239,6 +239,20 @@ def controller_configuration(config, base, feedback, destination):
     # Preserve the existing IK/control algorithm; constrain its real-mode speed.
     data["joint_limits"]["velocity_scale"] = min(
         data["joint_limits"].get("velocity_scale", 1.0), config["controller_velocity_scale"])
+    if data["ik"]["algorithm"] == "pico_ee_franka_dls":
+        # Reuse the simulation profile, but constrain references to real speed.
+        # The executor still owns alignment, hardware feedback and authority.
+        shared = data["spark_shared_root"]
+        shared["enabled"] = True
+        for key in ("input_contract_artifact", "robot_geometry_artifact"):
+            shared[key] = str(resolve(original.parent, shared[key]))
+        key = "pico_ee_dls_kinematics_urdf_path"
+        data["controller"][key] = str(resolve(original.parent, data["controller"][key]))
+        smoothing = data["pico_ee_franka_dls"]["post_smoothing"]
+        speed = config["safety"]["arms"]["maximum_speed_rad_s"]
+        scale = data["joint_limits"]["velocity_scale"]
+        smoothing["max_velocity_rad_s"] = [
+            min(value * scale, speed) for value in smoothing["max_velocity_rad_s"]]
     if "arms" in feedback:
         positions = feedback["arms"].position_rad
         data["controller"]["initial_posture_enabled"] = True
@@ -288,7 +302,9 @@ def error_reason(error):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, default=ROOT / "config.json")
-    parser.add_argument("--ik-backend", choices=("spark", "mapped-palm"), default="spark")
+    parser.add_argument("--ik-backend", choices=("franka-dls", "spark", "mapped-palm"),
+                        default="franka-dls",
+                        help="default: shared-root DLS/Ruckig through the guarded real executor")
     parser.add_argument('--mapped-palm-resync-policy',choices=('stop','bounded'),default='stop',
                         help='bounded: experimental private-event limited hold; default stop')
     parser.add_argument('--mapped-palm-dropout-policy',choices=('stop','hold-300ms'),default='hold-300ms',
@@ -333,6 +349,11 @@ def main(argv=None):
     config=dict(config,mapped_palm_resync_policy=args.mapped_palm_resync_policy,
                 mapped_palm_xz_calibration=real_calibration,
                 mapped_palm_dropout_policy='hold-300ms' if dropout else 'stop')
+    if args.ik_backend == "franka-dls":
+        control = ROOT.parent / "control"
+        config = dict(config,
+                      controller_config=str(control / "config/qp_ik_pico_shared_root_dls.yaml"),
+                      controller_model=str(control / "models/marvin_m6_wuji2_shared_root_ceres.xml"))
     if args.ik_backend == "mapped-palm":
         # Only controller assets change; driver settings, measured startup,
         # physical limits and operator confirmations remain the original path.
@@ -508,9 +529,8 @@ def main(argv=None):
                     controller_config, source=str(resolve(base, config["controller_config"])))
             pico_port = config["pico_port"]
             if "arms" not in devices:
-                # SPARK keeps its original PICO-enabled control contract, but a
-                # hand-only executor neither consumes the user's arm port nor
-                # authorizes any arm output.
+                # Keep the controller's PICO contract without consuming the
+                # user's arm port or authorizing arm output in hand-only mode.
                 with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as reserved:
                     reserved.bind(("127.0.0.1", 0))
                     pico_port = reserved.getsockname()[1]
@@ -520,6 +540,8 @@ def main(argv=None):
                        "--pico-port", str(pico_port), "--joint-command-host", "127.0.0.1",
                        "--joint-command-port", str(receiver.port)]
             command.append("--pico-teleop")
+            if args.ik_backend == "franka-dls":
+                command.append("--guarded-dls-export")
             process_options={}
             if event_channel:
                 command.extend(receiver.arguments())
@@ -631,6 +653,13 @@ def main(argv=None):
                         enabled_devices.add(name)
                         check_source()
                     if staged:
+                        # SDK enable calls are guarded setup, not a motion tick.
+                        # Recheck all feedback/source after setup; never stretch
+                        # the live control watchdog to cover blocking SDK work.
+                        measured = {name: device.read_feedback() for name, device in hardware.items()}
+                        packet = receiver.drain(
+                            lambda frame: gate.observe_source(frame, time.monotonic_ns()))
+                        gate.complete_enable(packet, measured, time.monotonic_ns())
                         status.update(_STAGED_STATUS["ALIGNING"])
                         update_monitor(packet, measured, force=True)
                     else:

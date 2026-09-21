@@ -1,5 +1,19 @@
 # Franka DLS / Ceres＋Ruckig：交互仿真与当前验收清单
 
+## 当前仿真／真机边界
+
+`teleop.sh --sim`、`--real` 和 `--data` 默认后端均为 `franka-dls`，共用共享根
+Franka DLS＋Ruckig 双臂参考生成。本文 S/H/P 与自动恢复操作仅适用于仿真。
+真机原生进程只通过受保护的 loopback TJRC 导出参考，由独立安全执行器负责实测初态、
+反馈、限速、慢速对齐、Home 和多次 Enter；手部重定向流程不变。
+默认 DLS 真机源失鲜、epoch 改变、映射／IK 拒绝即撤销就绪并停止，不启用仿真自动恢复。
+原生 `--guarded-dls-export` 只允许共享根 DLS、model-reference、headless、PICO 开启及
+非零 loopback 指令端口，禁止同时启用 simulation-recovery 或 `--sim-allow-pico-jumps`。
+仿真本身仍不导出；Ceres 和 PICO2 裸手入口仍仅仿真。旧 SPARK／mapped-palm 须显式选择。
+共用参考算法不保证模拟显示轨迹与硬件实测轨迹相同，默认 DLS 真机路径尚未获设备运动验收。
+真机操作见[根参考页](../../../README-reference.md#二真机遥操作)；下方各轮测试数字均为历史结果，
+不作为这次默认值变更的验证结果。
+
 ## 退出与 Manus 预检边界修复
 
 仿真监督进程收到 SIGINT／SIGTERM／SIGHUP 后最多等待 5 秒正常退出；随后仅向
@@ -22,7 +36,7 @@ Manus 独立运行：`pixi run manus --calibration-user MANUS_USER`，必须使�
 已有的双侧标定，可先 `pixi run manus --list-calibration-users` 只读查询。
 旧 `bash manus.sh --user NEW_USER` 人员档案映射保留，没有静默回退或自动发布。
 
-- 原生手部接收仅绑定本机；手部和 PICO 端口不可相同；硬件指令导出仍禁止。
+- 原生手部接收仅绑定本机；手部和 PICO 端口不可相同；本仿真入口仍禁止硬件指令导出。
 - S 接入 TELEOP 后双手才跟随。H 仅回双臂 Home，双手保持；P、制动、Home、故障期间均保持。
 - 所有已接受的 S/H/P 状态变化清理手部历史；不回放接管前的缓存样本。
 - 保留 TJH2 序号、CRC、源时间、新鲜度、插值和模型限位。左右失鲜独立保持；
@@ -74,11 +88,11 @@ SPARK 中间参考 15.708 rad/s² 限值。原 H 流程在启动恢复后重置�
 2026-09-20：同一交互入口已支持 `bash teleop.sh --sim --ik-backend franka-dls`。
 该选项加载 `qp_ik_pico_shared_root_dls.yaml`，使用独立 Franka DLS 参数与 Ruckig
 限制；S/H/P 状态机和实时 Ruckig 曲线相同。随后按用户要求将 `teleop.sh --sim`
-默认后端切换为 Franka DLS＋Ruckig；Ceres、SPARK 保留显式选择，真机默认不变。
+默认后端切换为 Franka DLS＋Ruckig；Ceres、SPARK 保留显式选择。当轮未切换真机默认，当前默认见页首。
 本轮核对源工程 `f615b8c2931601957315d1d3ea7f8aad8bb369a6`：两个 DLS 核心
 实现去除隔离命名差异后逐字一致；当前 iterative_dls、pico_ee_franka_dls 配置字段
 与源 `qp_ik_pico_ee_franka_dls_ruckig_mujoco.yaml` 对应值一致。
-保留本工程双臂事务提交、失联停止、模型状态与禁止关节导出的安全语义，
+保留本工程双臂事务提交、失联停止、模型状态与仿真禁止关节导出的安全语义，
 不宣称两工程完整应用行为等价。候选 FK/Jacobian 仍使用 Pinocchio。
 本轮构建成功；相关原生回归 11/11（17.53 s），Python 仿真回归 18/18（4.065 s）；
 未重新运行全部跨工程数据集 A/B，未进行真机验收。

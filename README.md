@@ -281,8 +281,10 @@ bash exo.sh
 
 ## 真机遥操
 
-真机是独立路线，**不是将默认 DLS 仿真直接连到硬件**；默认仍使用原真机后端。
-PICO2 裸手不支持真机。先退出仿真执行端，核对设备 IP、左右 SN、限位、急停及运动空间，
+`--real` 默认使用 **共享根 Franka DLS＋Ruckig**，与默认 `--sim` 共用双臂参考生成算法；
+原生控制器只生成参考目标，**硬件仍由独立真机安全执行器驱动**，不是把仿真窗口直接连到硬件。
+旧路线可显式选择 `--ik-backend spark` 或 `--ik-backend mapped-palm`；
+Ceres 和 PICO2 裸手仍仅支持仿真。先退出仿真执行端，核对设备 IP、左右 SN、限位、急停及运动空间，
 按[真机完整流程](README-reference.md#二真机遥操作)完成设备配置。
 
 ```bash
@@ -296,16 +298,32 @@ PICO2 裸手不支持真机。先退出仿真执行端，核对设备 IP、左�
 bash teleop.sh --real
 ```
 
+省略后端参数等价于 `bash teleop.sh --real --ik-backend franka-dls`。
+真机以实测关节初始化模型参考，保留原有手部重定向、慢速对齐、Home、反馈检查和执行限速。
+同一参考算法不意味着仿真显示轨迹与硬件实测轨迹相同，也不构成当前设备的运动验收。
+
 `all` 指双臂和左右两手，三路输入／反馈均需就绪。
 默认联合流程在**启动终端**等待提示后依次按 Enter：慢速对齐 → 遥操 → 回 Home 后失能；
 不要提前连续按键，也不要套用仿真窗口 S/H。
 仅双臂可用 `.venv/bin/python real_robot/run_teleop.py --devices arms --confirm-real`，
 仍需先对 `arms` 做只读预检和干跑。mapped-palm 的 C 标定与授权流程另见[专用说明](docs/mapped-palm-real-readiness.md)。
 
-输入失鲜、身份／反馈异常时不要绕过门控；先停止并排查。
+默认 DLS 真机在输入失鲜、epoch 改变、映射／IK 拒绝或反馈异常时停止，不启用仿真自动恢复；
+不要绕过门控或等待新帧自动接管，应先停止并排查。
 运动使能期间不要按 PICO A 键、重新标定或重启输入。
 正常退出确认设备释放后再停输入；紧急危险使用现场急停。
 `logs/real/` 保存会话日志。软件测试或仿真通过不代表当前设备的真机闭环已验收。
+
+2026-09-21 默认 DLS 真机接线的离线验证：原生构建通过，相关 CTest 9/9，
+真机／采集／仿真及人员入口 Python 回归 366 项通过。本机合成 TJVR/TJH2 输入验证了
+默认执行器干跑、实测初始姿态种子、0.5 rad/s 参考速度上限，以及断流、epoch 变化、
+退化肩宽映射和无效输入的拒绝；模拟反馈验证未授权拒绝及对齐→READY→TELEOP→失鲜故障。
+这些检查未连接硬件、未使能、未验证现场画面或真实运动安全。
+
+2026-09-21 后续现场记录：操作者确认已运行真机并完成数据采集。使能阶段与首次
+对齐控制周期的计时已分离，保留 150 ms 运行期看门狗及使能后的输入／反馈复查。
+该现场结果不等于长期稳定性、全工作空间或其他设备组合的安全验收。
+本次提交前复测：相关 Python 回归 377 项通过；真实设备未由自动测试连接或使能。
 
 ## 数据采集
 
@@ -314,8 +332,8 @@ bash teleop.sh --real
 - PICO2 裸手仿真录制：`bash pico2_sim.sh --record recordings/pico2_sim/NEW_SESSION.h5`，
   先创建父目录，每次使用新文件名；完整步骤见[裸手录制说明](pico2_hands/README.md)。
 - 仅观察的数据集录制、相机和 R/S/D 操作见[观察采集](README-reference.md#观测数据集采集r--s--d)。
-- 真机任务采集：`bash teleop.sh --data --task TASK`，沿用真机预检和人工授权，
-  默认写入 `dataset/`，不是只读观察入口。
+- 真机任务采集：`bash teleop.sh --data --task TASK`，同样默认 `franka-dls`，
+  沿用真机预检和人工授权；默认写入 `/data/TianjiData/raw/YYYYMMDD/`，每天目录内独立保存 `dataset_config.json`，不是只读观察入口。
 
 ## 共用 Home 与 Mocap／Regrind
 
@@ -344,8 +362,8 @@ DLS／Ceres 仿真仍使用各自配置中的 Home，不因合并改变其速度
 | 控制器与原生测试 | [control/README](control/README.md) |
 | 安装细节、目录与历史说明 | [完整参考页](README-reference.md) |
 
-真机默认不随仿真 DLS 后端改变。`--user` 的上述自动启动方式仅适用于 DLS/Ceres
-固定 PICO 端口 15000 的仿真，不能直接套用于 SPARK、mapped-palm 或真机。
+`--user` 的上述自动启动方式仅适用于 DLS/Ceres 固定 PICO 端口 15000 的仿真，
+不能直接套用于 SPARK、mapped-palm 或真机；默认真机 DLS 仍须独立准备输入和授权。
 
 软件回归命令（不等于现场验收）：
 

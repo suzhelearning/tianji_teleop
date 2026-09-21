@@ -9,7 +9,7 @@
 PICO2 裸手已有独立[仿真入口 `pico2_sim.sh`](pico2_hands/README.md)，
 已通过合成输入／假 TCP 测试，用户已进行真实 PICO 输入仿真并录制；
 跟踪抖动仍是已知限制，不能视为性能验收完成；不支持真机。
-现有 VR、Manus、外骨骼输入入口保留；仿真默认后端已切换为 Franka DLS＋Ruckig，真机默认不变。
+现有 VR、Manus、外骨骼输入入口保留；`--sim`、`--real` 和 `--data` 默认使用共享根 Franka DLS＋Ruckig 双臂参考生成，真机仍由独立安全执行器执行。
 详见[实施方案](docs/pico2-hands-design-and-plan.md)。
 
 2026-09-15 已合入 mapped-palm 路线及退出清理修复，保留本工程原生外骨骼输入。
@@ -21,10 +21,10 @@ PICO2 裸手已有独立[仿真入口 `pico2_sim.sh`](pico2_hands/README.md)，
 
 > **三种模式必须区分，且不能同时占用相同输入端口。**
 > - `pixi run sim`（或已配置 Python 的 `bash teleop.sh --sim`）：默认 Franka DLS＋Ruckig 双臂 direct 仿真，按 S 接入；默认接收 Hand2，纯双臂使用 `--no-hand-teleop`。旧双臂＋双手入口用 `--ik-backend spark`，动力学仿真再加 `--simulation-mode dynamics`。
-> - `bash teleop.sh --real`：双臂＋双 Hand2 真机执行与实测／目标双模型窗口；三次 Enter 分别授权慢速对齐、实时遥操、回 HOME 后失能。直接运行 `real_robot/run_teleop.py` 不带使能参数仍为 dry-run。
-> - `bash teleop.sh --data --task TASK`：在相同真机安全门控下采集数据，默认写入根 `dataset/`；用 `--dataset PATH` 指定目录。
+> - `bash teleop.sh --real`：默认 `franka-dls`，双臂＋双 Hand2 真机执行与实测／目标双模型窗口；三次 Enter 分别授权慢速对齐、实时遥操、回 HOME 后失能。直接运行 `real_robot/run_teleop.py` 不带使能参数仍为 dry-run。
+> - `bash teleop.sh --data --task TASK`：同样默认 `franka-dls`，在相同真机安全门控下采集数据，默认写入 `/data/TianjiData/raw/YYYYMMDD/`；用 `--dataset PATH` 指定日期目录的上级根目录。
 > - 当前真机支持双臂与左右两只 Hand2；`all` 表示双臂＋双手，`hands` 表示仅双手。
-> - 已完成离线测试及设备身份读取；双手执行路径需重新做只读预检，尚未验证带运动的实机闭环。
+> - 2026-09-21 操作者确认已运行真机并完成数据采集；每次启动仍须只读预检和人工授权，不代表长期稳定性、全工作空间或其他设备组合已完成安全验收。
 
 ## 新用户：左侧标定＋镜像 TCP＋身高骨长（可选）
 
@@ -82,9 +82,9 @@ pixi run -e tracking calibrate-pico --user NEW_USER --height-m 1.70 --accept-sym
 
 ## PICO＋VR 手柄：mapped-palm IK＋对称骨架启动
 
-**`bash teleop.sh --sim` 默认使用 Franka DLS＋Ruckig（双臂 direct 仿真）。
-`bash teleop.sh --real` 保持原 SPARK 默认，不随仿真后端切换。**
-仿真按 S 接入、H 平滑回 Home、P/空格停止；不控制灵巧手，不导出硬件指令。
+**`bash teleop.sh --sim` 默认使用 Franka DLS＋Ruckig（双臂 direct 仿真）；
+`bash teleop.sh --real` 和 `--data` 默认共用这套共享根参考生成算法，保留独立真机执行器。**
+仿真按 S 接入、H 平滑回 Home、P/空格停止；默认接收手部输入，不导出硬件指令。
 新增后端与现有 Pixi 流程共用 `control/build`：
 
 ```bash
@@ -105,15 +105,15 @@ pixi run test-sim
 就绪检查，否则拒绝，不会静默换人。旧会话缺少标记时先 `pixi run -e tracking stop-pico`。
 仿真仍须按 S 接入；退出机械臂窗口不停止输入，结束时另执行 `pixi run -e tracking stop-pico`。
 首次启用 Ceres 时，CMake 优先寻找已安装库，否则下载并校验固定版本源码。
-显式选项 `--ik-backend ceres`、`--ik-backend spark`、`--ik-backend mapped-palm` 仍保留。
-旧双手仿真、headless 或 dynamics 路线需显式选 `--ik-backend spark`，不自动回退。
+显式选项 `--ik-backend spark`、`--ik-backend mapped-palm` 在仿真和真机中保留；
+`--ik-backend ceres` 仍仅支持仿真。旧 SPARK、headless 或 dynamics 仿真需显式选后端，不自动回退。
 后端选择不会替 PICO 输入端选择对称骨长。两项需分别选择：
 
 | 选择项 | 入口与参数 | 不选择时 |
 | --- | --- | --- |
 | 左右对称骨长 | `start_mapped_palm_pico.sh --symmetric-geometry` | 使用人员原始骨长 |
-| 新 mapped-palm IK | `teleop.sh --sim --ik-backend mapped-palm` | 仿真使用 Franka DLS＋Ruckig；真机仍为原默认 |
-| 现场末端 X/Z 对齐 | `teleop.sh --mapped-palm-xz-calibration` | 不要求 C，使用原映射 |
+| 新 mapped-palm IK | `teleop.sh --sim --ik-backend mapped-palm` | 仿真、真机和采集均默认使用共享根 Franka DLS＋Ruckig |
+| 现场末端 X/Z 对齐 | `teleop.sh --real --ik-backend mapped-palm --mapped-palm-xz-calibration` | 不要求 C；该选项不适用于默认 DLS |
 
 骨长标定默认 `symmetric_max`：左右完整 TCP/腕心/骨长均通过校验后，自动生成对称快照，
 上臂、前臂分别取左右较大值；不改写原始测量。**自动生成不等于自动启用。**
@@ -400,7 +400,7 @@ bash collection.sh --task pick_hammer
 bash collection.sh --task pick_hammer --dataset /data/pick_hammer
 ```
 
-默认输出到根目录 `dataset/`（可用 `TIANJI_DATASET` 或 `--dataset` 覆盖），仍在 `logs/real/` 保留运行日志。按原来的 Enter 流程完成对齐并进入
+默认根目录为 `/data/TianjiData/raw`（可用 `TIANJI_DATASET` 或 `--dataset` 覆盖），每段按准备文件时的本地日期保存到 `YYYYMMDD/`，仍在 `logs/real/` 保留运行日志。按原来的 Enter 流程完成对齐并进入
 TELEOP；**进入 TELEOP 不自动录制**。在启动命令的终端直接按单键，不要追加 Enter：
 
 | 按键 | 数据操作 | 对机器人模式的影响 |
@@ -427,14 +427,14 @@ TELEOP；**进入 TELEOP 不自动录制**。在启动命令的终端直接按�
 完整文件包含 `observations/arms`、`observations/hands` 和
 `images/top`、`images/left_wrist`、`images/right_wrist`，各相机包含 `timestamp_ns` 和 `rgb[N,720,1280,3]`。单个后台 HDF5 写入者处理有界队列和校验，
 控制线程不等待写盘；保存失败保持 `.partial.h5`，不覆盖旧文件。
-`dataset_config.json` 仍只写在数据集根目录；关节/相机/编码契约不匹配时拒绝向该数据集追加。
+`dataset_config.json` 写在各自日期目录，例如 `/data/TianjiData/raw/20260921/dataset_config.json`，与当天 `.h5` 同级；同一天关节/相机/编码契约不匹配时拒绝追加，不同日期独立检查。单段不在午夜拆分。
 已有 JPEG 数据集保留原有契约和数据，不覆盖配置、不补造相机图片。
 原始 RGB 采集请使用新默认目录或另一个空目录，不向旧 JPEG 数据集追加。
 三路 30 Hz 原始图像约 **249 MB/s、14.9 GB/分钟**，需要充足的持续写入带宽和磁盘空间；名义帧率不是实测保证。
 
 采集、压缩和浏览使用统一根 `.venv`，安装方法见通用准备，不再维护独立采集 requirements 或子工程环境。
-`COLLECTION_PYTHON` 仍可显式指定兼容解释器。默认 `dataset/` 和 `dataset_jpeg50/` 已忽略；
-原始图像数据建议通过 `--dataset` 放在容量充足的数据盘，备份由操作者管理。
+`COLLECTION_PYTHON` 仍可显式指定兼容解释器。默认原始数据目录为 `/data/TianjiData/raw`，
+默认压缩输出为 `/data/TianjiData/compressed/YYYYMMDD_compressed/`，各日期目录内保存配置和文件；旧工程内 `dataset/` 和 `dataset_jpeg50/` 仍被 Git 忽略。已有数据不自动迁移，备份由操作者管理。
 
 ### 相机实时预览（不录制）
 
@@ -462,8 +462,8 @@ bash visualize_oneline.sh
 bash compress_data.sh
 ```
 
-默认读取 `dataset`，输出到 `dataset_jpeg50`。
-**压缩质量固定为 50；RGB 或已有 JPEG 源文件均不删除、不覆盖。** JPEG 输入先解码再编码为 Q50，会产生额外有损损失，程序启动时会提示源质量。保持 episode 相对路径、所有关节值、时间戳、任务和成功标记。
+默认读取 `/data/TianjiData/raw`，输出到 `/data/TianjiData/compressed/YYYYMMDD_compressed/`，逐日期使用各自的配置；只传入日期源目录时也自动选择对应的压缩日期目录。显式传入输出目录时按该目录写入。
+**压缩质量固定为 50；RGB 或已有 JPEG 源文件均不删除、不覆盖。** JPEG 输入先解码再编码为 Q50，会产生额外有损损失，程序启动时会提示源质量。输出日期目录增加 `_compressed` 后缀，日期目录内的文件相对路径、所有关节值、时间戳、任务和成功标记保持不变。
 脚本跳过 `.partial.h5` 与符号链接；已完成输出通过源身份和 JPEG 格式校验后跳过，之后新增的 episode 会在下次运行时处理。
 中断或失败不会发布半成品为完成文件；可重复运行继续，结束时显示 `converted/skipped/failed`，失败返回非零退出码。
 不要手动改写已压缩文件的源文件；身份不匹配或目标配置冲突时脚本拒绝覆盖。
@@ -472,14 +472,14 @@ bash compress_data.sh
 
 ```bash
 bash compress_data.sh /data/tianji_raw /data/tianji_jpeg50
-bash visualize_data.sh dataset_jpeg50
+bash visualize_data.sh /data/TianjiData/compressed
 ```
 
-按日期处理 `$HOME/Documents/TianjiData` 中的数据：
+按日期处理 `/data/TianjiData/raw` 中的数据：
 
 ```bash
 bash compress.sh --date 20260914
-# 输出到 $HOME/Documents/TianjiData/20260914_compressed；不传 --date 时使用当天日期。
+# 输出到 /data/TianjiData/compressed/20260914_compressed；不传 --date 时使用当天日期。
 ```
 
 源/目标不能相同或互相包含。建议在暂停录制时压缩，避免读盘、写盘和编码争抢采集资源。
@@ -785,6 +785,17 @@ cd tracking
 窗口必须成功打开后才连接设备；不需要也不能另开占用相同 `15000/16000` 输入端口的机器人 Viewer。
 PICO 人体骨架窗口可以保留。单手／双手独立执行不包含双臂时，保留原来的无窗口启动流程。
 
+默认后端是 `franka-dls`：`bash teleop.sh --real --ik-backend franka-dls` 与省略后端等价，
+`bash teleop.sh --data --task TASK` 使用相同默认值。原生进程加载与默认仿真相同的
+共享根 DLS 配置和掌心模型，以实测双臂关节初始化参考，经 loopback TJRC 只提交目标；
+设备使能、反馈校验、执行限速、对齐、Home 和多次 Enter 仍由现有真机安全执行器负责。
+Manus／外骨骼手部重定向及手部授权流程不变。参考算法相同不意味着仿真显示与硬件实测轨迹一致。
+默认 DLS 的源失鲜、epoch 改变、映射或 IK 拒绝都会撤销就绪并停止已使能会话；
+不启用仿真自动恢复，也不会因后续正常帧自行继续。
+旧 `--ik-backend spark` 和 `--ik-backend mapped-palm` 保留显式选择；下文 mapped-palm
+短时保持策略仅属于该显式后端，不适用于默认 DLS。Ceres 和 PICO2 裸手入口仍仅仿真。
+此默认值变更未获真机运动验收，历史 mapped-palm 现场结果不能外推到 DLS。
+
 ### 1. 核对设备配置和左右手 SN
 
 配置文件：[`real_robot/config.json`](real_robot/config.json)。
@@ -977,6 +988,11 @@ bash teleop.sh --real
 第一次 Enter 捕获的目标不会追逐后续输入变化；对齐完成后保持，等待第二次确认。
 在包含双臂的分阶段模式下，Hand2 也从实测姿态直接慢速到达锁定目标，
 不执行单独手部模式的回零／半秒插值。第二次 Enter 后，从上一条已发送指令连续限速跟随。
+SDK 使能阶段不计入第一次慢速对齐的控制周期。所有设备使能完成后，执行器重新检查
+最新输入、epoch、各设备已使能状态与反馈新鲜度；使能期间偏离初始实测姿态超过
+`alignment_rad` 会拒绝继续。检查通过后才重置一次对齐计时，保留原锁定目标和起始指令，
+仍须用后续新反馈完成静止确认。运动开始后不允许重复重置来掩盖延迟：
+对齐／回位中超过 150 ms 的控制间隔仍会停机，并报告实际间隔与阈值。
 READY 必须同时满足指令已到目标、所有选中设备实测误差在各自 `alignment_rad` 内并持续稳定，
 不是只凭模型或计时器判断；漂移会撤销 READY。
 静止速度由连续实测位置与反馈时间戳估算，须不超过
