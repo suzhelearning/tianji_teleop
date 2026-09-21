@@ -30,7 +30,7 @@ https://github.com/user-attachments/assets/72116289-7a33-4a6b-83ca-fb4d9aaece0d
 ### Installation
 
 This tree is the `wuji_retargeting` ament package of the Tianji workspace
-(`src/wuji/wuji_retargeting`). The Pixi-managed Jazzy environment and
+(`src/teleop_outputs/wuji/wuji_retargeting`). The Pixi-managed Jazzy environment and
 `colcon build --base-paths src` build it, including the pybind11 extension;
 there is no separate hand environment or editable upstream checkout. The
 populated model and simulation assets are checked in here, together with their

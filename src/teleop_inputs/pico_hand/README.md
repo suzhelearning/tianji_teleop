@@ -13,8 +13,8 @@ Manus 或外骨骼发送器，也不会自动配置 ADB。
 
 ```bash
 # 工程根目录：首次或原生源码更新后构建
-pixi install --locked --manifest-path src/teleop_inputs/pico2_hands/tools/wuji_hand_native/pixi.toml
-bash src/teleop_inputs/pico2_hands/build_native.sh
+pixi install --locked --manifest-path src/teleop_inputs/pico_hand/tools/wuji_hand_native/pixi.toml
+bash src/teleop_inputs/pico_hand/build_native.sh
 
 # 用户现场连接头显（此次实现没有执行这些设备命令）
 adb devices -l
@@ -100,7 +100,7 @@ VR 默认软启动 **0.35／0.5／2**、正常跟踪限值及 Home 参数不变�
 原 `--self-test` 仅用于 V131，不用于 shared-root。离线回归：
 
 ```bash
-pixi run --locked bash -c 'source bash/environment.sh; PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest src/teleop_inputs/pico2_hands/python/pico2_hands/tests -q'
+pixi run --locked bash -c 'source bash/environment.sh; PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest src/teleop_inputs/pico_hand/python/pico2_hands/tests -q'
 ```
 
 合成输入验收不代表真实跟踪精度、握姿轴向或实时调度合格；实际人员和设备仍需现场验证。
@@ -197,7 +197,7 @@ pose_mapping 移除了无关的 XR incremental 工厂分支，其余数学保持
 ## 离线验证
 
 ```bash
-PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest src/teleop_inputs/pico2_hands/tests -q
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest src/teleop_inputs/pico_hand/tests -q
 ```
 
 禁用自动插件是为避免宿主 ROS pytest 插件污染；本包测试不依赖 ROS。
@@ -220,8 +220,8 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest src/teleop_inputs/pico2_hands/
 Manus bridge 未修改。`native/src/PORTING.md` 是来源历史说明，不是目标验收报告。
 
 ```bash
-pixi install --locked --manifest-path src/teleop_inputs/pico2_hands/tools/wuji_hand_native/pixi.toml
-bash src/teleop_inputs/pico2_hands/build_native.sh
+pixi install --locked --manifest-path src/teleop_inputs/pico_hand/tools/wuji_hand_native/pixi.toml
+bash src/teleop_inputs/pico_hand/build_native.sh
 ```
 
 仅构建、运行离线测试，不连接任何设备。依赖需先安装主工程 Pixi 环境。
@@ -241,7 +241,7 @@ V131 对来源现有 `v131_model_trace` 二进制进行移动、组合旋转两�
 复跑时显式提供参考，仅用于离线审计，不构成运行依赖：
 
 ```bash
-python src/teleop_inputs/pico2_hands/scripts/compare_v131_trace.py --reference-binary /path/to/v131_model_trace
+python src/teleop_inputs/pico_hand/scripts/compare_v131_trace.py --reference-binary /path/to/v131_model_trace
 ```
 
 `NativeHandWorker` 管理单侧 C++ 子进程，验证握手、序号、时间戳、侧别、有限值，
@@ -283,8 +283,8 @@ worker 同时校验双臂输入后才求解；首次 solve 必须先 reset，res
 当前固定 200 Hz、0.02 rad 单步快速配置仍为 **simulation-only**，没有接入真机入口。
 
 ```bash
-bash src/teleop_inputs/pico2_hands/build_native.sh
-python src/teleop_inputs/pico2_hands/scripts/smoke_pipeline.py
+bash src/teleop_inputs/pico_hand/build_native.sh
+python src/teleop_inputs/pico_hand/scripts/smoke_pipeline.py
 ```
 
 离线烟测构造可达腕部位姿和手骨架，无 C、使用固定映射，完成 60 帧双臂 IK 和双手
