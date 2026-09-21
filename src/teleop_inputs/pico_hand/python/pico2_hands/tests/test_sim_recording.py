@@ -4,7 +4,7 @@ import unittest
 import h5py
 import numpy as np
 from pico2_hands.sim_recording import SimRecorder
-from pico2_hands.tests import test_simulation_core
+from pico2_hands.run_sim import synthetic
 
 
 class RecordingTest(unittest.TestCase):
@@ -12,7 +12,7 @@ class RecordingTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder)/"session.h5"
             record = SimRecorder(path)
-            frame = test_simulation_core.SimulationCoreTest().frame(1_000_000_000)
+            frame = synthetic(1.62, 1, 1_000_000_000)
             record.offer("raw", frame)
             record.offer("command", (1_000_000_000, "idle", np.zeros(54), (1, 1)))
             record.close(True)

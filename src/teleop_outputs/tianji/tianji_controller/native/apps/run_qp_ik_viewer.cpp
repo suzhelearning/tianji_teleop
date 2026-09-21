@@ -22,6 +22,8 @@
 #include <mujoco/mujoco.h>
 
 #include <arpa/inet.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 #include <Eigen/Geometry>
 
@@ -29,6 +31,7 @@
 #include <array>
 #include <atomic>
 #include <cerrno>
+#include <charconv>
 #include <filesystem>
 #include <chrono>
 #include <cmath>
@@ -77,6 +80,8 @@ struct Options {
   std::uint16_t joint_command_port{0U};
   bool continuous{false};
   bool headless{false};
+  bool external_display{false};
+  bool franka_dls_executor{false};
   bool simulation_recovery{false};
   bool sim_allow_pico_jumps{false};
   double duration_seconds{0.0};
@@ -102,6 +107,9 @@ struct ViewerApplication {
 
   MujocoRobot& robot;
   BoundedSpscQueue<ViewerCommand>& commands;
+  bool external_display{false};
+  bool external_quit_sent{false};
+  std::string external_status{"Waiting for simulation joint frames"};
   ViewerSnapshot snapshot;
   mjvCamera camera{};
   mjvOption visual_options{};
@@ -139,8 +147,10 @@ Options parseOptions(int argc, char** argv) {
     if (argument == "--help") {
       std::cout << "Usage: tianji_qp_ik_viewer [--config FILE] [--model FILE] "
                    "[--solver qpoases] [--headless] [--duration SECONDS|--continuous] "
+                   "[--external-display (private stdin simulation joint display)] "
                    "[--telemetry FILE] [--joint-telemetry FILE] "
                    "[--joint-command-host LOOPBACK_IPV4] [--joint-command-port PORT (0=disabled)] "
+                   "[--franka-dls-executor (restricted loopback DLS/Ruckig export)] "
                    "[--pico-teleop|--no-pico-teleop] "
                    "[--simulation-recovery (Ceres model-only S/H/P gate)] "
                    "[--sim-allow-pico-jumps (requires simulation recovery)] "
@@ -161,6 +171,14 @@ Options parseOptions(int argc, char** argv) {
                    "[--model-state-only|--actual-feedback-control] "
                    "[--arm-angle-mode pico|default_down|outward_only|pico_outward]\n";
       std::exit(0);
+    }
+    if (argument == "--external-display") {
+      options.external_display = true;
+      continue;
+    }
+    if (argument == "--franka-dls-executor") {
+      options.franka_dls_executor = true;
+      continue;
     }
     if (argument == "--sim-allow-pico-jumps") {
       options.sim_allow_pico_jumps = true;
@@ -317,6 +335,19 @@ Options parseOptions(int argc, char** argv) {
       throw std::invalid_argument("unknown option: " + argument);
     }
   }
+  if (options.external_display) {
+    if (options.headless || options.continuous || options.simulation_recovery ||
+        options.franka_dls_executor || options.joint_command_port != 0U ||
+        !options.telemetry_path.empty() || !options.joint_telemetry_path.empty() ||
+        !options.pico_record_path.empty() || options.duration_seconds != 0.0) {
+      throw std::invalid_argument(
+          "--external-display is a window-only private display; no control, "
+          "recording, export, headless, or duration options");
+    }
+    options.pico_teleop = false;
+    options.hand_teleop = false;
+    options.pico_skeleton_overlay = false;
+  }
   if (!std::isfinite(options.duration_seconds) || options.duration_seconds < 0.0) {
     throw std::invalid_argument("--duration must be finite and non-negative");
   }
@@ -344,6 +375,23 @@ Options parseOptions(int argc, char** argv) {
   if (inet_pton(AF_INET, options.joint_command_host.c_str(), &parsed_address) != 1 ||
       (ntohl(parsed_address.s_addr) >> 24U) != 127U) {
     throw std::invalid_argument("--joint-command-host must be a loopback IPv4 address");
+  }
+  if (options.franka_dls_executor) {
+    if (!options.headless || !options.continuous ||
+        !options.pico_teleop || !options.hand_teleop ||
+        options.joint_command_port == 0U ||
+        options.simulation_recovery || options.sim_allow_pico_jumps) {
+      throw std::invalid_argument(
+          "--franka-dls-executor requires --headless --continuous, PICO and "
+          "hand teleop, nonzero joint command output, and no simulation switches");
+    }
+    for (const auto* address : {&options.pico_bind, &options.hand_bind}) {
+      if (inet_pton(AF_INET, address->c_str(), &parsed_address) != 1 ||
+          (ntohl(parsed_address.s_addr) >> 24U) != 127U) {
+        throw std::invalid_argument(
+            "--franka-dls-executor requires loopback IPv4 PICO and hand inputs");
+      }
+    }
   }
   return options;
 }
@@ -744,6 +792,7 @@ void controlLoop(MujocoRobot& robot, QpIkConfig config,
   std::uint64_t joint_command_epoch = 0U;
   std::uint64_t joint_command_sequence =
       joint_command_exporter != nullptr ? static_cast<std::uint64_t>(monotonicNowNs()) : 0U;
+  JointCommandFrame output;
   HandCommandFreshness left_hand_freshness(ArmSide::kLeft);
   HandCommandFreshness right_hand_freshness(ArmSide::kRight);
   WujiHandHistory hand_history;
@@ -754,6 +803,22 @@ void controlLoop(MujocoRobot& robot, QpIkConfig config,
   std::int64_t pico_left_source_timestamp_ns = 0;
   std::int64_t pico_right_source_timestamp_ns = 0;
   std::int64_t pico_applied_bridge_send_monotonic_ns = 0;
+  std::int64_t pico_applied_receive_monotonic_ns = 0;
+  const auto shared_root_input_fresh = [&](std::int64_t now) {
+    return !shared_root_options ||
+        (pico_applied_receive_monotonic_ns > 0 &&
+         now >= pico_applied_receive_monotonic_ns &&
+         static_cast<double>(now - pico_applied_receive_monotonic_ns) * 1.0e-9 <
+             shared_root_options->continuity.freshness_s);
+  };
+  const auto reset_guidance = [&](const ArmMotionState& left,
+                                 const ArmMotionState& right) {
+    // The direct IK controller owns the Ruckig envelope. Do not validate its
+    // moving reference against an unused SPARK posture smoother on re-entry.
+    return shared_root_mode && usesSharedRootDirectIk(controller->algorithm())
+        ? spark_guidance->resetMappingSession(left, right)
+        : spark_guidance->reset(left, right);
+  };
   double pico_receive_to_control_us = 0.0;
   double pico_bridge_to_control_us = 0.0;
   bool paused = false;
@@ -839,8 +904,8 @@ void controlLoop(MujocoRobot& robot, QpIkConfig config,
       if (shared_root_mode && command.type != ViewerCommandType::kResetNominal &&
           (paused != previous_paused || pico_paused != previous_pico_paused)) {
         // Process revocation even when pause/resume commands share one tick.
-        if (!spark_guidance->reset(controller->referenceState(ArmSide::kLeft),
-                                   controller->referenceState(ArmSide::kRight)))
+        if (!reset_guidance(controller->referenceState(ArmSide::kLeft),
+                            controller->referenceState(ArmSide::kRight)))
           throw std::runtime_error("shared-root pause/rearm reset failed");
       }
       hand_reset_requested = hand_reset_requested ||
@@ -887,15 +952,19 @@ void controlLoop(MujocoRobot& robot, QpIkConfig config,
 
     PicoTeleopFrame pico_frame;
     if (pico_frames != nullptr && pico_frames->tryReadLatest(pico_frame)) {
-      joint_command_epoch = pico_frame.tracking_epoch;
       joint_command_stream_reset =
+          (joint_command_epoch != 0U &&
+           joint_command_epoch != pico_frame.tracking_epoch) ||
           pico_frame.stream_discontinuity ||
           pico_frame.resynchronization_generation !=
               joint_command_resynchronization_generation;
+      joint_command_epoch = pico_frame.tracking_epoch;
       joint_command_resynchronization_generation =
           pico_frame.resynchronization_generation;
       const PicoTeleopButtonAction button_action =
           pico_session.observeButton(pico_frame);
+      joint_command_stream_reset = joint_command_stream_reset ||
+          button_action != PicoTeleopButtonAction::kNone;
       if(recovery&&button_action==PicoTeleopButtonAction::kPause)
         recovery->stop(motionPair());
       if (button_action == PicoTeleopButtonAction::kPause) {
@@ -931,13 +1000,15 @@ void controlLoop(MujocoRobot& robot, QpIkConfig config,
             if (reset_epoch) {
               joint_takeover_active = false;
               spark_guidance->cancelJointSpaceTakeover();
-              (void)spark_guidance->reset(
-                  spark_direct_qpos
-                      ? direct_left_state
-                      : controller->referenceState(ArmSide::kLeft),
-                  spark_direct_qpos
-                      ? direct_right_state
-                      : controller->referenceState(ArmSide::kRight));
+              if (!reset_guidance(
+                      spark_direct_qpos
+                          ? direct_left_state
+                          : controller->referenceState(ArmSide::kLeft),
+                      spark_direct_qpos
+                          ? direct_right_state
+                          : controller->referenceState(ArmSide::kRight))) {
+                throw std::runtime_error("PICO epoch guidance reset failed");
+              }
             }
             SparkUpperTargets spark_targets;
             if (shared_root_mode) {
@@ -992,6 +1063,7 @@ void controlLoop(MujocoRobot& robot, QpIkConfig config,
             pico_session.commitApplied(pico_frame);
             pico_applied_bridge_send_monotonic_ns =
                 pico_frame.bridge_send_monotonic_ns;
+            pico_applied_receive_monotonic_ns = pico_frame.receive_monotonic_ns;
             latest_pico_upper_limb_skeleton = pico_frame.upper_limb_skeleton;
             if (pico_frame.left_arm_direction.valid) {
               latest_pico_arm_directions.left = pico_frame.left_arm_direction;
@@ -1212,16 +1284,27 @@ void controlLoop(MujocoRobot& robot, QpIkConfig config,
       const bool accepted = config.control_level == ControlLevel::kAcceleration
                                 ? acceleration_diagnostics.accepted
                                 : diagnostics.accepted;
-      if (!accepted) {
+      const bool bounded_input_hold =
+          usesSharedRootDirectIk(controller->algorithm()) &&
+          diagnostics.hold_reason == HoldReason::kNone &&
+          diagnostics.left.dls_posture_ruckig_accepted &&
+          diagnostics.right.dls_posture_ruckig_accepted;
+      if (!accepted && !bounded_input_hold) {
         ++control_failures;
         if(recovery&&pico_freshness.live&&!desired.left_stale&&!desired.right_stale)
           recovery->stop(motionPair());
       }
       if (shared_root_mode) {
+        const auto commit_time_ns = monotonicNowNs();
         (void)spark_guidance->confirmSharedRootReference(
             spark_diagnostics.shared_root_cycle,
             accepted && diagnostics.left.accepted && diagnostics.right.accepted &&
-            pico_freshness.live && spark_diagnostics.target_valid);
+            pico_session.freshness(commit_time_ns).live &&
+            shared_root_input_fresh(commit_time_ns) &&
+            (joint_command_exporter == nullptr ||
+             jointCommandPicoBridgeFresh(pico_applied_bridge_send_monotonic_ns,
+                                         commit_time_ns)) &&
+            spark_diagnostics.target_valid);
       }
       if (spark_guidance != nullptr &&
           usesSparkHeadroomFeedforwardVelocityQp(controller->algorithm()) &&
@@ -2222,26 +2305,36 @@ void controlLoop(MujocoRobot& robot, QpIkConfig config,
     }
 
     if (joint_command_exporter != nullptr) {
-      JointCommandFrame output;
       output.sequence = ++joint_command_sequence;
       output.source_timestamp_ns = monotonicNowNs();
       output.pico_tracking_epoch = joint_command_epoch;
       // Recheck freshness after the solve, not at tick start: a slow solve must
       // never make an already expired PICO/hand input look live to hardware.
+      const auto export_pico_stats =
+          pico_receiver != nullptr ? pico_receiver->stats() : PicoReceiverStats{};
+      const bool source_context_current =
+          export_pico_stats.tracking_epoch == joint_command_epoch &&
+          export_pico_stats.resynchronizations ==
+              joint_command_resynchronization_generation;
       const bool arms_ready =
+          !stop_requested && running.load(std::memory_order_acquire) &&
           !paused && !pico_paused && !plot_reset_requested &&
           pico_configured && pico_session.enabled() &&
           pico_session.freshness(output.source_timestamp_ns).live &&
+          shared_root_input_fresh(output.source_timestamp_ns) &&
           jointCommandPicoBridgeFresh(pico_applied_bridge_send_monotonic_ns,
                                       output.source_timestamp_ns) &&
           joint_command_epoch == pico_applied_epoch &&
+          source_context_current &&
           snapshot.accepted && snapshot.hold_reason == HoldReason::kNone &&
           left_output_valid && right_output_valid &&
           snapshot.left_ik.status == SolverStatus::kSolved &&
           snapshot.right_ik.status == SolverStatus::kSolved &&
           !desired.left_stale && !desired.right_stale &&
-          (!spark_mode || spark_diagnostics.accepted);
+          (!spark_mode || spark_diagnostics.accepted) &&
+          (!shared_root_mode || spark_diagnostics.target_valid);
       const bool hands_allowed =
+          !stop_requested && running.load(std::memory_order_acquire) &&
           !paused && !pico_paused && !plot_reset_requested &&
           hand_configured && robot.hasHandMappings();
       const bool left_hand_ready =
@@ -2252,12 +2345,13 @@ void controlLoop(MujocoRobot& robot, QpIkConfig config,
           right_hand_freshness.live(output.source_timestamp_ns);
       output.flags = static_cast<std::uint8_t>(
           (joint_command_arm_readiness.update(
-               arms_ready, plot_reset_requested || joint_command_stream_reset)
+               arms_ready, plot_reset_requested || joint_command_stream_reset ||
+                               !source_context_current)
                ? kJointCommandArmsReadyFlag : 0U) |
           (left_hand_ready ? kJointCommandLeftHandReadyFlag : 0U) |
           (right_hand_ready ? kJointCommandRightHandReadyFlag : 0U));
-      // These are the committed controller references, not pre-QP SPARK goals
-      // or the rendering snapshot's simulated/actual-feedback arm positions.
+      // These are the bilaterally committed references (Ruckig q for DLS),
+      // never raw IK goals or simulated/actual-feedback arm positions.
       for (int index = 0; index < kArmDof; ++index) {
         output.position_rad[static_cast<std::size_t>(index)] = left_reference_state.q[index];
         output.position_rad[7U + static_cast<std::size_t>(index)] = right_reference_state.q[index];
@@ -2342,6 +2436,14 @@ void controlLoop(MujocoRobot& robot, QpIkConfig config,
     sleepUntil(deadline);
     deadline = addNanoseconds(deadline, period_nanoseconds);
     ++sequence;
+  }
+  if (joint_command_exporter != nullptr && output.sequence != 0U) {
+    // Explicitly revoke on orderly shutdown; receiver expiry still covers a
+    // crash or a lost final UDP datagram. No native packet grants motion.
+    output.sequence = ++joint_command_sequence;
+    output.source_timestamp_ns = monotonicNowNs();
+    output.flags = 0U;
+    joint_command_exporter->send(output);
   }
 }
 
@@ -3000,6 +3102,26 @@ void keyboardCallback(GLFWwindow* window, int key, int, int action, int) {
     return;
   }
   auto& application = *static_cast<ViewerApplication*>(glfwGetWindowUserPointer(window));
+  if (application.external_display) {
+    if (key == GLFW_KEY_ESCAPE) {
+      if (!application.external_quit_sent) {
+        std::cout << "DISPLAY_KEY " << GLFW_KEY_Q << std::endl;
+        application.external_quit_sent = true;
+      }
+      glfwSetWindowShouldClose(window, GLFW_TRUE);
+      return;
+    }
+    if (key == GLFW_KEY_C || key == GLFW_KEY_S || key == GLFW_KEY_P ||
+        key == GLFW_KEY_H || key == GLFW_KEY_Q || key == GLFW_KEY_SPACE) {
+      std::cout << "DISPLAY_KEY " << key << std::endl;
+      return;
+    }
+    if (key != GLFW_KEY_F1 && key != GLFW_KEY_F2 && key != GLFW_KEY_F3 &&
+        key != GLFW_KEY_F4 && key != GLFW_KEY_F5 &&
+        key != GLFW_KEY_L && key != GLFW_KEY_R) {
+      return;
+    }
+  }
   ViewerCommand command;
   if(application.snapshot.simulation_phase>=0&&key!=GLFW_KEY_ESCAPE&&
       key!=GLFW_KEY_F1&&key!=GLFW_KEY_F2&&key!=GLFW_KEY_F3&&
@@ -3232,6 +3354,9 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int) {
     application.marker.cancelDrag();
     return;
   }
+  if (application.external_display) {
+    return;
+  }
 
   if (button != GLFW_MOUSE_BUTTON_LEFT || action != GLFW_PRESS) {
     if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_RELEASE) {
@@ -3264,8 +3389,9 @@ void cursorPositionCallback(GLFWwindow* window, double x, double y) {
   if (!application.left_button && !application.middle_button && !application.right_button) {
     application.previous_x = x;
     application.previous_y = y;
-    application.hovered_handle =
-        currentMarkerHandle(application, viewportCursor(window, x, y));
+    application.hovered_handle = application.external_display
+        ? MarkerHandle::kNone
+        : currentMarkerHandle(application, viewportCursor(window, x, y));
     return;
   }
   int width = 1;
@@ -3338,10 +3464,28 @@ void renderSnapshot(ViewerApplication& application) {
   application.robot.setArmPosition(ArmSide::kLeft, application.snapshot.left_q);
   application.robot.setArmPosition(ArmSide::kRight, application.snapshot.right_q);
   if (application.robot.hasHandMappings()) {
-    application.robot.setHandPosition(ArmSide::kLeft,
-                                      application.snapshot.left_hand_q);
-    application.robot.setHandPosition(ArmSide::kRight,
-                                      application.snapshot.right_hand_q);
+    if (application.external_display) {
+      // Display the supplied positions exactly; the controller's hand setter
+      // intentionally clamps, but a display must not modify its input state.
+      for (const ArmSide side : {ArmSide::kLeft, ArmSide::kRight}) {
+        const HandMapping& mapping = application.robot.handMapping(side);
+        const Vec20& position = side == ArmSide::kLeft
+            ? application.snapshot.left_hand_q : application.snapshot.right_hand_q;
+        for (int joint = 0; joint < kHandDof; ++joint) {
+          application.robot.data()->qpos[
+              mapping.qpos_addresses[static_cast<std::size_t>(joint)]] = position[joint];
+        }
+      }
+    } else {
+      application.robot.setHandPosition(ArmSide::kLeft,
+                                        application.snapshot.left_hand_q);
+      application.robot.setHandPosition(ArmSide::kRight,
+                                        application.snapshot.right_hand_q);
+    }
+  }
+  if (application.external_display) {
+    application.robot.forward();
+    return;
   }
   const Pose left_target = application.preview.resolve(
       ArmSide::kLeft, application.snapshot.targets.left,
@@ -3355,6 +3499,24 @@ void renderSnapshot(ViewerApplication& application) {
 }
 
 void drawOverlay(const ViewerApplication& application, mjrRect viewport) {
+  if (application.external_display) {
+    char status[5120]{};
+    std::snprintf(
+        status, sizeof(status),
+        "Simulation joints | no hardware feedback\n%s\n%s",
+        application.external_status.c_str(),
+        application.show_help
+            ? "C calibrate | S follow | P/Space hold\n"
+              "H arms Home | Q Home then quit\n"
+              "Escape/close: parent finishes Home\n"
+              "F1 help | F2 plots | F3 metric\n"
+              "F4 arm lock | F5 follow L/R\n"
+              "Mouse: rotate / pan / zoom"
+            : "");
+    mjr_overlay(mjFONT_NORMAL, mjGRID_TOPLEFT, viewport, status, nullptr,
+                &application.context);
+    return;
+  }
   char status[2048]{};
   char help[1024]{};
   const char* selected = application.selected_arm == ArmSide::kLeft ? "left" : "right";
@@ -3830,10 +3992,187 @@ int runPicoHeadless(const Options& options,
   return latest.sequence > 0U && latest.control_failures == 0U ? 0 : 2;
 }
 
+// Private parent pipe, consumed on the render thread: no control worker or
+// network receiver exists in external-display mode. Bounded reads keep the
+// camera and window responsive even if the producer outruns rendering.
+class ExternalDisplayInput {
+ public:
+  ExternalDisplayInput(const MujocoRobot& robot, const QpIkConfig& config) {
+    setConfiguredPlotBounds(ArmSide::kLeft, robot, config, left_bounds_);
+    setConfiguredPlotBounds(ArmSide::kRight, robot, config, right_bounds_);
+    if (usesSharedRootDirectIk(config.ik_algorithm)) {
+      const auto& smoothing = config.ik_algorithm == IkAlgorithm::kPicoEeFrankaDls
+          ? config.pico_ee_franka_dls.post_smoothing
+          : config.pico_ee_franka_ceres_lm.post_smoothing;
+      for (const ArmSide side : {ArmSide::kLeft, ArmSide::kRight}) {
+        JointKinematicsBounds& bounds =
+            side == ArmSide::kLeft ? left_bounds_ : right_bounds_;
+        const Vec7 velocity =
+            (smoothing.velocity_scale * robot.mapping(side).limits.velocity)
+                .cwiseMin(smoothing.max_velocity_rad_s);
+        bounds.velocity_lower = -velocity;
+        bounds.velocity_upper = velocity;
+        bounds.acceleration_lower = -smoothing.max_acceleration_rad_s2;
+        bounds.acceleration_upper = smoothing.max_acceleration_rad_s2;
+        bounds.jerk_lower = -smoothing.max_jerk_rad_s3;
+        bounds.jerk_upper = smoothing.max_jerk_rad_s3;
+      }
+    }
+    flags_ = ::fcntl(STDIN_FILENO, F_GETFL, 0);
+    if (flags_ < 0 || ::fcntl(STDIN_FILENO, F_SETFL, flags_ | O_NONBLOCK) < 0) {
+      throw std::runtime_error("could not set private display stdin nonblocking");
+    }
+  }
+  ExternalDisplayInput(const ExternalDisplayInput&) = delete;
+  ExternalDisplayInput& operator=(const ExternalDisplayInput&) = delete;
+
+  ~ExternalDisplayInput() {
+    if (flags_ >= 0) {
+      (void)::fcntl(STDIN_FILENO, F_SETFL, flags_);
+    }
+  }
+
+  bool drain(ViewerApplication& application) {
+    std::array<char, 4096> chunk{};
+    for (unsigned batch = 0; batch < 16U; ++batch) {
+      const ssize_t count = ::read(STDIN_FILENO, chunk.data(), chunk.size());
+      if (count == 0) {
+        return false;
+      }
+      if (count < 0) {
+        if (errno == EINTR) {
+          continue;
+        }
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+          return true;
+        }
+        throw std::runtime_error("private display stdin read failed");
+      }
+      for (ssize_t index = 0; index < count; ++index) {
+        const char value = chunk[static_cast<std::size_t>(index)];
+        if (value == '\n') {
+          if (!discard_line_) {
+            acceptLine(application);
+          }
+          line_size_ = 0U;
+          discard_line_ = false;
+        } else if (line_size_ < line_.size() && value != '\0') {
+          line_[line_size_++] = value;
+        } else {
+          discard_line_ = true;
+        }
+      }
+    }
+    return true;
+  }
+
+ private:
+  void acceptLine(ViewerApplication& application) {
+    const char* cursor = line_.data();
+    const char* end = cursor + line_size_;
+    const auto skip_space = [&cursor, end] {
+      while (cursor != end && (*cursor == ' ' || *cursor == '\t' || *cursor == '\r')) {
+        ++cursor;
+      }
+    };
+    skip_space();
+    std::uint64_t timestamp = 0U;
+    const auto time_result = std::from_chars(cursor, end, timestamp);
+    if (time_result.ec != std::errc{} || time_result.ptr == end ||
+        (sequence_ != 0U && timestamp <= previous_timestamp_)) {
+      return;
+    }
+    cursor = time_result.ptr;
+    std::array<double, 54> joints{};
+    for (double& joint : joints) {
+      const char* separator = cursor;
+      skip_space();
+      if (cursor == separator || cursor == end) {
+        return;
+      }
+      const auto result = std::from_chars(cursor, end, joint);
+      if (result.ec != std::errc{} || !std::isfinite(joint)) {
+        return;
+      }
+      cursor = result.ptr;
+    }
+    if (cursor != end && *cursor != ' ' && *cursor != '\t' && *cursor != '\r') {
+      return;
+    }
+    skip_space();
+    application.external_status.assign(cursor, end);
+    std::replace(application.external_status.begin(),
+                 application.external_status.end(), '|', '\n');
+    if (application.external_status.empty()) {
+      application.external_status = "Receiving simulation joint frames";
+    }
+    application.snapshot.left_q = Eigen::Map<const Vec7>(joints.data());
+    application.snapshot.right_q = Eigen::Map<const Vec7>(joints.data() + 7);
+    application.snapshot.left_hand_q = Eigen::Map<const Vec20>(joints.data() + 14);
+    application.snapshot.right_hand_q = Eigen::Map<const Vec20>(joints.data() + 34);
+    if (sequence_ == 0U) {
+      first_timestamp_ = timestamp;
+    }
+    const double dt = sequence_ == 0U
+        ? 0.0 : static_cast<double>(timestamp - previous_timestamp_) * 1e-9;
+    JointKinematicsSample sample;
+    sample.sequence = ++sequence_;
+    sample.time_seconds = static_cast<double>(timestamp - first_timestamp_) * 1e-9;
+    sample.left.bounds = left_bounds_;
+    sample.right.bounds = right_bounds_;
+    setState(sample.left, application.snapshot.left_q, previous_left_,
+             left_differentiator_, dt);
+    setState(sample.right, application.snapshot.right_q, previous_right_,
+             right_differentiator_, dt);
+    application.joint_plot_history.push(sample);
+    previous_timestamp_ = timestamp;
+    application.snapshot.sequence = sequence_;
+  }
+
+  static void setState(ArmJointKinematicsSample& sample, const Vec7& position,
+                       Vec7& previous_position,
+                       JointKinematicsDifferentiator& differentiator, double dt) {
+    const double absent = std::numeric_limits<double>::quiet_NaN();
+    sample.reference.position.setConstant(absent);
+    sample.reference.velocity.setConstant(absent);
+    sample.reference.acceleration.setConstant(absent);
+    sample.reference.jerk.setConstant(absent);
+    sample.actual.position = position;
+    sample.actual.velocity.setConstant(absent);
+    if (dt > 0.0) {
+      sample.actual.velocity = (position - previous_position) / dt;
+      const JointKinematicsDerivatives derivatives = differentiator.update(
+          Vec7::Zero(), Vec7::Zero(),
+          ReferenceAccelerationSource::kDifferentiateVelocity,
+          sample.actual.velocity, dt, false);
+      sample.actual.acceleration = derivatives.actual_acceleration;
+      sample.actual.jerk = derivatives.actual_jerk;
+      sample.actual_acceleration_valid = derivatives.actual_acceleration_valid;
+      sample.actual_jerk_valid = derivatives.actual_jerk_valid;
+    }
+    previous_position = position;
+  }
+
+  int flags_{-1};
+  std::array<char, 4096> line_{};
+  std::size_t line_size_{0U};
+  bool discard_line_{false};
+  std::uint64_t sequence_{0U};
+  std::uint64_t first_timestamp_{0U};
+  std::uint64_t previous_timestamp_{0U};
+  Vec7 previous_left_{Vec7::Zero()};
+  Vec7 previous_right_{Vec7::Zero()};
+  JointKinematicsBounds left_bounds_;
+  JointKinematicsBounds right_bounds_;
+  JointKinematicsDifferentiator left_differentiator_;
+  JointKinematicsDifferentiator right_differentiator_;
+};
+
 int runViewer(const Options& options, BoundedSpscQueue<ViewerCommand>& commands,
               LatestSnapshotExchange<ViewerSnapshot>& snapshots,
               BoundedSpscQueue<JointKinematicsSample>& joint_plot_queue,
-              std::atomic<bool>& running, std::thread& control_thread) {
+              std::atomic<bool>& running, std::thread& control_thread,
+              const QpIkConfig* display_config = nullptr) {
   if (glfwInit() == GLFW_FALSE) {
     throw std::runtime_error("GLFW initialization failed; use --headless without a display");
   }
@@ -3846,17 +4185,33 @@ int runViewer(const Options& options, BoundedSpscQueue<ViewerCommand>& commands,
   glfwSwapInterval(1);
   MujocoRobot render_robot(options.model_path);
   ViewerApplication application(render_robot, commands);
+  application.external_display = options.external_display;
+  std::optional<ExternalDisplayInput> display_input;
+  if (options.external_display) {
+    if (!render_robot.hasHandMappings() || display_config == nullptr) {
+      glfwDestroyWindow(window);
+      glfwTerminate();
+      throw std::runtime_error("external display requires a mapped 54-joint model and plot config");
+    }
+    display_input.emplace(render_robot, *display_config);
+    glfwSetWindowTitle(window, "Tianji simulation joint display | no hardware output");
+  }
   application.show_pico_skeleton = options.pico_skeleton_overlay;
   application.target_left_body = mj_name2id(render_robot.model(), mjOBJ_BODY, "target_L");
   application.target_right_body = mj_name2id(render_robot.model(), mjOBJ_BODY, "target_R");
-  if (application.target_left_body < 0 || application.target_right_body < 0) {
+  if (!options.external_display &&
+      (application.target_left_body < 0 || application.target_right_body < 0)) {
     glfwDestroyWindow(window);
     glfwTerminate();
     throw std::runtime_error("viewer target bodies are missing");
   }
   mjv_defaultFreeCamera(render_robot.model(), &application.camera);
+    if (options.external_display) {
+      application.camera.distance *= 1.5;
+    }
   mjv_defaultOption(&application.visual_options);
-  application.visual_options.frame = mjFRAME_SITE;
+  application.visual_options.frame =
+      options.external_display ? mjFRAME_NONE : mjFRAME_SITE;
   mjv_defaultPerturb(&application.perturb);
   mjv_defaultScene(&application.scene);
   mjr_defaultContext(&application.context);
@@ -3868,6 +4223,16 @@ int runViewer(const Options& options, BoundedSpscQueue<ViewerCommand>& commands,
   glfwSetCursorPosCallback(window, cursorPositionCallback);
   glfwSetScrollCallback(window, scrollCallback);
   glfwSetWindowFocusCallback(window, windowFocusCallback);
+  glfwSetWindowCloseCallback(window, [](GLFWwindow* closing_window) {
+    auto& app = *static_cast<ViewerApplication*>(glfwGetWindowUserPointer(closing_window));
+    if (app.external_display && !app.external_quit_sent) {
+      std::cout << "DISPLAY_KEY " << GLFW_KEY_Q << std::endl;
+      app.external_quit_sent = true;
+    }
+  });
+  if (options.external_display) {
+    std::cout << "DISPLAY_READY" << std::endl;
+  }
 
   const auto start = std::chrono::steady_clock::now();
   JointPlotObservation plot_observation;
@@ -3885,6 +4250,15 @@ int runViewer(const Options& options, BoundedSpscQueue<ViewerCommand>& commands,
             options.duration_seconds) {
       glfwSetWindowShouldClose(window, GLFW_TRUE);
       continue;
+    }
+    if (display_input) {
+      const auto previous_sequence = application.snapshot.sequence;
+      if (!display_input->drain(application)) {
+        glfwSetWindowShouldClose(window, GLFW_TRUE);
+      }
+      if (application.snapshot.sequence != previous_sequence) {
+        renderSnapshot(application);
+      }
     }
     if (snapshots.tryReadLatest(application.snapshot)) {
       renderSnapshot(application);
@@ -3909,10 +4283,32 @@ int runViewer(const Options& options, BoundedSpscQueue<ViewerCommand>& commands,
     const mjrRect viewport = application.joint_plot_layout.scene;
     mjv_updateScene(render_robot.model(), render_robot.data(), &application.visual_options,
                     &application.perturb, &application.camera, mjCAT_ALL, &application.scene);
-    const Pose selected_target = mocapPose(application, application.selected_arm);
-    appendInteractiveMarker(application.marker.geometry(selected_target),
-                            application.hovered_handle,
-                            application.marker.activeHandle(), &application.scene);
+    if (options.external_display) {
+      // Static target markers are not part of the supplied simulation state.
+      const mjModel* model = render_robot.model();
+      for (int index = 0; index < application.scene.ngeom; ++index) {
+        mjvGeom& geom = application.scene.geoms[index];
+        int body = -1;
+        if (geom.objtype == mjOBJ_GEOM && geom.objid >= 0) {
+          body = model->geom_bodyid[geom.objid];
+        } else if (geom.objtype == mjOBJ_SITE && geom.objid >= 0) {
+          body = model->site_bodyid[geom.objid];
+        }
+        while (body > 0) {
+          if (body == application.target_left_body ||
+              body == application.target_right_body) {
+            geom.rgba[3] = 0.0F;
+            break;
+          }
+          body = model->body_parentid[body];
+        }
+      }
+    } else {
+      const Pose selected_target = mocapPose(application, application.selected_arm);
+      appendInteractiveMarker(application.marker.geometry(selected_target),
+                              application.hovered_handle,
+                              application.marker.activeHandle(), &application.scene);
+    }
     if (application.show_pico_skeleton) {
       appendPicoUpperLimbSkeleton(
           application.snapshot.pico_upper_limb_skeleton, &application.scene,
@@ -3924,12 +4320,34 @@ int runViewer(const Options& options, BoundedSpscQueue<ViewerCommand>& commands,
     mjr_render(viewport, &application.scene, &application.context);
     drawOverlay(application, viewport);
     if (application.joint_plot_layout.visible) {
-      application.joint_plot.update(
-          application.joint_plot_history, application.joint_plot_arm,
-          application.joint_plot_metric, 5.0);
+      if (options.external_display) {
+        application.joint_plot.updateSimulation(
+            application.joint_plot_history, application.joint_plot_arm,
+            application.joint_plot_metric, 5.0);
+      } else {
+        application.joint_plot.update(
+            application.joint_plot_history, application.joint_plot_arm,
+            application.joint_plot_metric, 5.0);
+      }
       application.joint_plot.render(application.joint_plot_layout,
                                     application.context);
       char plot_status[640]{};
+      if (options.external_display) {
+        std::snprintf(
+            plot_status, sizeof(plot_status),
+            "%s arm | %s [%s] | last 5 s\n"
+            "blue: simulation\n"
+            "auto Y (zoomed)\n"
+            "red limits may be hidden\n"
+            "derivatives: timestamps\n"
+            "F3 metric | F4 arm\n"
+            "history %zu/%zu",
+            application.joint_plot_arm == ArmSide::kLeft ? "Left" : "Right",
+            plotMetricName(application.joint_plot_metric),
+            plotMetricUnit(application.joint_plot_metric),
+            application.joint_plot_history.size(),
+            application.joint_plot_history.capacity());
+      } else {
       std::snprintf(
           plot_status, sizeof(plot_status),
           "%s arm | %s [%s] | last 5 s\n"
@@ -3959,6 +4377,7 @@ int runViewer(const Options& options, BoundedSpscQueue<ViewerCommand>& commands,
           application.snapshot.joint_plot_actual_derivatives_valid
               ? "valid"
               : "warming/reset");
+      }
       mjr_overlay(mjFONT_NORMAL, mjGRID_TOPLEFT,
                   application.joint_plot_layout.status, plot_status, nullptr,
                   &application.context);
@@ -3968,7 +4387,9 @@ int runViewer(const Options& options, BoundedSpscQueue<ViewerCommand>& commands,
   }
 
   running.store(false, std::memory_order_release);
-  control_thread.join();
+  if (control_thread.joinable()) {
+    control_thread.join();
+  }
   mjr_freeContext(&application.context);
   mjv_freeScene(&application.scene);
   glfwDestroyWindow(window);
@@ -3987,26 +4408,61 @@ int run(int argc, char** argv) {
       throw std::runtime_error("could not install continuous headless stop handlers");
     }
   }
-  std::cout << "viewer_config=" << options.config_path << '\n';
+  if (!options.external_display) {
+    std::cout << "viewer_config=" << options.config_path << '\n';
+  }
   QpIkConfig config = loadConfig(options.config_path, ConfigConsumer::kSharedRootAware);
+  if (options.external_display) {
+    if (options.model_path.empty()) {
+      options.model_path = config.shared_root_profile_path.empty()
+          ? defaultModelPath()
+          : loadSharedRootOptions(config.shared_root_profile_path).mujoco_path;
+    }
+    BoundedSpscQueue<ViewerCommand> commands(1U);
+    LatestSnapshotExchange<ViewerSnapshot> snapshots(2U);
+    BoundedSpscQueue<JointKinematicsSample> joint_plot_queue(1U);
+    std::atomic<bool> running{true};
+    std::thread no_control_thread;
+    return runViewer(options, commands, snapshots, joint_plot_queue, running,
+                     no_control_thread, &config);
+  }
   if (options.control_level_override.has_value()) {
     config.control_level = *options.control_level_override;
   }
   if (options.algorithm_override.has_value()) {
     config.ik_algorithm = *options.algorithm_override;
   }
+  if (options.model_state_only_override.has_value()) {
+    config.controller.model_state_only = *options.model_state_only_override;
+  }
+  if (options.franka_dls_executor &&
+      (config.shared_root_profile_path.empty() ||
+       config.ik_algorithm != IkAlgorithm::kPicoEeFrankaDls ||
+       !config.pico_ee_franka_dls.enabled ||
+       !config.pico_ee_franka_dls.post_smoothing.enabled ||
+       !config.controller.model_state_only ||
+       config.control_level != ControlLevel::kVelocity)) {
+    throw std::invalid_argument(
+        "--franka-dls-executor requires enabled shared-root, pico_ee_franka_dls, "
+        "Ruckig, model-only state and velocity control");
+  }
   if (!config.shared_root_profile_path.empty()) {
     if ((!usesSparkHeadroomFeedforwardVelocityQp(config.ik_algorithm) &&
          !usesSharedRootDirectIk(config.ik_algorithm)) ||
         config.control_level != ControlLevel::kVelocity || !options.pico_teleop)
       throw std::invalid_argument("shared-root requires PICO headroom/feedforward velocity mode");
-    if (options.joint_command_port != 0U)
-      throw std::invalid_argument("shared-root experimental mode forbids joint command export");
+    if (options.joint_command_port != 0U && !options.franka_dls_executor)
+      throw std::invalid_argument(
+          "shared-root joint command export requires --franka-dls-executor");
     const auto shared = loadSharedRootOptions(config.shared_root_profile_path);
+    if (!shared.enabled)
+      throw std::invalid_argument("shared-root execution requires enabled shared-root");
     if (!options.model_path_explicit) options.model_path = shared.mujoco_path;
     if (sharedRootSha256File(options.model_path) != sharedRootSha256File(shared.mujoco_path))
       throw std::invalid_argument("shared-root requires its frozen palm TCP model");
-    std::cout << "shared_root=experimental; device_acceptance=false; joint_export=disabled\n";
+    std::cout << (options.franka_dls_executor
+        ? "shared_root=enabled; joint_export=franka_dls_executor; motion_authority=external_python_gate\n"
+        : "shared_root=experimental; device_acceptance=false; joint_export=disabled\n");
   }
   if (options.model_path.empty()) options.model_path = defaultModelPath();
   if (usesSparkGuidance(config.ik_algorithm)) {
@@ -4022,13 +4478,12 @@ int run(int argc, char** argv) {
       config.joint_limits.hard_jerk_enabled = true;
     }
   }
-  if (options.model_state_only_override.has_value()) {
-    config.controller.model_state_only = *options.model_state_only_override;
-  }
   if (usesSharedRootDirectIk(config.ik_algorithm)) {
     if (config.shared_root_profile_path.empty() || !config.controller.model_state_only ||
-        options.joint_command_port != 0U)
-      throw std::invalid_argument("Ceres viewer requires enabled shared-root model-only mode; joint export forbidden");
+        (options.joint_command_port != 0U && !options.franka_dls_executor))
+      throw std::invalid_argument(
+          "direct IK viewer requires enabled shared-root model-only mode; "
+          "joint export requires --franka-dls-executor");
     if (config.ik_algorithm == IkAlgorithm::kPicoEeFrankaCeresLm && !PicoEeFrankaCeresLmIk7::available())
       throw std::invalid_argument("Ceres not built: configure TIANJI_ENABLE_CERES=ON");
   }

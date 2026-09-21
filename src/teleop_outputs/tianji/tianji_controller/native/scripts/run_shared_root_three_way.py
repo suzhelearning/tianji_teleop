@@ -9,10 +9,10 @@ import subprocess
 import sys
 import time
 import yaml
-from tianji_runtime import workspace
+from tianji_runtime import controller_profile, native_executable
+from tianji_runtime.resources import controller_resource
 
-CONTROL = Path(__file__).resolve().parents[1]
-ROOT = workspace()
+SCRIPTS = Path(__file__).resolve().parent
 PROFILES = {
     "spark": "qp_ik_pico_shared_root_reachable.yaml",
     "ceres": "qp_ik_pico_shared_root_ceres.yaml",
@@ -24,10 +24,10 @@ def sha(path):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--viewer", type=Path, default=CONTROL/"build/tianji_qp_ik_viewer")
+    parser.add_argument("--viewer", type=Path)
     parser.add_argument("--trace", type=Path, action="append", required=True)
     args = parser.parse_args()
-    viewer = args.viewer.resolve()
+    viewer = args.viewer.resolve() if args.viewer is not None else native_executable("tianji_qp_ik_viewer")
     traces = [p.resolve() for p in args.trace]
     from run_pico_trace_algorithm_benchmark import _read_trace
     records = [_read_trace(p)[1] for p in traces]
@@ -39,15 +39,15 @@ def main():
                 "viewer": str(viewer), "viewer_sha256": sha(viewer), "runs": []}
     configs = {}
     for name, filename in PROFILES.items():
-        profile = CONTROL/"config"/filename
+        profile = controller_profile(filename)
         cfg = yaml.safe_load(profile.read_text())
         assert not cfg["spark_shared_root"]["enabled"]
         cfg["spark_shared_root"]["enabled"] = True
         for key in ("input_contract_artifact", "robot_geometry_artifact"):
-            cfg["spark_shared_root"][key] = str((profile.parent/cfg["spark_shared_root"][key]).resolve())
-        key = "pico_ee_dls_kinematics_urdf_path"
-        if key in cfg["controller"]:
-            cfg["controller"][key] = str((profile.parent/cfg["controller"][key]).resolve())
+            cfg["spark_shared_root"][key] = str(controller_resource(profile, cfg["spark_shared_root"][key]))
+        for key in ("home_config", "pico_ee_dls_kinematics_urdf_path"):
+            if cfg["controller"].get(key):
+                cfg["controller"][key] = str(controller_resource(profile, cfg["controller"][key]))
         configs[name] = cfg
     # Reject accidental geometry, home, mapping, rate or safety-envelope mismatch.
     for name in ("ceres", "dls"):
@@ -74,22 +74,22 @@ def main():
                        "--joint-telemetry", str(folder/f"{name}_joints.csv")]
             item = {"dataset": index, "algorithm": name, "trace": str(trace),
                     "trace_sha256": sha(trace), "frames": len(packets),
-                    "profile_sha256": sha(CONTROL/"config"/filename),
+                    "profile_sha256": sha(controller_profile(filename)),
                     "runtime_config_sha256": sha(cfg_path), "command": command,
                     "complete": False}
             manifest["runs"].append(item)
             (output/"manifest.json").write_text(json.dumps(manifest, indent=2)+"\n")
             print("START", index, name, flush=True)
             with (folder/f"{name}.log").open("x") as log:
-                process = subprocess.Popen(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT)
+                process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT)
                 try:
                     time.sleep(2)
                     if process.poll() is not None:
                         raise RuntimeError(f"Viewer exited before replay: {folder/name}")
                     replay = subprocess.run(
-                        [sys.executable, str(CONTROL/"scripts/replay_pico_udp_trace.py"),
+                        [sys.executable, str(SCRIPTS/"replay_pico_udp_trace.py"),
                          "--input", str(trace), "--host", "127.0.0.1", "--port", str(port), "--lead", "2"],
-                        cwd=ROOT, capture_output=True, text=True, timeout=duration+10)
+                        capture_output=True, text=True, timeout=duration+10)
                     item["replay_stdout"] = replay.stdout
                     item["replay_stderr"] = replay.stderr
                     replay.check_returncode()

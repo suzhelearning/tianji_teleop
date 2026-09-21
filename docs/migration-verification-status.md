@@ -133,3 +133,322 @@ src/teleop_outputs/   tianji/{tianji_cmd_pub,tianji_controller,tianji_descriptio
 
 上述均为无硬件验收；真实输入、相机、机器人动作与 GPU／模型现场条件仍见第 6 节。
 
+## 9. 保留离线工具的默认启动收尾
+
+本轮只修复资源定位与离线工具生命周期，不改目录、模型、控制算法或设备配置。
+可执行文件统一使用 `native_executable()`，控制器 YAML 使用 `controller_profile()`，
+模型和网格使用 `package_share("tianji_description", ...)`；profile 内引用通过
+`controller_resource()` 解析。临时复制的 profile 保留原配置所指向的 Home、URDF
+和几何 artifact；显式相对路径仍按调用者工作目录解释，不再强制子进程切回源码目录。
+没有添加旧 build 路径回退或兼容软链接。
+
+实际安装 `default`／`control` 锁定环境并执行 `pixi run build`，control 原生目标及
+default 的 **16 个 ROS 包**构建成功。以下工具均从仓库外
+`/tmp/tianji-offline-az02bc5a` 启动，使用安装 overlay；没有覆盖 `--binary`／`--viewer`，
+也没有用 `--help` 代替执行：
+
+| 工具／流程 | 实际结果 |
+|---|---|
+| `record_shared_root_actions.py record --source-kind synthetic` | 回环 UDP 持续录制 50 秒，**5000 帧**；`complete=true`、`motion_authorized=false`、`actions_confirmed=false` |
+| `validate_shared_root_contract.py` | 默认安装 profile、契约及几何指纹一致 |
+| `report_shared_root_actions.py` | 5000 帧录制全部读取；几何有效 5000 帧，未伪造动作标注或现场验收 |
+| `report_shared_root_layers.py` | 500 帧合成轨迹生成分层报告，1998 个双侧诊断样本 |
+| `audit_shared_root_trace.py`／`audit_synthetic_body_mapping.py` | 独立合成标定与 500 帧骨长一致轨迹，完成几何审计和体型扰动分析 |
+| `view_shared_root_mapping.py` | `--check` 通过；实际 MuJoCo 窗口播放至第 500 帧，截图确认模型和映射覆盖层，Q 正常退出 |
+| `run_shared_root_three_way.py` → `report_shared_root_three_way.py` | SPARK／Ceres／DLS 各回放完整 5000 帧录制并生成 CSV 和报告；5～47 秒报告窗口有 4200 个共同源帧 |
+| `view_shared_root_comparison.py` | 实际 SPARK／Ceres 双窗口、同一回放时钟，各发送 5000 帧，`complete=true`；截图确认模型与曲线可见 |
+| `run_cartesian_frf_benchmark.py --smoke --jobs 1` | 默认 binary／config／model／URDF 完成两组 case，自动分析并生成结果 |
+| `run_pico_trace_algorithm_benchmark.py` → `analyze_pico_trace_algorithm_benchmark.py` | SPARK velocity-QP 完成 500 帧回放；分析得到 500 个共同源帧、469 个 clean 源帧 |
+
+窗口使用临时 Xvfb 显示，不依赖真实桌面或硬件。实际 Q 退出暴露了 MuJoCo passive
+viewer 的异步销毁竞争；mapping 工具现在在关闭 viewer 后等待本次启动的线程结束，
+再次运行实际窗口并按 Q，退出码为 0。
+
+12 个相关 Python 回归文件：**151 passed，9 skipped**。9 项跳过均需要未随仓库提供的
+既有人员录制，不是默认资源查找失败；另将几何审计测试原来依赖私人 `profiles/syz`
+文件的 fixture 改为确定性的合成标定，6 项行为测试全部执行。
+
+边界：三路输入端到端仿真、真实相机与真机闭环不计入本轮验收。合成微动轨迹只证明
+离线工具可运行，不能作为算法排名或动作安全结论。外部 Ceres 历史源码对照工具
+`prepare_shared_root_ceres_trial.py` 的本地默认资源已迁移，相关单元回归通过；完整外部
+对照仍要求显式 `--source-root` 提供
+`config/qp_ik_pico_ee_franka_ceres_lm_ruckig_mujoco.yaml` 及配套源码。当前 checkout
+和文档记录的外部目录均无该配置，本轮不宣称完成这项外部对照。
+
+复现默认路径启动的方式（`TRACE` 必须是已有离线 TJVT/TJVR 文件）：
+
+```bash
+pixi shell --manifest-path /absolute/path/to/tianji_teleop-ros2/pixi.toml
+source "$TIANJI_WORKSPACE/bash/environment.sh"
+TOOLS="$TIANJI_WORKSPACE/src/teleop_outputs/tianji/tianji_controller/native/scripts"
+cd "$(mktemp -d)"
+python "$TOOLS/run_cartesian_frf_benchmark.py" --smoke --jobs 1 --output-root frf
+python "$TOOLS/report_shared_root_actions.py" "$TRACE"
+python "$TOOLS/view_shared_root_mapping.py" "$TRACE" --check
+python "$TOOLS/run_pico_trace_algorithm_benchmark.py" --trace "$TRACE" \
+  --output pico --algorithms spark_upper_qpoases_velocity_qp
+python "$TOOLS/analyze_pico_trace_algorithm_benchmark.py" \
+  --manifest pico/manifest.json --output pico-report
+```
+
+本次临时数据、CSV、报告、日志和截图保留在上述 `/tmp` 目录；临时启动器与显示进程已清理。
+持久数值记录见 `migration-verification-results.json` 的 `offline_tools_cutover`。
+
+## 10. 三路合成输入到实际仿真的端到端验收
+
+本轮完成的是**合成设备输入 → 生产处理链 → 实际 MuJoCo 仿真**，不是实际佩戴者或
+机器人验收。未改目录、模型、算法参数或真实标定；未打开相机、机器人 SDK 或 Manus
+采集 SDK。原始日志、录制、截图及数值检查保留在 `/tmp/tianji-routes-hjc5phk_`。
+
+### 实际发现并修复的启动／退出问题
+
+- `start_tianji_mujoco_teleop.launch.py` 的 Node 仍指向 `pico_bridge`，导致找不到
+  `tianji_mujoco_teleop_bridge`。改为其真实包 `tianji_cmd_pub`，重装后实际收到合法
+  656 字节 TJVR v4；既有原子 UDP 行为回归改为走正式 `ros2 launch`。
+- `bash/install.sh` 原来先安装 default/policy overlay、后构建 Manus `rawviz`，
+  首次安装会漏掉 collector。现在先完成 `build_manus.sh`，再构建两套 overlay。
+  实际构建 collector 并重装 default 包后，`run_manus.sh --calibration-user syz --check`
+  通过；这里的 `syz` 仅用于离线资源检查，不是指定现场佩戴者。
+- PICO2 实际窗口完成 Home 和录制后仍曾异常退出。按照离线 mapping viewer 的现有
+  生命周期模式，关闭 passive viewer 后等待本次启动的渲染线程结束，再释放资源；
+  V131 和 shared-root 实际窗口再次运行均退出 0，录制完整。
+
+### 注入边界与实际运行链
+
+| 路线 | 真正执行的生产链 | 明确排除的硬件边界 |
+|---|---|---|
+| 共用 PICO 手柄 | 合成 APK TCP 分片 → `pico_bridge_node` → ground normalizer、双侧 TCP 校正、M0 filter → 正式 ROS launch → TJVR → 默认 `run_teleop.sh --sim` | 头显、ADB 转发、真实人员标定 |
+| Manus | 合成 `HAND/NODE/POSE` 文本 → 生产 parser → `/hand_input` → ROS bridge → 隔离 manus worker、真实 Hand2 重定向 → TJH2 → 仿真 | SDK 采集、手套配对、实际佩戴 |
+| 外骨骼 | 回环 HTTP 元数据及 `encoder-v1` TCP 分片 → 真实身份／协议校验、零位、四连杆、FK、native MANO、官方 worker → TJH2 → 仿真 | USB 网卡发现和网络配置；临时副本仅将网络端点改为回环，方向验收标记不变 |
+| PICO 裸手 | 合成 1982 字节 TCP 帧 → 生产 receiver/parser → V131 或 shared-root DLS/Ruckig → 两个真实 native Hand2 worker → 仿真及 HDF5 | 头显、真实手部追踪 |
+
+手套链额外使用临时 UDP 观察中继 `16001 → 16000` 保存原始包；逐字节转发，不修改
+时间戳、关节值或新鲜度。不是跳过采集／重定向直接生成 TJH2。各路线串行运行。
+
+清理检查发现不属于本轮的旧工作区 PICO 进程 `1467197`
+（`tianji_teleop/tracking/install/pico_bridge/...`），未擅自停止。两条手柄组合路线
+随后在**独立 DDS domain 121**重新完成运行和故障场景，避免共享域干扰；默认生产域
+120 的配置未修改。
+
+| 最终证据 | 结果 |
+|---|---|
+| 独立域 Manus 组合路线 | 仿真实际接受 **5905 个 TJH2 包**，坏包 0；双手输出关节变化约 0.805／0.802 rad，双臂参考变化约 0.661 rad |
+| 独立域外骨骼组合路线 | 仿真实际接受 **755 个 TJH2 包**，坏包 0；双手输出关节变化约 0.725／0.770 rad，双臂参考变化约 0.545 rad |
+| 外骨骼关闭并重启 | 单侧故障不会自动恢复；干净停止执行端和发送端后重启，两侧有效，额外接受 629 包并完成 Home |
+| V131 故障场景录制 | 7236 个原始 TCP 帧、23116 个 54 维仿真采样；失鲜／旧帧重放／无效侧的稳定保持区间变化均为 **0 rad** |
+| V131 退出修复后复跑 | 1315 个原始帧、2397 个采样，双臂双手有响应，Home 误差 0，录制完整，退出 0；另一次有时限窗口复跑亦退出 0 |
+| 裸手 shared-root | 3846 个原始帧、12555 个采样；Home 双臂误差约 `1.1e-16 rad`，检查的 H 回程手指保持区间变化 **0 rad** |
+| 现有回归 | `pixi run test-pico2 -q`：**86 passed**；正式 ROS launch 原子 UDP 回归：**1 passed** |
+| 默认离线入口检查 | Manus `--check`、外骨骼 `--check-config` 均通过，不打开设备 |
+
+动作与故障边界：
+
+- 两条手柄组合路线走通 WAITING → S/TELEOP → 失鲜/HOLD → 新输入仍 HOLD → S；
+  PICO TCP 断开重连不自动接管，H 后可用 P 取消回程，最终正常 HOME_REACHED/退出。
+- Manus 单侧停止或重放旧文本不会刷新该侧源时间；另一侧继续更新，新鲜输入恢复。
+- 外骨骼短停流后可恢复；TCP 单侧故障清除该侧有效位和时间戳，另一侧继续，
+  故障侧要求重启，不使用旧值或退出零值补包。
+- V131 同一连接失鲜保持后可随新鲜输入继续；TCP 换代则返回 Home，等待再次 S。
+  它不采用 shared-root 的 P/空格取消 Home 约定。
+- shared-root C 前拒绝 S；长断流保持并要求 S；短断流经过稳定窗口和制动后软恢复；
+  TCP 重连使 C 失效，必须重新 C 后 S；H 只回双臂且手指保持，P 可以取消 H。
+
+记录显示真实渲染与计算存在迟到周期，`real_time_qualified=false`；以上关节幅度只用来
+确认响应，不是动作精度、优化质量或 200 Hz 实时性能的合格结论。
+
+### 真实输入阶段仍阻塞
+
+只读 `lsusb` 枚举到 Manus Sensor Dongle `3325:0049`，未枚举到 PICO USB 设备；
+`ip -j link show` 仅有 lo、enp3s0、wlx08beac41f6ab，没有外骨骼所需的
+`02:33:80:00:00:01` 网卡。工作区 `profiles/` 不存在，实际佩戴者及其完整 PICO／Manus
+档案尚未指定；Manus dongle 存在不等于手套已配对、佩戴或已提供有效骨架。
+
+因此三路**真实输入 → 仿真**仍待设备与人员前提，不能标成完成。继续现场输入前还须
+由操作者处理上述旧 PICO 进程；本轮没有改动它。真实相机与经现场授权的真机闭环
+保持后续阶段。所有本轮拥有的进程已停止，TCP 10002/19999 和 UDP 15000/16000/16001
+均已实际重新绑定验证释放；临时生成器和显示运行器不进入仓库。
+
+## 11. zjx 真实输入切换尝试（后续现场状态）
+
+用户确认 PICO 使用有线 ADB、Manus 接收器已连接，并确认复用 `zjx` 标定。
+此处记录第 10 节之后的状态变化，不将之前的 USB 枚举结果当作当前连接状态：
+
+- 起初 `adb devices -l` 显示 PICO A9210 为已授权的 `device`，序列号
+  `PA9210MGK9250095G`；已有 `9999 → 9999`、`10002 → 10002` 转发。
+- 将旧工作区 `zjx/pico-simple` 的活动版本 `cal-cea5ec573c7d42dda2edcddfb0cc3d4b`
+  复制到当前 `profiles/zjx/pico-simple/`：7 个标定文件 SHA256 全部一致，另复制
+  `active.json`，旧文件不改。身高为 1.75 m，手腕距离仍为身高模板估计，
+  `hardware_acceptance_complete=false` 未改。
+- `run_manus.sh --calibration-user zjx --check` 通过。实际运行 Manus SDK 后识别到
+  MetaglovePro 接收器；尚未确认手套骨架流，5 秒观察窗口内没有 TJH2 输出。
+- 初次新入口因旧 tmux 会话的 checkout 身份不匹配而拒绝接管。用户随后明确授权
+  切换；仅在 `@tianji_checkout` 仍等于旧 `tianji_teleop/tracking` 时停止该
+  `pico_tianji_teleop` 会话，确认旧输入进程退出，未删 ADB 转发或原标定。
+- 重试时 PICO 从 ADB 设备列表消失，普通 shell 与 Pixi 都报告无设备；
+  `run_teleop.sh --sim --user zjx --duration 30` 在 ADB 前置检查处退出，
+  **没有启动机器人仿真，也没有完成真实输入验收**。未把错误归因于错误的标定或
+  修改安全检查来绕过它。
+
+本次拥有的 Manus 采集及临时显示进程均已停止；没有连接机器人或相机。后续需要
+恢复 PICO 的 ADB `device` 状态并运行相应采集应用，同时确认 Manus 手套开机、
+配对且输出骨架。日志已去除 SDK license key 行，保存在
+`/tmp/tianji-live-zjx-uzicb6r_`；本轮允许保留的人员档案已在新工作区就位。
+
+## 12. real／data 统一为共享根 DLS＋Ruckig
+
+`--real` 和 `--data` 共用执行器现只接受 `franka-dls`，默认配置为
+`qp_ik_pico_shared_root_dls.yaml`，算法 `pico_ee_franka_dls`，
+`post_smoothing.mode=ruckig`。默认模型切到与冻结几何一致的
+`marvin_m6_wuji2_shared_root_ceres.xml`；资源名称不是 Ceres 后端选择。
+运行副本开启共享根、绝对化资源引用、以只读反馈初始化双臂，并将
+`controller_velocity_scale` 作用于实际 Ruckig 速度上限，不仅修改旧 QP 的字段。
+
+这不是简单撤掉仿真出口限制：原生新增显式 `--franka-dls-executor`，只允许
+DLS／Ruckig、model-reference、velocity、headless＋continuous 与回环输入／输出。
+其他共享根后端、普通仿真和跳过 PICO 跳变检查的模式仍不能借此导出。
+输出使用双臂已提交的 Ruckig 参考、双手独立时效标志；求解后复查 mapping、
+源时效、epoch／reset，停止时撤销所有 ready。原生程序没有硬件使能权限。
+
+Python 的 SDK 身份／反馈／限位、慢速对齐和分阶段 Enter 授权保持；
+`--data` 的相机／writer prepared-before-connect、输入 ready-before-enable、
+会话所有权与录制无运动授权保持。旧 real 的 mapped-palm 参数、私有事件／
+C 标定集成及宽限停流分支已移除，不提供旧后端回退。历史 native／offline 对照保留。
+
+本轮实际执行：
+
+| 验证 | 结果 |
+|---|---|
+| `pixi run build` | control 两套原生目标及 default 16 个 ROS 包成功构建／安装 |
+| `pixi run test-native` | core **106/106**，历史 mapped-palm 模型 **1/1** |
+| 执行器、仿真、采集 Python 回归 | **343 passed，1 skipped**；跳过项需要显式外部 mapped-palm 源码对照 |
+| `pixi run test-ros -q -rs` | **29 passed**，真实 DDS、合成相机／反馈；非真实设备采集 |
+| `pixi run test-pico2 -q` | **86 passed**，确认共享 DLS 核心未破坏裸手链路 |
+| 共用配置加载器的 Mocap 调用回归 | **37 passed，4 skipped**；default 环境无 torch 的 policy 场景未运行 |
+| 正式 real／data 包装器传旧后端 | 均在 argparse 拒绝，退出 2，未启动设备／采集 |
+
+实际安装后的执行器从仓库外 `/tmp/tianji-dls-executor-u3jwe54d` 运行，
+使用临时端口、合成 TJVR／TJH2 和无 SDK 的 dry-run，不是只运行 `--help`：
+
+- 正常样本 `flags=7`；PICO 失鲜变为 `6`；同 epoch 的新鲜输入恢复为 `7`。
+- 仅右手失鲜变为 `5`，左手与双臂保持 ready；右手新鲜输入恢复为 `7`。
+- epoch 改变后保持 `flags=6`，不因新输入自动重新授予双臂 ready。
+- 标准倍率 1 的已提交参考速度峰值约 **4 rad/s**；倍率 0.05 的峰值约
+  **0.2 rad/s**，均按实际 TJRC 序列和控制周期计算，未只检查配置回显。
+- 仅双手独立运行时没有任何 PICO 帧，正常 `flags=6`、右手失鲜 `flags=4`，
+  全程没有双臂 ready。
+- 三次 dry-run 的 hardware factory 调用数均为 0，flight recorder 没有设备
+  feedback 或 motor send；未连接机器人、相机或实际输入设备。
+
+还修复了实际二次构建暴露的依赖问题：旧 FetchContent 的 `Ceres_BINARY_DIR` cache
+会使已安装的 Ceres 2.1 package 跳过导入 target。依赖发现前清除这个过期身份后，
+正常重复构建通过；没有用关闭历史依赖或兼容路径绕过错误。
+安全回归同时捕获并清除 Home 转换中遗留的旧 dropout 状态引用，原有 Home／静止／
+反馈故障测试重新全部通过。
+
+原始 session、运行时 YAML、flight recorder 和分阶段数值保留在上述 `/tmp` 目录；
+临时 smoke 启动器已清理。**本节是代码接入与离线验收，不是 DLS 真机闭环、
+真实相机持续采集或现场动作安全验收。**
+
+## 13. 裸手移除 V131，入口改名为 run_pico_hand_sim
+
+裸手现在只保留共享根掌心映射＋Franka DLS＋Ruckig。新入口为
+`bash bash/run_pico_hand_sim.sh --height-m HEIGHT`，身高必须显式给出；
+旧脚本和 `--mapping-mode` 已移除，没有别名或回退。`pico2_hands` Python／ROS 包名及
+`pico2_sim_session_v1` 录制 schema 保持不变。
+
+删除 V131 原生库、worker／probe／model trace、专属模型和头文件，以及旧 Python
+IK worker、旧映射／可选标定、五次 Home 和对应专属测试。`DlsWorker`、共享根 owner
+不再继承旧后端。Hand2 数学、模型与独立 ABI 保留，手部构建只负责 Hand2，
+双臂使用主工作区安装的 `pico2_dls_worker`。已清理本次会话先前生成的
+`native/build/pico2-v131` 和 13 个旧 Python 字节码缓存；人员标定及历史录制未删除。
+
+`--self-test` 已迁到真实 DLS／Hand2：先确认 C 前 S 被拒绝，再执行 C/S/H/S/Q，
+不绕过校准，不从测试模块借运行时输入 fixture。保留只读观察器和
+`pico2_hands.scripts.smoke_pipeline`，后者复用同一生产自测，不再维护第二套求解链。
+
+| 本轮实际验证 | 结果 |
+|---|---|
+| `pixi run build` | 主原生目标及 default **16 个 ROS 包**构建／安装成功 |
+| 裸手 `build_native.sh` | Hand2 scheduler **1/1**、优化器夹具通过；16 帧官方手部对照最大差 **0 rad** |
+| `pixi run test-pico2 -q -rs` | **63 passed**，无跳过；旧路线专属测试已随实现删除 |
+| 新脚本、仓库外运行、`--self-test --record` | **1575 周期／1575 原始帧**，Home 最大误差约 `3.3e-16 rad`，录制完整、退出 0 |
+| 真实 TCP 分片源＋实际 MuJoCo 窗口 | **16851 周期／12927 原始帧**，截图确认 DLS 及模型；短失鲜恢复、长失鲜人工 S、P 取消 Home、重连重新 C、最终 Home／退出通过 |
+| GUI H 回程的手指保持 | 检查 25 和 669 个采样，变化均 **0 rad** |
+| 干净 wheel 构建、独立目标目录安装 | 包内没有旧 V131／旧 Python 求解器；从实际 wheel 包运行 DLS/Hand2 自测 **1592 周期**，录制完整、退出 0 |
+| 保留的只读 `observe` | 真实回环 TCP 观察 **97 帧**，双臂／双手观察有效，正常关闭；不创建执行器 |
+| CLI 拒绝边界 | 缺少身高、旧模式参数退出 2；未尝试连接设备 |
+| 保留代码来源指纹 | **5 个接收参考＋28 个 native/vendor 记录**全部匹配 |
+
+指纹核对发现一项已有遗漏：Hand2 CMake 早已从原 `Eigen3 3.4` 请求改为使用独立
+Pinocchio 4 环境的 Eigen CONFIG，但 manifest 仍写 unchanged。已与旧工作区原文件
+及其 SHA256 对照，只补记这项既有构建适配的目标指纹；没有修改手部数值源码。
+
+运行记录、HDF5、截图、wheel 和校验结果保留在
+`/tmp/tianji-pico-hand-dls-q5ea_ryx`。临时源、显示进程和验收脚本已清理。
+前面历史章节中的 V131 数字和当时脚本名仍是历史证据，不表示旧实现继续存在；
+当前操作只按新入口执行。本轮未连接头显、机器人或相机，仍不宣称实时性能或现场
+跟踪质量验收通过。
+
+## 14. 裸手默认向 SPD 发布 ROS 关节命令
+
+`bash bash/run_pico_hand_sim.sh --height-m HEIGHT` 默认发布
+`/spd/tianji_wuji2/v1/joint_command`，类型为 `tianji_spd_interfaces/msg/JointCommand`。
+独立发布线程只取最新 54 维控制目标，最多 60 Hz；UTC 时间保留生产周期起点，
+与原生 Viewer 共用 `core.tick()` 的输出，但不从显示状态读取命令。
+未标定失效、C／连接／epoch 会话边界、逐手有效性与失鲜、P/H/Q 制动／保持／回程
+均有显式 readiness；不沿用本地显示的固定 flags=7。
+
+本次没有修改 Manus／外骨骼＋PICO 手柄的真机输入、执行器或授权，不新增硬件出口。
+SPD 消息包以固定指纹快照在本工作区生成 Python 3.12 绑定；运行不依赖 SPD 源码路径。
+
+| 本轮实际验证 | 结果 |
+|---|---|
+| `pixi run build --packages-select tianji_spd_interfaces pico2_hands` | 原生目标及两个选定 ROS 包构建／安装通过 |
+| `pixi run test-pico2 -q -rs` | **77 passed**，无跳过；含 readiness、会话、失鲜、非阻塞发布和异常清理 |
+| domain 121 真实 Fast DDS＋完整 DLS/Hand2 自测及录制 | 最终复跑收到 **481 帧、2 个会话**，ready 为 0／7；收到目标与录制的 54 维命令最大差 **0 rad**，最后 Home 目标已收到；发布发生在现有完整模型校验之后 |
+| SPD 当前 `snapshot_from_ros` 验证器 | 对以上收到帧检查类型字段、配置、名字顺序、有限性、会话内序号、UTC 新鲜度，全部通过；这不是 SPD 物理执行验收 |
+| domain 121 真实 DDS 生产停止更新 | 收到一次新序号、新 UTC 的 mask0 失效通知；没有重放旧健康命令，新生产输出的序号继续递增，SPD 协议验证通过 |
+
+实际 QoS 为 BEST_EFFORT／KEEP_LAST1／VOLATILE。合成源及验证脚本未连接头显、机器人
+或相机；未启动 SPD 动力学／场景／录制。双方模型限位、初始双手目标、零位／方向、
+SPD 本地启用与物理到位仍须按接收端最终配置验收；ROS 接收成功不替代这些检查。
+自测强制隔离到 domain 121，普通域 120 未注入合成目标。临时验证脚本与 HDF5 已清理。
+
+### 裸手默认 ADB 启动预检
+
+默认本机 10002 输入在启动 ROS／Viewer 前自动检查设备和转发，复用匹配规则或以
+`--no-rebind` 补建；冲突与未授权拒绝启动，多设备要求显式 `ANDROID_SERIAL`。
+不改动其他输入路线，自测／自定义 host 或 port 不操作 ADB。
+
+- 真实头显上验证现有 `tcp:10002` 转发复用。
+- 在独占临时端口 **39373** 验证真实 ADB 缺失补建与重复复用；结束只删除该临时转发，
+  原 `tcp:10002` 未改动，不连接头显数据流或发送关节命令。
+- ADB 所有权与现有自定义 TCP 入口回归：**6 passed**。
+- 禁止任何 ADB 预检调用的真实 DLS／Hand2＋domain 121 自测：**1604 周期**，
+  正常 Home 退出，证明 `--self-test` 旁路 ADB。
+
+## 15. top RGB 经 H.264 传入 PICO
+
+新增 `bash/run_pico_camera.sh`／`pixi run pico-camera`，从唯一采集配置读取 top，
+只订阅现有官方驱动的 RGB8 1280×720 图像；不重复打开 RealSense，不启动机器人或记录图像。
+复用给定 PC 推流协议：13579 上的混合端序 OPEN/CLOSE_CAMERA 控制帧，
+12345 上的 4 字节大端长度＋H.264 AnnexB access unit，左右眼同源 SBS。
+软件编码使用已有 GPL FFmpeg 8.1.2/libx264，现已显式锁定依赖；没有新增 PyAV 环境。
+ADB 只管理视频 reverse/forward，保留裸手 10002 和其他既有映射。
+
+| 本轮验证 | 结果 |
+|---|---|
+| `pixi lock` 与 camera 包构建 | 锁文件已满足 FFmpeg 显式约束；`tianji_cameras` 构建／安装通过 |
+| 相机协议／ADB 所有权回归 | **12 passed**，包含分片／连续消息、超时失步、非法请求、冲突与回滚、空 reverse 列表 |
+| 真实 ROS（domain 121）→ 正式 camera 入口 → FFmpeg → PICO 协议接收端 → FFmpeg 解码 | 30 fps 收集解码 **18 帧**，1 fps 收集解码 **3 帧**；每帧左右眼像素平均差 **0**，合成颜色随时间变化，非冻结重复帧 |
+| OPEN/CLOSE 与源失鲜 | 同一控制连接重复开关两个流；停止 RGB 后关闭视频并报错，没有回放旧帧 |
+| 无输入及不读取视频的接收端 | 分别在初始源等待／新鲜度边界失败，编码线程退出；FFmpeg 由拥有者终止并回收 |
+| 真实 PICO USB 上的视频映射 | reverse 13579、forward 12345 建立及清理通过；前后既有 forward/reverse 表一致，10002 未改 |
+| 裸手回归 | **81 passed**，无跳过 |
+
+实际运行检查修正了私有 ROS Context 必须使用对应 Executor，以及真实 `adb reverse --list`
+空行输出的解析问题；修正后重新完成上述验证。临时测试脚本与内存／临时日志已清理。
+
+**现场边界：**本轮设备枚举显示配置中的 top／左右腕相机均未连接，所以没有验证实际 top 画面。
+APK 元数据能看到 OPEN_CAMERA／PicoH264Decoder 相关标识，但未在头显中验收画面显示。
+需要连接相机、启动其官方 ROS 节点并在 PICO 启用 PC 视频源后，另行确认实际画面、延迟与视场。

@@ -5,6 +5,7 @@
 #include <mujoco/mujoco.h>
 
 #include <array>
+#include <cstdio>
 
 namespace tianji_qp_ik {
 
@@ -28,6 +29,9 @@ class MujocoJointPlot {
 
   void update(const JointKinematicsHistory& history, ArmSide side,
               PlotMetric metric, double window_seconds) noexcept;
+  // Display-only input has one simulation state, not reference/feedback pairs.
+  void updateSimulation(const JointKinematicsHistory& history, ArmSide side,
+                        PlotMetric metric, double window_seconds) noexcept;
   void render(const JointPlotLayout& layout,
               const mjrContext& context) noexcept;
   const mjvFigure& figure(int joint) const noexcept;

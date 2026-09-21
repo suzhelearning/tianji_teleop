@@ -29,8 +29,8 @@ updated: 2026-09-21
 | PICO 手柄 DLS 仿真 | `bash bash/run_teleop.sh --sim --user NAME` → `simulation.run_sim` → `simulation.ceres_session` | 默认 `franka-dls`＋Ruckig、direct 交互窗口；默认接收双手，不输出硬件指令 |
 | Ceres 仿真 | 同一入口加 `--ik-backend ceres` | 独立求解配置，沿用 DLS/Ceres 会话管理；不是默认真机后端 |
 | 旧 SPARK／mapped-palm | 显式 `--ik-backend spark` 或 `mapped-palm` | 保留既有 TJRC 执行路径；无窗口／动力学应显式选择支持它的后端，不能直接给默认 DLS 加 `--headless` |
-| 真机与任务采集 | `bash bash/run_teleop.sh --real`／`--data --task TASK` → `tianji_controller.run_teleop` | 独立预检、人工授权及原真机后端；不能把仿真 S/H/P 当作真机授权 |
-| PICO2 裸手 | `bash bash/run_pico2_sim.sh`、`src/teleop_inputs/pico_hand/` | 默认 legacy V131；显式 `--mapping-mode shared-root --height-m HEIGHT` 使用身高模板＋C 标定＋DLS/Ruckig，先 C 后 S；仍仅仿真，不支持真机 |
+| 真机与任务采集 | `bash bash/run_teleop.sh --real`／`--data --task TASK` → `tianji_controller.run_teleop` | 已统一为共享根 DLS/Ruckig；保留独立预检与人工授权，不能把仿真 S/H/P 当作真机授权 |
+| PICO 裸手 | `bash bash/run_pico_hand_sim.sh --height-m HEIGHT`、`src/teleop_inputs/pico_hand/` | 唯一身高模板＋C 标定＋共享根 DLS/Ruckig，先 C 后 S；旧 V131 和模式选择已移除；仍仅仿真，不支持真机 |
 | Mocap／Regrind | `tianji mocap` → `bash/run_mocap.sh`、`src/inference/mocap_policy_runtime/` | H5 回放、Motive 输入、策略推理和受保护执行有各自入口与可选依赖 |
 
 Manus 与外骨骼是二选一的独立手部发送端，不由 DLS 仿真自动启动或停止。默认双臂输入端口 `15000`、双手 `16000`；协议兼容不代表任意路线组合已完成现场验收。
@@ -58,7 +58,7 @@ tianji_teleop/
 │   ├── environment.sh / check_env.py / test_python.sh / test_native.sh
 │   ├── run_cameras.sh / preview_cameras.sh / inspect_cameras.sh
 │   ├── run_pico.sh / run_setup_pico.sh / run_stop_pico.sh
-│   ├── run_manus.sh / run_exoskeleton.sh / run_pico2_sim.sh
+│   ├── run_manus.sh / run_exoskeleton.sh / run_pico_hand_sim.sh
 │   ├── run_teleop.sh / run_sim.sh / run_home.sh / stop.sh
 │   ├── run_data_collector.sh / run_mocap.sh
 │   └── compress.sh / compress_data.sh / view.sh / visualize_data.sh
@@ -70,7 +70,7 @@ tianji_teleop/
 │   │   ├── pico_controller/             # PICO 头显＋手柄；ROS 包 pico_bridge
 │   │   ├── manus/                       # ROS 包 manus_bridge
 │   │   ├── exoskeleton/                 # ROS 包 exoskeleton_bridge
-│   │   └── pico_hand/                   # ROS 包 pico2_hands；legacy V131 与显式 shared-root 仿真
+│   │   └── pico_hand/                   # ROS 包 pico2_hands；唯一共享根 DLS/Ruckig 裸手仿真
 │   ├── teleop_outputs/                  # 机器人侧映射／控制／模型的物理分组
 │   │   ├── tianji/
 │   │   │   ├── tianji_controller/
@@ -350,7 +350,7 @@ CLI / shell：解析参数、选择配置、启动会话
 | DLS direct 仿真 | `bash bash/run_teleop.sh --sim --user NAME` |
 | Ceres direct 仿真 | `bash bash/run_teleop.sh --sim --user NAME --ik-backend ceres` |
 | 旧 SPARK 无窗口仿真 | `bash bash/run_teleop.sh --sim --ik-backend spark --headless` |
-| PICO2 shared-root 仿真 | `bash bash/run_pico2_sim.sh --mapping-mode shared-root --height-m HEIGHT`（先 C 后 S） |
+| PICO 裸手 DLS 仿真 | `bash bash/run_pico_hand_sim.sh --height-m HEIGHT`（先 C 后 S） |
 | Manus 环境／模型离线检查 | `pixi run manus --calibration-user NAME --check` |
 | 外骨骼配置离线检查 | `bash bash/run_exoskeleton.sh --check-config` |
 | 真机只读预检 | `pixi run bash -c 'source bash/environment.sh; python -m tianji_controller.run_teleop --devices all --inspect'` |

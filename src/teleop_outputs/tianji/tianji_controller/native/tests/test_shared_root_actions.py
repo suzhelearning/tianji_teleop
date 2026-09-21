@@ -4,6 +4,7 @@ from pathlib import Path
 import subprocess
 
 import pytest
+from tianji_runtime import ResourceNotFound, native_executable, workspace
 
 CONTROL = Path(__file__).resolve().parents[1]
 SCRIPT = CONTROL / "scripts/report_shared_root_actions.py"
@@ -86,8 +87,12 @@ def test_malformed_native_output_fails_closed(text):
 
 
 def test_real_trace_unannotated_does_not_grant_acceptance():
-    trace = CONTROL.parent / "recordings/shared_root/zhoujie_50s_20260917_235744_GLTAPL/input.tjvr"
-    if not trace.is_file() or not (CONTROL / "build/tianji_shared_root_trace_audit").is_file():
+    trace = workspace() / "recordings/shared_root/zhoujie_50s_20260917_235744_GLTAPL/input.tjvr"
+    try:
+        native_executable("tianji_shared_root_trace_audit")
+    except ResourceNotFound as error:
+        pytest.skip(str(error))
+    if not trace.is_file():
         pytest.skip("requires local trace and native audit")
     import sys
     result = subprocess.run([sys.executable, str(SCRIPT), str(trace)],

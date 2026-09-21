@@ -418,6 +418,21 @@ control_level=velocity
 生成的 `.synthetic.tjvr` 仅用于离线映射审计，不得送入在线执行器。
 此结论不外推到其他映射模式，也不修改现有控制器默认配置。
 
+## DLS 受限执行器输出
+
+`bash bash/run_teleop.sh --real` 与 `--data`（仓库根目录）统一由 Python 安全执行器
+加载 `qp_ik_pico_shared_root_dls.yaml`，在运行副本中启用共享根映射及 Ruckig，并从
+只读实测关节位置初始化。执行器启动本程序时显式传入 `--franka-dls-executor`。
+
+该开关只允许 DLS、Ruckig、model-reference、velocity、headless＋continuous，
+以及回环 PICO／TJH2 输入和非零回环 TJRC 出口；不能与 simulation-recovery 或
+跳过 PICO 跳变检查的仿真开关混用。TJRC 包含提交后的 Ruckig 参考，而不是原始 IK
+目标；求解后重新检查输入新鲜度、mapping、epoch／reset，停机发送 ready 全撤销的帧。
+原生程序不加载机器人 SDK，也不授予使能或运动权限；这些仍由 Python 执行器门控。
+
+不传此开关的共享根仿真、共享根 SPARK 与 Ceres 仍禁止关节导出。离线测试通过
+不等于现场验收，完整操作及权限边界见仓库根目录 README。
+
 ## 历史算法
 
 当前共享根 SPARK `qp_ik_pico_shared_root_reachable.yaml` 已与 Ceres 统一源模型限位、
@@ -425,11 +440,11 @@ control_level=velocity
 [限位与在线接线说明](docs/verification/shared_root_ceres_f615b8c.md)。其他历史配置不随之批量修改。
 
 另有默认关闭的[共享根 Ceres LM＋Ruckig 实验后端](docs/verification/shared_root_ceres_f615b8c.md)，
-标准 `pixi run build` 已启用 `TIANJI_ENABLE_CERES=ON`，产物统一在 `control/build`。
-直接使用 CMake 的旧构建仍可关闭该选项。当前仅允许模型状态仿真、禁止关节导出；
+标准 `pixi run build` 仍构建历史 Ceres 对照，产物位于 `build/control/core` 并安装到 `install/control`。
+直接使用 CMake 时可关闭 `TIANJI_ENABLE_CERES`。Ceres 仅允许模型状态仿真、禁止关节导出；
 已同步源 `f615b8c` 的 Pinocchio 路径及 Ruckig 修复，见[最新移植验证](docs/verification/shared_root_ceres_f615b8c.md)；
-左臂残差明显改善但仍未通过跟踪验收。原生 Viewer 与真机默认保持不变；
-上层 `teleop.sh --sim` 已按用户选择默认 Franka DLS＋Ruckig。
+左臂残差明显改善但仍未通过跟踪验收。原生裸 Viewer 的历史默认保留；
+上层默认仿真及 `--real`／`--data` 主线为 Franka DLS＋Ruckig。
 
 交互仿真可选 `bash teleop.sh --sim --ik-backend ceres`（在仓库根目录运行）：
 S 接入、H 平滑回 Home 后等待、P/Space 停止，详见

@@ -18,6 +18,8 @@ import tempfile
 import time
 from typing import Any, Iterable
 
+from tianji_runtime import controller_profile, native_executable, package_share
+
 
 PRIMARY_ALGORITHMS = (
     "spark_upper_qpoases_direct",
@@ -195,7 +197,7 @@ def _git_commit(root: Path) -> str:
     ).strip()
 
 
-def _run_one(*, root: Path, algorithm: str, trace: Path,
+def _run_one(*, algorithm: str, trace: Path,
              trace_metadata: dict[str, Any], output: Path, viewer: Path,
              replay_tool: Path, python: Path, config: Path, model: Path,
              port: int, lead_s: float, post_roll_s: float,
@@ -219,13 +221,13 @@ def _run_one(*, root: Path, algorithm: str, trace: Path,
     started = time.time()
     with viewer_log.open("w") as viewer_stream, replay_log.open("w") as replay_stream:
         viewer_process = subprocess.Popen(
-            viewer_command, cwd=root, stdout=viewer_stream,
+            viewer_command, stdout=viewer_stream,
             stderr=subprocess.STDOUT, start_new_session=True,
         )
         try:
             time.sleep(0.15)
             replay_result = subprocess.run(
-                replay_command, cwd=root, stdout=replay_stream,
+                replay_command, stdout=replay_stream,
                 stderr=subprocess.STDOUT, timeout=duration + 10.0,
             )
             if replay_result.returncode != 0:
@@ -278,13 +280,13 @@ def main(argv: Iterable[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--trace", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--viewer", type=Path, default=Path("build/tianji_qp_ik_viewer"))
+    parser.add_argument("--viewer", type=Path)
     parser.add_argument(
         "--replay-tool", type=Path,
         default=Path(__file__).resolve().with_name("replay_pico_udp_trace.py"))
     parser.add_argument("--python", type=Path, default=Path(sys.executable))
-    parser.add_argument("--config", type=Path, default=Path("config/qp_ik_pico_teleop.yaml"))
-    parser.add_argument("--model", type=Path, default=Path("models/marvin_m6_qp_pico_fast.xml"))
+    parser.add_argument("--config", type=Path)
+    parser.add_argument("--model", type=Path)
     parser.add_argument("--algorithms", default="all")
     parser.add_argument("--base-port", type=int, default=15100)
     parser.add_argument("--lead", type=float, default=0.25)
@@ -295,6 +297,14 @@ def main(argv: Iterable[str] | None = None) -> int:
     arguments = parser.parse_args(argv)
 
     root = Path(__file__).resolve().parents[1]
+    viewer = (arguments.viewer.resolve() if arguments.viewer is not None else
+              native_executable("tianji_qp_ik_viewer"))
+    config = (arguments.config.resolve() if arguments.config is not None else
+              controller_profile("qp_ik_pico_teleop.yaml"))
+    model = (arguments.model.resolve() if arguments.model is not None else
+             package_share("tianji_description", "models", "marvin_m6_qp_pico_fast.xml"))
+    replay_tool = arguments.replay_tool.resolve()
+    python = arguments.python.resolve()
     trace = arguments.trace.resolve()
     output = arguments.output.resolve()
     algorithms = _resolve_algorithms(arguments.algorithms)
@@ -308,10 +318,10 @@ def main(argv: Iterable[str] | None = None) -> int:
         "source_trace": inspect_trace(trace),
         "run_trace": metadata,
         "git_commit": _git_commit(root),
-        "viewer_sha256": _file_sha256((root / arguments.viewer).resolve()),
-        "config_sha256": _file_sha256((root / arguments.config).resolve()),
-        "model_sha256": _file_sha256((root / arguments.model).resolve()),
-        "replay_tool_sha256": _file_sha256(arguments.replay_tool.resolve()),
+        "viewer_sha256": _file_sha256(viewer),
+        "config_sha256": _file_sha256(config),
+        "model_sha256": _file_sha256(model),
+        "replay_tool_sha256": _file_sha256(replay_tool),
         "lead_s": arguments.lead,
         "post_roll_s": arguments.post_roll,
         "continue_on_control_failure": arguments.continue_on_control_failure,
@@ -344,12 +354,10 @@ def main(argv: Iterable[str] | None = None) -> int:
         print(f"run_start algorithm={algorithm}", flush=True)
         try:
             result = _run_one(
-                root=root, algorithm=algorithm, trace=run_trace,
+                algorithm=algorithm, trace=run_trace,
                 trace_metadata=metadata, output=output,
-                viewer=(root / arguments.viewer).resolve(),
-                replay_tool=arguments.replay_tool.resolve(), python=arguments.python,
-                config=(root / arguments.config).resolve(),
-                model=(root / arguments.model).resolve(),
+                viewer=viewer, replay_tool=replay_tool, python=python,
+                config=config, model=model,
                 port=arguments.base_port + index, lead_s=arguments.lead,
                 post_roll_s=arguments.post_roll,
                 allow_control_failures=arguments.continue_on_control_failure,

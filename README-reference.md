@@ -9,13 +9,13 @@
 
 # 天机遥操数据采集
 
-PICO2 裸手已有独立[仿真入口 `bash/run_pico2_sim.sh`](src/teleop_inputs/pico_hand/README.md)，
+PICO 裸手使用独立[仿真入口 `bash/run_pico_hand_sim.sh --height-m HEIGHT`](src/teleop_inputs/pico_hand/README.md)，只保留共享根 DLS/Ruckig，旧 V131 和模式选择已删除。
 此前已通过合成输入／假 TCP 测试，用户已进行真实 PICO 输入仿真并录制；
 跟踪抖动仍是已知限制，不能视为性能验收完成；不支持真机。
-现有 VR、Manus、外骨骼输入入口保留；仿真默认后端已切换为 Franka DLS＋Ruckig，真机默认不变。
+现有 VR、Manus、外骨骼输入入口保留；默认仿真以及 `--real`／`--data` 均采用共享根 Franka DLS＋Ruckig。真机执行器只接受 `franka-dls`，不再提供旧 real 后端选择。
 
 2026-09-15 已合入 mapped-palm 路线及退出清理修复，保留本工程原生外骨骼输入。
-当前操作入口与安全边界见 [mapped-palm 使用说明](docs/mapped-palm-port.md)，软件验证结果见[迁移验收记录](docs/migration-verification-status.md)。
+mapped-palm 来源移植与验收记录见[历史说明](docs/mapped-palm-port.md)；当前真机操作以[快速开始](README.md#真机遥操)为准，软件验证结果见[迁移验收记录](docs/migration-verification-status.md)。
 
 以 **人员标定 → PICO／Manus 输入 → C++ 重定向与控制 → 安全执行 → 数据落盘** 为主链。
 标定、Hand2 retargeting、双臂控制、模型和必要的原生依赖源码均位于本仓库，不需要克隆其他业务仓库或初始化子模块。
@@ -23,8 +23,8 @@ PICO2 裸手已有独立[仿真入口 `bash/run_pico2_sim.sh`](src/teleop_inputs
 
 > **三种模式必须区分，且不能同时占用相同输入端口。**
 > - `pixi run sim`（或 `bash bash/run_teleop.sh --sim`）：默认 Franka DLS＋Ruckig 双臂 direct 仿真，按 S 接入；默认接收 Hand2，纯双臂使用 `--no-hand-teleop`。旧双臂＋双手入口用 `--ik-backend spark`，动力学仿真再加 `--simulation-mode dynamics`。
-> - `bash bash/run_teleop.sh --real`：双臂＋双 Hand2 真机执行与实测／目标双模型窗口；三次 Enter 分别授权慢速对齐、实时遥操、回 HOME 后失能。激活 default overlay 后执行 `python -m tianji_controller.run_teleop` 不带使能参数仍为 dry-run。
-> - `bash bash/run_teleop.sh --data --task TASK`：在相同真机安全门控下管理相机和独立 DDS 采集器，默认写入 `/data/TianjiData/raw/YYYYMMDD/`；用 `--dataset PATH` 指定根目录。
+> - `bash bash/run_teleop.sh --real`：共享根 DLS＋Ruckig 双臂与独立 TJH2 双 Hand2 真机执行，保留实测／目标双模型窗口；三次 Enter 分别授权慢速对齐、实时遥操、回 HOME 后失能。激活 default overlay 后执行 `python -m tianji_controller.run_teleop` 不带使能参数仍为 dry-run。
+> - `bash bash/run_teleop.sh --data --task TASK`：使用相同 DLS／Ruckig 执行器和真机安全门控，额外管理相机及独立 DDS 采集器，默认写入 `/data/TianjiData/raw/YYYYMMDD/`；用 `--dataset PATH` 指定根目录。
 > - 当前真机支持双臂与左右两只 Hand2；`all` 表示双臂＋双手，`hands` 表示仅双手。
 > - 历史离线测试和设备身份读取不能替代当前只读预检；尚不能宣称迁移后带运动实机闭环已验收。
 
@@ -85,7 +85,7 @@ pixi run -e default bash -c 'source bash/environment.sh; exec python src/teleop_
 ## PICO＋VR 手柄：mapped-palm IK＋对称骨架启动
 
 **`bash bash/run_teleop.sh --sim` 默认使用 Franka DLS＋Ruckig（双臂 direct 仿真）。
-`bash bash/run_teleop.sh --real` 保持原 SPARK 默认，不随仿真后端切换。**
+`--real`／`--data` 已统一到同一算法，但仍使用独立的安全执行器与人工授权，不能套用仿真窗口按键。**
 默认 DLS/Ceres 仿真按 S 接入、H 平滑回双臂 Home、P/空格停止；默认接收双手，不导出硬件指令。
 原生构建分别使用 `build/control/core` 与 `build/control/mapped-palm`，安装到 `install/control`：
 
@@ -108,14 +108,14 @@ pixi run test-sim
 仿真仍须按 S 接入；退出只按 owner token 清理本次新建的 PICO 会话，复用的会话保留，
 需要时另执行 `pixi run stop-pico`。启动失败／Ctrl+C 同样不杀他人或后来重建的会话。
 首次启用 Ceres 时，CMake 优先寻找已安装库，否则下载并校验固定版本源码。
-显式选项 `--ik-backend ceres`、`--ik-backend spark`、`--ik-backend mapped-palm` 仍保留。
-旧双手仿真、headless 或 dynamics 路线需显式选 `--ik-backend spark`，不自动回退。
+显式选项 `--ik-backend ceres`、`--ik-backend spark`、`--ik-backend mapped-palm` 仅作为已有仿真／历史对照功能保留，不是本分支后续实现路线；真机执行器不再接受这些后端。
+旧仿真的 headless／dynamics 能力不代表 DLS 交互仿真支持这些选项，也不作为真机切换后端的依据。
 后端选择不会替 PICO 输入端选择对称骨长。两项需分别选择：
 
 | 选择项 | 入口与参数 | 不选择时 |
 | --- | --- | --- |
 | 左右对称骨长 | 下文 `pico_symmetric_profile.py --resolve` 后显式传 `--calibration-dir` | 使用人员原始骨长 |
-| 新 mapped-palm IK | `bash bash/run_teleop.sh --sim --ik-backend mapped-palm` | 仿真使用 Franka DLS＋Ruckig；真机仍为原默认 |
+| 历史 mapped-palm IK | `bash bash/run_teleop.sh --sim --ik-backend mapped-palm` | 仿真默认及当前真机执行器均使用 Franka DLS＋Ruckig |
 | 现场末端 X/Z 对齐 | `bash bash/run_teleop.sh --sim --ik-backend mapped-palm --mapped-palm-xz-calibration` | 不要求 C，使用原映射 |
 
 骨长标定默认 `symmetric_max`：左右完整 TCP/腕心/骨长均通过校验后，自动生成对称快照，
@@ -387,6 +387,22 @@ pixi run preview
 monitor 校验 serial、目标 profile／format、源帧号、发布者身份与配对流；不以约 30 Hz 替代模式验收。
 相机更换发布者、参数改变或断流会撤销 ready；不会重打时间戳或自动重启后拼接原录制。
 第二套相同 serial 的 launch 会被会话锁拒绝。预览和采集可同时订阅同一发布者。
+
+### top RGB → PICO 有线画面
+
+`bash bash/run_pico_camera.sh`（`pixi run pico-camera`）是 default 环境内的纯订阅者，
+读取同一配置的 top 角色和 `/cameras/top/color/image_raw`，不创建 SDK pipeline。
+先运行上述官方相机节点；在 PICO 软件启用 PC 视频源并将地址设为 `127.0.0.1`。
+启动先等待有效 RGB，再检查 ADB 视频映射：reverse `13579` 为相机控制、
+forward `12345` 为 H.264 接收；不改变裸手 `10002`。只删除本次创建且仍归本连接所有的规则。
+
+控制帧沿用 `OPEN_CAMERA`／`CLOSE_CAMERA`，视频为 4 字节大端长度＋完整 AnnexB access unit。
+固定软件 libx264、无 B 帧、SPS/PPS 与周期关键帧、左右眼重复同一 top 图像；
+尺寸取 PICO 请求，帧率不超过 30，默认 4M 码率，不写图像或视频文件。
+仅在编码前选择最新 RGB；编码后不随意丢 P 帧，超龄／背压时关闭连接以免破坏解码或播放旧画面。
+启动图像等待默认 15 秒，可用 `--timeout` 调整；`--duration` 限定 ready 后的服务时长。
+现有 manager 已管理映射时用 `--no-adb`，多设备用 `ANDROID_SERIAL`。
+细节和验证边界见[首页串流说明](README.md#top-相机画面传到-pico)。
 
 ## 观测数据集采集（R / S / D）
 

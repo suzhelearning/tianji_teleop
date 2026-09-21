@@ -11,10 +11,8 @@ import subprocess
 import time
 import yaml
 from run_pico_trace_algorithm_benchmark import _read_trace
-from tianji_runtime import workspace
-
-CONTROL = Path(__file__).resolve().parents[1]
-ROOT = workspace()
+from tianji_runtime import controller_profile, native_executable
+from tianji_runtime.resources import controller_resource
 
 
 def arrange(pid, title, x):
@@ -62,6 +60,9 @@ def main():
     parser.add_argument('--input', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
+    args.input = args.input.resolve()
+    args.output = args.output.resolve()
+    viewer = native_executable('tianji_qp_ik_viewer')
     _, records = _read_trace(args.input)
     if not records or any(b[0] < a[0] for a, b in zip(records, records[1:])):
         raise ValueError('empty or non-monotonic recording')
@@ -75,14 +76,14 @@ def main():
     try:
         for name, profile in [('SPARK default', 'qp_ik_pico_shared_root_reachable.yaml'),
                               ('Ceres LM + Ruckig', 'qp_ik_pico_shared_root_ceres.yaml')]:
-            source = CONTROL/'config'/profile
+            source = controller_profile(profile)
             config = yaml.safe_load(source.read_text())
             config['spark_shared_root']['enabled'] = True
             for key in ('input_contract_artifact', 'robot_geometry_artifact'):
-                config['spark_shared_root'][key] = str((source.parent/config['spark_shared_root'][key]).resolve())
-            key = 'pico_ee_dls_kinematics_urdf_path'
-            if key in config['controller']:
-                config['controller'][key] = str((source.parent/config['controller'][key]).resolve())
+                config['spark_shared_root'][key] = str(controller_resource(source, config['spark_shared_root'][key]))
+            for key in ('home_config', 'pico_ee_dls_kinematics_urdf_path'):
+                if config['controller'].get(key):
+                    config['controller'][key] = str(controller_resource(source, config['controller'][key]))
             stem = 'spark' if not processes else 'ceres'
             path = args.output/(stem+'.yaml')
             with path.open('x') as stream:
@@ -93,13 +94,13 @@ def main():
             if ('127.0.0.1', port) in endpoints:
                 raise RuntimeError('duplicate input port')
             endpoints.append(('127.0.0.1', port))
-            command = [str(CONTROL/'build/tianji_qp_ik_viewer'), '--config', str(path),
+            command = [str(viewer), '--config', str(path),
                        '--pico-teleop', '--pico-bind', '127.0.0.1', '--pico-port', str(port),
                        '--model-state-only', '--telemetry', str(args.output/(stem+'.csv'))]
             manifest['commands'].append(command)
             log = (args.output/(stem+'.log')).open('x')
             logs.append(log)
-            process = subprocess.Popen(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT)
+            process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT)
             processes.append(process)
             for _ in range(100):
                 if process.poll() is not None:

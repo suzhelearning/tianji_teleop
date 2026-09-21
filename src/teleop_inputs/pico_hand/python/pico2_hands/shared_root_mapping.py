@@ -42,8 +42,6 @@ class SharedRootMapping:
         self.solution = None
         self.samples = []
         self.frame = None
-        # Compatibility with the owner's generic calibration status handling.
-        self.calibration = self
 
     @property
     def calibration_allows_start(self):
@@ -108,8 +106,6 @@ class SharedRootMapping:
             return
         self.samples.append((frame.received_timestamp_ns, *extracted))
 
-    def add(self, observation, now):
-        pass  # Owner supplies synchronized raw bilateral frames via offer_frame.
 
     def tick(self, now):
         if self.state != "collecting":

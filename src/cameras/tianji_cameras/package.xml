@@ -6,7 +6,7 @@
   <description>
     RealSense camera side of the workspace: profile preflight, the launch that
     starts the official realsense2_camera driver per role, the readiness monitor
-    and a read-only preview. Never opens a pipeline itself.
+    and read-only RGB preview/PICO H.264 streaming. Never opens a pipeline itself.
   </description>
   <maintainer email="ops@example.com">Tianji operators</maintainer>
   <license>Apache-2.0</license>
@@ -22,6 +22,7 @@
   <exec_depend>launch_ros</exec_depend>
   <exec_depend>ament_index_python</exec_depend>
   <exec_depend>python3-opencv</exec_depend>
+  <exec_depend>ffmpeg</exec_depend>
 
   <test_depend>python3-pytest</test_depend>
 

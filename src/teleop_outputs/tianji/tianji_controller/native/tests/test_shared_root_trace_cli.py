@@ -1,19 +1,24 @@
 """Reject malformed trace files before any model or guidance is constructed."""
-from pathlib import Path
-import os
 import struct
 import subprocess
 
 import pytest
 
-CONTROL = Path(__file__).resolve().parents[1]
-BINARY = CONTROL / "build/tianji_shared_root_trace_audit"
+from tianji_runtime import ResourceNotFound, controller_profile, native_executable, workspace
+
+
+@pytest.fixture
+def BINARY():
+    try:
+        return native_executable("tianji_shared_root_trace_audit")
+    except ResourceNotFound as error:
+        pytest.skip(str(error))
 
 
 @pytest.mark.parametrize("mode", ["--reference-loop-200hz", "--worst-ik-multiseed"])
-def test_projected_hold_does_not_relabel_command_gap_as_ik_error(tmp_path, mode):
-    source = CONTROL.parent / "recordings/shared_root/zhoujie_actions_20260918_041020/input.tjvr"
-    if not source.is_file() or not BINARY.is_file():
+def test_projected_hold_does_not_relabel_command_gap_as_ik_error(tmp_path, mode, BINARY):
+    source = workspace() / "recordings/shared_root/zhoujie_actions_20260918_041020/input.tjvr"
+    if not source.is_file():
         pytest.skip("requires recorded hold regression trace and built native audit")
     raw = source.read_bytes()
     magic, version, size, count = struct.unpack_from("<4sHHQ", raw)
@@ -22,7 +27,7 @@ def test_projected_hold_does_not_relabel_command_gap_as_ik_error(tmp_path, mode)
     # about 173 mm while the solver's own palm residual is sub-micrometre.
     trace = tmp_path / "hold-prefix.tjvr"
     trace.write_bytes(struct.pack("<4sHHQ", magic, version, size, 720) + raw[16:16+720*(size+8)])
-    result = subprocess.run([str(BINARY), str(CONTROL / "config/qp_ik_pico_shared_root_reachable.yaml"),
+    result = subprocess.run([str(BINARY), str(controller_profile("qp_ik_pico_shared_root_reachable.yaml")),
                              str(trace), mode], capture_output=True, text=True, timeout=90)
     assert result.returncode == 0, result.stderr
     line = next(x for x in result.stdout.splitlines() if x.startswith("ik_target_pairing mode=1 "))
@@ -70,26 +75,21 @@ def test_projected_hold_does_not_relabel_command_gap_as_ik_error(tmp_path, mode)
     (struct.pack("<4sHHQ", b"TJVT", 1, 656, 1) + bytes(664), "packet rejected"),
 ])
 @pytest.mark.parametrize("extra", [[], ["--reference-loop"], ["--reference-loop-200hz"], ["--worst-ik-multiseed"], ["--layer-diagnostics"], ["--scale-ablation"], ["--mapping-transitions"], ["--mapping-only"], ["--mapping-frames"]])
-def test_native_trace_reader_rejects_bad_files(tmp_path, data, reason, extra):
-    if not BINARY.is_file():
-        pytest.skip("build tianji_shared_root_trace_audit first")
+def test_native_trace_reader_rejects_bad_files(tmp_path, data, reason, extra, BINARY):
     trace = tmp_path / "bad.tjvr"
     trace.write_bytes(data)
-    env = dict(os.environ)
-    lib = CONTROL.parent / ".pixi/envs/default/lib"
-    env["LD_LIBRARY_PATH"] = str(lib) + ":" + env.get("LD_LIBRARY_PATH", "")
     result = subprocess.run([str(BINARY), "must-not-load-this-profile", str(trace), *extra],
-                            env=env, capture_output=True, text=True, timeout=10)
+                            capture_output=True, text=True, timeout=10)
     assert result.returncode == 2
     assert reason in result.stderr
     assert not result.stdout
 
 
-def test_mapping_only_trace_geometry_without_ik():
-    trace = CONTROL.parent / "recordings/shared_root/zhoujie_50s_20260917_235744_GLTAPL/input.tjvr"
-    if not BINARY.is_file() or not trace.is_file():
+def test_mapping_only_trace_geometry_without_ik(BINARY):
+    trace = workspace() / "recordings/shared_root/zhoujie_50s_20260917_235744_GLTAPL/input.tjvr"
+    if not trace.is_file():
         pytest.skip("requires built audit and local zhoujie trace")
-    result = subprocess.run([str(BINARY), str(CONTROL / "config/qp_ik_pico_shared_root.yaml"),
+    result = subprocess.run([str(BINARY), str(controller_profile("qp_ik_pico_shared_root.yaml")),
                              str(trace), "--mapping-only"], capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stderr
     assert "ik_executed=false" in result.stdout
@@ -118,11 +118,11 @@ def test_mapping_only_trace_geometry_without_ik():
         assert float(fields[name]) <= 1e-9
 
 
-def test_mapping_rejections_are_speed_conflicts_and_transitions_are_bounded():
-    trace = CONTROL.parent / "recordings/shared_root/zhoujie_actions_20260918_041020/input.tjvr"
-    if not BINARY.is_file() or not trace.is_file():
+def test_mapping_rejections_are_speed_conflicts_and_transitions_are_bounded(BINARY):
+    trace = workspace() / "recordings/shared_root/zhoujie_actions_20260918_041020/input.tjvr"
+    if not trace.is_file():
         pytest.skip("requires built audit and local action trace")
-    result = subprocess.run([str(BINARY), str(CONTROL / "config/qp_ik_pico_shared_root_reachable.yaml"),
+    result = subprocess.run([str(BINARY), str(controller_profile("qp_ik_pico_shared_root_reachable.yaml")),
                              str(trace), "--mapping-transitions"], capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stderr
     def rows(prefix):
@@ -152,9 +152,9 @@ def test_mapping_rejections_are_speed_conflicts_and_transitions_are_bounded():
     assert "\nmode=" not in result.stdout
 
 
-def test_duplicate_trace_frames_cannot_inflate_coverage(tmp_path):
-    source = CONTROL.parent / "recordings/shared_root/zhoujie_50s_20260917_235744_GLTAPL/input.tjvr"
-    if not BINARY.is_file() or not source.is_file():
+def test_duplicate_trace_frames_cannot_inflate_coverage(tmp_path, BINARY):
+    source = workspace() / "recordings/shared_root/zhoujie_50s_20260917_235744_GLTAPL/input.tjvr"
+    if not source.is_file():
         pytest.skip("requires built audit and local zhoujie trace")
     with source.open("rb") as stream:
         stream.read(16)
@@ -169,16 +169,14 @@ def test_duplicate_trace_frames_cannot_inflate_coverage(tmp_path):
 
 
 @pytest.mark.parametrize("mode", ["--reference-loop", "--reference-loop-200hz"])
-def test_recorded_reference_loop_accepts_stop_and_recovers(mode):
-    trace = (CONTROL.parent / "recordings/shared_root/"
+def test_recorded_reference_loop_accepts_stop_and_recovers(mode, BINARY):
+    trace = (workspace() / "recordings/shared_root/"
              "zhoujie_50s_20260917_235744_GLTAPL/input.tjvr")
-    if not BINARY.is_file() or not trace.is_file():
+    if not trace.is_file():
         pytest.skip("requires built audit and local zhoujie acceptance trace")
-    env = dict(os.environ)
-    env["LD_LIBRARY_PATH"] = str(CONTROL.parent / ".pixi/envs/default/lib") + ":" + env.get("LD_LIBRARY_PATH", "")
     result = subprocess.run(
-        [str(BINARY), str(CONTROL / "config/qp_ik_pico_shared_root.yaml"),
-         str(trace), mode], env=env, capture_output=True, text=True, timeout=90)
+        [str(BINARY), str(controller_profile("qp_ik_pico_shared_root.yaml")),
+         str(trace), mode], capture_output=True, text=True, timeout=90)
     assert result.returncode == 0, result.stderr
     lines = result.stdout.splitlines()
     summary = next(line for line in lines if line.startswith("reference_loop mode=1 "))

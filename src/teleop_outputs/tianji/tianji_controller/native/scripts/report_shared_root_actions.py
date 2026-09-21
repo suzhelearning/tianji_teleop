@@ -6,7 +6,7 @@ import math
 from pathlib import Path
 import subprocess
 
-CONTROL = Path(__file__).resolve().parents[1]
+from tianji_runtime import controller_profile, native_executable
 ACTIONS = ("natural_reach", "hands_approach", "crossing", "unequal_height",
            "single_hand", "bilateral_motion", "extension_boundary")
 
@@ -148,13 +148,15 @@ def summarize(frames, freshness, segments):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("trace", type=Path)
-    parser.add_argument("--profile", type=Path, default=CONTROL / "config/qp_ik_pico_shared_root.yaml")
+    parser.add_argument("--profile", type=Path)
     parser.add_argument("--annotations", type=Path)
     args = parser.parse_args()
     try:
+        if args.profile is None:
+            args.profile = controller_profile("qp_ik_pico_shared_root.yaml")
         trace_hash, profile_hash = sha256(args.trace), sha256(args.profile)
         annotation_hash = sha256(args.annotations) if args.annotations else None
-        result = subprocess.run([str(CONTROL / "build/tianji_shared_root_trace_audit"),
+        result = subprocess.run([str(native_executable("tianji_shared_root_trace_audit")),
                                  str(args.profile), str(args.trace), "--mapping-frames"],
                                 capture_output=True, text=True, check=True, timeout=60)
         frames, freshness, provenance = parse_native(result.stdout)

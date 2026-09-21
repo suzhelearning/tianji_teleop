@@ -51,9 +51,9 @@ trap 'printf "Installation failed at line %s; fix the reported error and rerun b
 pixi install --locked --all
 install_exoskeleton
 pixi run --locked check-env
+bash bash/build_manus.sh
 pixi run --locked build
 pixi run --locked -e policy build
-bash bash/build_manus.sh
 pico2_root="$project_root/src/teleop_inputs/pico_hand"
 pixi install --locked --manifest-path "$pico2_root/tools/wuji_hand_native/pixi.toml"
 bash "$pico2_root/build_native.sh"

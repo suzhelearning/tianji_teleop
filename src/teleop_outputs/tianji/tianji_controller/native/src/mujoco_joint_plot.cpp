@@ -128,6 +128,8 @@ void MujocoJointPlot::update(const JointKinematicsHistory& history,
     current.range[0][1] = 0.0F;
     current.range[1][0] = 0.0F;
     current.range[1][1] = 0.0F;
+    current.flg_extend = 1;
+    std::snprintf(current.yformat, sizeof(current.yformat), "%%.2g");
     current.flg_symmetric = metric == PlotMetric::kPosition ? 0 : 1;
     std::snprintf(current.title, sizeof(current.title), "%s J%d %s [%s]",
                   side == ArmSide::kLeft ? "Left" : "Right", joint + 1,
@@ -166,6 +168,37 @@ void MujocoJointPlot::update(const JointKinematicsHistory& history,
       appendPoint(current, 2, x, static_cast<float>(values.lower[index]));
       appendPoint(current, 3, x, static_cast<float>(values.upper[index]));
     }
+  }
+}
+
+void MujocoJointPlot::updateSimulation(const JointKinematicsHistory& history,
+                                      ArmSide side, PlotMetric metric,
+                                      double window_seconds) noexcept {
+  update(history, side, metric, window_seconds);
+  for (mjvFigure& current : figures_) {
+    current.linepnt[0] = 0;
+    current.linename[0][0] = '\0';
+    std::snprintf(current.linename[1], sizeof(current.linename[1]),
+                  "Simulation model");
+    if (current.linepnt[1] == 0) {
+      continue;
+    }
+    float low = current.linedata[1][1];
+    float high = low;
+    for (int point = 1; point < current.linepnt[1]; ++point) {
+      const float value = current.linedata[1][2 * point + 1];
+      low = std::min(low, value);
+      high = std::max(high, value);
+    }
+    // Scale the displayed samples, not the full robot limits. A minimum
+    // span avoids magnifying numerical noise while keeping small motion clear.
+    const float span = std::max(0.1F, 1.25F * (high - low));
+    const float center = 0.5F * (low + high);
+    current.range[1][0] = center - 0.5F * span;
+    current.range[1][1] = center + 0.5F * span;
+    current.flg_extend = 0;
+    current.flg_symmetric = 0;
+    std::snprintf(current.yformat, sizeof(current.yformat), "%%.3g");
   }
 }
 

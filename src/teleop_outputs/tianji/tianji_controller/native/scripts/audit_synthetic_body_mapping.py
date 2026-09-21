@@ -9,6 +9,7 @@ import zlib
 import numpy as np
 
 from audit_shared_root_trace import audit, digest
+from tianji_runtime import controller_profile, native_executable
 
 
 def transform_points(points, height_ratio, shoulder_ratio=1., upper_ratio=1.,
@@ -82,10 +83,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--trace', type=Path, required=True)
     parser.add_argument('--calibration-dir', type=Path, required=True)
-    parser.add_argument('--profile', type=Path, required=True)
-    parser.add_argument('--auditor', type=Path, required=True)
+    parser.add_argument('--profile', type=Path)
+    parser.add_argument('--auditor', type=Path)
     parser.add_argument('--output-dir', type=Path, required=True)
     args = parser.parse_args()
+    if args.profile is None:
+        args.profile = controller_profile('qp_ik_pico_shared_root.yaml')
+    if args.auditor is None:
+        args.auditor = native_executable('tianji_shared_root_trace_audit')
     source = audit(args.trace, args.calibration_dir)
     if not source['geometry_consistent']:
         raise ValueError('source geometry validation failed')

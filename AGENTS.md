@@ -1,10 +1,22 @@
 # 三条输入路线
 
-工作目录：`~/syz/tianji_teleop`。PICO 手柄 + Manus、PICO 手柄 + 外骨骼两条组合路线共用 `bash bash/run_teleop.sh`；PICO 裸手由 `bash bash/run_pico2_sim.sh` 独立运行，仅支持仿真。输入侧物理目录只保留 `src/teleop_inputs/` 下的 `pico_controller`、`manus`、`exoskeleton`、`pico_hand` 四个主输入包（ROS 包名仍为 `pico_bridge`、`manus_bridge`、`exoskeleton_bridge`、`pico2_hands`）；正式 schema-v1 采集器独立于输入目录。
+工作目录：`~/syz/tianji_teleop-ros2`。PICO 手柄 + Manus、PICO 手柄 + 外骨骼两条组合路线共用 `bash bash/run_teleop.sh`；PICO 裸手由 `bash bash/run_pico_hand_sim.sh --height-m HEIGHT` 独立运行，仅支持仿真。输入侧物理目录只保留 `src/teleop_inputs/` 下的 `pico_controller`、`manus`、`exoskeleton`、`pico_hand` 四个主输入包（ROS 包名仍为 `pico_bridge`、`manus_bridge`、`exoskeleton_bridge`、`pico2_hands`）；正式 schema-v1 采集器独立于输入目录。
 
 环境由 Pixi 管理，统一为 ROS 2 Jazzy + Fast DDS：`RMW_IMPLEMENTATION=rmw_fastrtps_cpp`、`ROS_DOMAIN_ID=120`、`ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST`（只支持同机采集与共享单调时钟）。大多数 `bash/` 入口会自行进入 Pixi 环境并 `source bash/environment.sh`，确认 `ROS_DISTRO=jazzy`、Python 3.12，并清掉旧 shell 可能残留的 Humble／旧 `tracking/install` overlay；`bash bash/build.sh` 与 `bash bash/test_native.sh` 例外，它们要求调用者已经在 Pixi 环境内（推荐用 `pixi run build`／`pixi run test-native`）。不要手动 source 旧环境。
 
 配置只有一个来源：`config/robot.json` 保存设备身份、端口、安全边界、控制器 profile 名与模型路径；`config/collect_real.json` 保存相机角色、序列号和 `state_rate_hz`（整数 `0` 表示该角色禁用）。相机序列号不另存第二份。
+
+## 本分支唯一遥操作算法基线
+
+用户已指定：本分支后续遥操作实现只采用 main 中已确认的 **共享根掌心映射 + Franka DLS IK + Ruckig** 双臂链路，不再新增、切换或推广其他双臂后端。
+
+- 双臂后端固定为 `franka-dls`，算法标识为 `pico_ee_franka_dls`；配置通过 `controller_profile("qp_ik_pico_shared_root_dls.yaml")` 定位，源码位于 `src/teleop_outputs/tianji/tianji_controller/native/config/`。Ruckig 负责双臂参考轨迹的速度、加速度和 jerk 约束。
+- PICO 手柄侧负责人员标定、TCP／骨架校正与坐标变换，不是机器人 IK 求解器。
+- Manus 双手使用 **手部骨架 → 21 点适配 → Wuji Hand2 重定向 → 双手关节目标**，不套用双臂 DLS／Ruckig。其他输入路线保留自身输入适配与手部重定向，后续双臂实现仍统一到上述 DLS／Ruckig 主线。
+- 标准仿真使用 `direct`／model-reference：直接显示关节目标，不做动力学积分，不发送真机指令。真机执行仍须独立的现场授权与验收。
+- `--real`／`--data` 已统一到该 DLS／Ruckig 主线，`--ik-backend` 只接受 `franka-dls`；旧 real 的 SPARK／mapped-palm 选项和专属 C 标定／断流宽限选项已移除。原生子进程仅通过执行器传入的 `--franka-dls-executor` 启用受限回环 TJRC 输出；它不授予使能或运动权限，仍须经过 Python 的反馈、限位、失鲜和分阶段 Enter 授权门控。仅修改 profile 不能把普通仿真变成真机出口。
+- 不得为迁移、仿真、headless 或输入接入改用 SPARK、Ceres LM、mapped-palm 或 V131 双臂后端；所需功能应在上述主线上实现并验证，不增加第二套算法实现。
+- 后文列出的其他后端和默认值仅描述尚存的历史功能，不是后续实现选项。此约束不表示存量入口已全部完成切换，也不授权擅自删除保留的离线审计、benchmark 或历史对照工具；如需统一存量入口，应按此基线明确迁移并完成行为验收。
 
 ## 安装、构建与环境检查
 
@@ -82,6 +94,8 @@ bash bash/run_teleop.sh --sim
 
 `--sim`／`--real`／`--data` 只能选一个，其余参数原样传给执行器。`--data` 在真机执行的同时按需管理相机与采集节点，把原始 RGB、双臂 14 维和双手 40 维写入数据集；数据集目录由 `--dataset` 给出、任务标签由 `--task` 记录，相机或采集未就绪时不会连接设备。
 
+两种执行模式共用 `qp_ik_pico_shared_root_dls.yaml`，运行副本开启共享根并固定 `pico_ee_franka_dls`＋Ruckig；默认模型为冻结的 `marvin_m6_wuji2_shared_root_ceres.xml`，文件名中的 `ceres` 不代表使用 Ceres 算法。`controller_velocity_scale` 同时约束运行副本的 Ruckig 速度上限。禁止用旧后端或旧配置回退绕过启动拒绝。双臂仍从只读实测姿态初始化，采集服务永远不能获得运动授权。
+
 切真机前先停止仿真，并完成只读设备预检：
 
 ```bash
@@ -92,7 +106,11 @@ pixi run bash -c 'source bash/environment.sh; python -m tianji_controller.run_te
 
 **同一时刻只运行一套 PICO、一种手部输入和一个执行模式。**外骨骼与 Manus 不可同时向手部控制端发送，仿真与真机也不可同时占用相同输入端口。切换路径时先停止执行端，再停止旧手部输入，切换并检查后重新启动执行端。
 
-回 Home 只操作双臂：`bash bash/run_home.sh`（默认附加 `--confirm-real`，`--dry-run` 只做无硬件检查）。PICO2 裸手仿真为 `bash bash/run_pico2_sim.sh`，默认 V131；`--mapping-mode shared-root --height-m HEIGHT` 选择身高模板＋C 标定＋DLS/Ruckig。新模式先 C 后 S，H 只回双臂、手指保持，P／空格可取消 H 回程；两种模式均不驱动真机、也不在遥操作端口上发布。首次构建 PICO2 原生依赖用 `bash src/teleop_inputs/pico_hand/build_native.sh`；共享根 worker 另由 `pixi run build` 安装。
+回 Home 只操作双臂：`bash bash/run_home.sh`（默认附加 `--confirm-real`，`--dry-run` 只做无硬件检查）。PICO 裸手入口为 `bash bash/run_pico_hand_sim.sh --height-m HEIGHT`，只保留身高模板＋C 标定＋共享根 DLS/Ruckig，必须显式给出实际身高（米，1.0～2.4）；旧 V131、旧入口和 `--mapping-mode` 已删除，不保留别名或回退。先 C 后 S，H 只回双臂、手指保持，P／空格可取消 H 回程，Q 回 Home 后退出；不驱动真机，也不在遥操作端口上发布。`--self-test` 走实际 DLS/Hand2 的 C/S/H/S/Q 离线流程，仍须传身高。Hand2 原生依赖由 `bash src/teleop_inputs/pico_hand/build_native.sh` 构建，双臂 DLS worker 由 `pixi run build` 安装。Python/ROS 包和 `pico2_sim_session_v1` 录制 schema 不改名。
+
+裸手入口的主职责是给 SPD 仿真提供 ROS command，普通启动默认发布 `/spd/tianji_wuji2/v1/joint_command`（`tianji_spd_interfaces/msg/JointCommand`，54 维 rad，Fast DDS、domain 120、LOCALHOST、BEST_EFFORT/KEEP_LAST1/VOLATILE，最多 60 Hz）。原生 Viewer 只辅助观察同一份目标，`--headless` 不关闭发布。消息来自 `core.tick()` 控制目标，不从 Viewer／qpos 反取；ready 按有效目标、保持意图和源时间生成，不能沿用显示用固定 flags=7。C／源身份／epoch 变化建立新会话，SPD 仍需本地显式授权；P/H/Q 的受控制动／回程继续发布，最后一帧本地 publish 不代表 SPD 物理 Home 确认。`--self-test` 强制使用隔离域 121。消息包在本工作区按同一固定 schema 编译，不注入 SPD 的 Python overlay。此链不连接机器人、不接入 TJRC 真机输出，也不改 Manus／外骨骼＋PICO 手柄的真机路线。
+
+裸手普通启动在默认 `127.0.0.1:10002`／`localhost:10002` 上自动检查 ADB 设备与转发，缺失时以 `--no-rebind` 补建，匹配时复用；离线／未授权、多设备未选择或转发冲突在启动发布器／Viewer 前拒绝。多设备可用 `ANDROID_SERIAL` 指定。自测及自定义 host／port 不操作 ADB；转发不在退出时删除，不自动覆盖其他设备的映射。
 
 ## 相机与数据采集（ROS 节点）
 
@@ -102,6 +120,7 @@ pixi run bash -c 'source bash/environment.sh; python -m tianji_controller.run_te
 |---|---|
 | 启动相机驱动 | `bash bash/run_cameras.sh` |
 | 只读 RGB 预览（只订阅，不打开 pipeline） | `bash bash/preview_cameras.sh` |
+| top RGB 传到 PICO（只订阅，不录制） | `bash bash/run_pico_camera.sh`／`pixi run pico-camera` |
 | 设备枚举与目标模式预检 | `pixi run inspect-cameras` |
 | 独立采集节点（不连机器人、不开相机） | `bash bash/run_data_collector.sh` |
 | 对应的 Pixi 任务 | `pixi run cameras`／`pixi run preview`／`pixi run collect` |
@@ -109,6 +128,8 @@ pixi run bash -c 'source bash/environment.sh; python -m tianji_controller.run_te
 - 每个启用角色一个驱动节点，私有 RGB 话题统一为 `/cameras/<role>/color/image_raw`，同目录有 `camera_info` 与 metadata。
 - 采集节点只订阅相机图像和 `/tianji/feedback/*`、`/tianji/executor/state`；它不打开相机、不连接机器人。`--data` 管理本次创建的相机／collector，已运行节点只有精确配置、身份和 ready 一致才复用；退出只停止本次拥有的进程。
 - DDS 服务只能启停录制，永远不能获得使能或运动权限。
+
+PICO 视频串流运行在 default，只订阅唯一配置中的 top RGB，不打开相机 pipeline，不影响 Manus／外骨骼或真机执行。先运行官方相机节点；头显 PC 视频源地址为 127.0.0.1。视频脚本只管理 reverse 13579 与 forward 12345，复用匹配映射、冲突拒绝、退出只清理本次新建且仍匹配的映射，绝不修改裸手 10002。使用现有 PICO OPEN/CLOSE_CAMERA 控制协议及大端长度头 H.264、同源双眼 SBS，无录制；无相机、失鲜或背压不能用重复旧帧掩盖。物理相机与头显显示的现场验收独立于合成 ROS／编码／协议验证。
 
 ## 其余 Pixi 任务
 

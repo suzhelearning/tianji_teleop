@@ -23,11 +23,13 @@ import tempfile
 import time
 import unicodedata
 
+import yaml
+
 from tianji_runtime import controller_profile, native_executable, package_share, workspace
-from tianji_runtime.resources import ResourceNotFound
+from tianji_runtime.resources import ResourceNotFound, controller_resource
 from tianji_runtime.resources import config_path as workspace_config
 
-from tianji_description.home_config import load_home
+from tianji_description.home_config import load_controller_posture, load_home
 from .protocol import DEVICE_READY_FLAGS, decode_packet
 from .run_log import SessionLog
 from .safety import MotionGate, SafetyFault
@@ -152,34 +154,118 @@ def resolve(base, value):
     return path if path.is_absolute() else (base / path).resolve()
 
 
+def description_resource(base, value):
+    """Use installed description assets; preserve explicit custom resource paths."""
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("description resource must be a nonempty path")
+    value = value.strip()
+    path = Path(value).expanduser()
+    prefix = "src/teleop_outputs/tianji/tianji_description/"
+    if not path.is_absolute() and value.startswith(prefix):
+        path = package_share("tianji_description", value[len(prefix):])
+    else:
+        path = resolve(base, path)
+    if not path.is_file():
+        raise ValueError(f"description resource does not exist: {path}")
+    return path
+
+
+def executor_profile(config, base):
+    """Validate the DLS-only contract before devices open and rebase runtime resources.
+
+    Shared-root activation is the sole backend override. Invalid algorithms,
+    smoothing modes and physical/model control modes are rejected, not repaired.
+    The native loader remains responsible for full model/artifact compatibility.
+    """
+    original = resolve(base, config["controller_config"])
+    try:
+        data = yaml.safe_load(original.read_text())
+    except yaml.YAMLError as error:
+        raise ValueError(f"invalid controller configuration: {original}: {error}") from error
+    required = {
+        "controller": {"model_state_only": True},
+        "control": {"level": "velocity"},
+        "ik": {"algorithm": "pico_ee_franka_dls"},
+        "pico_ee_franka_dls": {"enabled": True},
+    }
+    if not isinstance(data, dict):
+        raise ValueError("controller configuration must be a YAML mapping")
+    for section, fields in required.items():
+        values = data.get(section)
+        if not isinstance(values, dict):
+            raise ValueError(f"franka-dls executor requires {section} settings")
+        for field, expected in fields.items():
+            actual = values.get(field)
+            if type(actual) is not type(expected) or actual != expected:
+                raise ValueError(f"franka-dls executor requires {section}.{field}={expected}")
+    shared = data.get("spark_shared_root")
+    if not isinstance(shared, dict) or type(shared.get("enabled")) is not bool:
+        raise ValueError("franka-dls executor requires shared-root settings")
+    smoothing = data["pico_ee_franka_dls"].get("post_smoothing")
+    if not isinstance(smoothing, dict) or smoothing.get("mode") != "ruckig":
+        raise ValueError("franka-dls executor requires post_smoothing.mode=ruckig")
+    for field in ("max_velocity_rad_s", "max_acceleration_rad_s2", "max_jerk_rad_s3"):
+        values = smoothing.get(field)
+        if (not isinstance(values, list) or len(values) != 7
+                or any(type(value) not in (int, float) or not math.isfinite(value) or value <= 0
+                       for value in values)):
+            raise ValueError(f"post_smoothing.{field} must contain seven positive finite limits")
+    tolerance = smoothing.get("validation_tolerance", 1e-8)
+    if type(tolerance) not in (int, float) or not math.isfinite(tolerance) or tolerance <= 0:
+        raise ValueError("post_smoothing.validation_tolerance must be positive and finite")
+    limits = data.get("joint_limits")
+    scale = limits.get("velocity_scale", 1.0) if isinstance(limits, dict) else None
+    if type(scale) not in (int, float) or not math.isfinite(scale) or not 0 < scale <= 1:
+        raise ValueError("joint_limits.velocity_scale must be in (0, 1]")
+    references = [
+        (data["controller"], "pico_ee_dls_kinematics_urdf_path"),
+        (shared, "input_contract_artifact"),
+        (shared, "robot_geometry_artifact"),
+    ]
+    if "home_config" in data["controller"]:
+        references.append((data["controller"], "home_config"))
+    for section, field in references:
+        value = section.get(field)
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"franka-dls executor requires a nonempty {field}")
+        resource = controller_resource(original, value)
+        if not resource.is_file():
+            raise ValueError(f"controller resource {field} does not exist: {resource}")
+        section[field] = str(resource)
+    # Reuse the shared Home/seed contract rather than inventing a second parser.
+    load_controller_posture(original)
+    shared["enabled"] = True
+    return data
+
+
 def load_configuration(path, device_selection=None):
     """Load and fully validate the executor configuration.
 
-    Paths inside the file are resolved against the workspace root, not against
-    the config file's own directory: `config/robot.json` addresses resources by
-    their workspace-relative location so that moving the file cannot silently
-    retarget the controller model or the Home vector.
+    Built-in description assets and controller profiles use the installed
+    resource authority. Explicit custom paths remain workspace-relative (never
+    current-working-directory-relative), or absolute when supplied as such.
     """
     base = workspace()
     config = json.loads(path.read_text())
     devices = tuple(config["active_devices"]) if device_selection is None else DEVICE_SELECTIONS[device_selection]
-    # A controller profile is named by basename and resolved to its installed
-    # location; an explicit absolute path is honoured unchanged so an operator
-    # can point at a one-off profile. Resolving here (not at spawn time) makes
-    # the value that reaches the native controller and the run log identical.
+    # Bare names select installed profiles; explicit paths are never replaced
+    # by the default profile, even when their contents are invalid.
     profile = config.get("controller_config")
     if not isinstance(profile, str) or not profile.strip():
         raise ValueError("controller_config must be a nonempty profile name or path")
     profile = profile.strip()
+    profile_path = Path(profile).expanduser()
     config["controller_config"] = str(
-        Path(profile).expanduser() if Path(profile).is_absolute() else controller_profile(profile)
-    )
+        resolve(base, profile_path) if profile_path.is_absolute() or "/" in profile
+        else controller_profile(profile))
+    config["controller_model"] = str(description_resource(base, config["controller_model"]))
+    executor_profile(config, base)
     staged = config.get("staged_motion")
     if isinstance(staged, dict) and "home_config" in staged:
         home_path = staged.pop("home_config")
         if not isinstance(home_path, str) or not home_path.strip():
             raise ValueError("staged_motion.home_config must be a nonempty path")
-        left, right = load_home(resolve(base, home_path))
+        left, right = load_home(description_resource(base, home_path))
         staged["home_left_rad"] = list(left)
         staged["home_right_rad"] = list(right)
     # Validate all output bounds and HOME before loading SDKs.
@@ -256,22 +342,22 @@ def fresh_feedback(hardware, timeout_s, feedback_timeout_s):
 
 
 def controller_configuration(config, base, feedback, destination):
-    import yaml
-    original = resolve(base, config["controller_config"])
-    data = yaml.safe_load(original.read_text())
+    data = executor_profile(config, base)
     data["controller"]["rate_hz"] = config["safety"]["rate_hz"]
-    data["controller"]["model_state_only"] = True
-    # Preserve the existing IK/control algorithm; constrain its real-mode speed.
+    # Constrain the validated DLS/Ruckig profile without changing its algorithm.
     data["joint_limits"]["velocity_scale"] = min(
         data["joint_limits"].get("velocity_scale", 1.0), config["controller_velocity_scale"])
+    # DLS exports this Ruckig reference, not the generic joint-limit integrator.
+    # Apply the real-mode speed cap to the limiter that actually drives TJRC.
+    smoothing = data["pico_ee_franka_dls"]["post_smoothing"]
+    smoothing["max_velocity_rad_s"] = [
+        value * data["joint_limits"]["velocity_scale"]
+        for value in smoothing["max_velocity_rad_s"]]
     if "arms" in feedback:
         positions = feedback["arms"].position_rad
         data["controller"]["initial_posture_enabled"] = True
         data["controller"]["initial_left_q_rad"] = list(positions[:7])
         data["controller"]["initial_right_q_rad"] = list(positions[7:])
-    elif "home_config" in data["controller"]:
-        # The runtime YAML is written in a different directory.
-        data["controller"]["home_config"] = str(resolve(original.parent, data["controller"]["home_config"]))
     destination.write_text(yaml.safe_dump(data, sort_keys=False))
     return destination
 
@@ -313,13 +399,7 @@ def error_reason(error):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, default=workspace_config("robot.json"))
-    parser.add_argument("--ik-backend", choices=("spark", "mapped-palm"), default="spark")
-    parser.add_argument('--mapped-palm-resync-policy',choices=('stop','bounded'),default='stop',
-                        help='bounded: experimental private-event limited hold; default stop')
-    parser.add_argument('--mapped-palm-dropout-policy',choices=('stop','hold-300ms'),default='hold-300ms',
-                        help='mapped-palm arms: hold last commands up to 300 ms from last valid PICO input; default hold-300ms')
-    parser.add_argument('--mapped-palm-xz-calibration',action='store_true',
-                        help='mapped-palm real only: terminal C before first Enter; no motor authority from C')
+    parser.add_argument("--ik-backend", choices=("franka-dls",), default="franka-dls")
     parser.add_argument("--devices", choices=tuple(DEVICE_SELECTIONS),
                         help="default from config; hands=left+right, all=arms+left+right")
     mode = parser.add_mutually_exclusive_group()
@@ -345,7 +425,7 @@ def main(argv=None):
     base = workspace()
     try:
         config, devices = load_configuration(configuration_path, args.devices)
-    except (OSError, KeyError, TypeError, ValueError, SafetyFault) as error:
+    except (OSError, KeyError, TypeError, ValueError, SafetyFault, ResourceNotFound, yaml.YAMLError) as error:
         parser.error(str(error))
     if args.dataset is not None and (not args.confirm_real or set(devices) != {"arms", "left_hand", "right_hand"}):
         parser.error("dataset collection requires --confirm-real and all arms/hands")
@@ -353,28 +433,6 @@ def main(argv=None):
         parser.error("dataset collection requires --task")
     if args.task is not None and args.dataset is None:
         parser.error("--task requires --dataset")
-    bounded = args.mapped_palm_resync_policy=='bounded'
-    real_calibration=args.mapped_palm_xz_calibration
-    dropout=(args.mapped_palm_dropout_policy=='hold-300ms' and
-             args.ik_backend=='mapped-palm' and 'arms' in devices and not args.inspect)
-    if bounded and (args.ik_backend!='mapped-palm' or 'arms' not in devices or args.inspect):
-        parser.error('bounded requires mapped-palm arms, not inspect')
-    if real_calibration and (args.ik_backend!='mapped-palm' or 'arms' not in devices or not args.confirm_real):
-        parser.error('real C calibration requires mapped-palm arms and --confirm-real')
-    event_channel=bounded or real_calibration or dropout
-    config=dict(config,mapped_palm_resync_policy=args.mapped_palm_resync_policy,
-                mapped_palm_xz_calibration=real_calibration,
-                mapped_palm_dropout_policy='hold-300ms' if dropout else 'stop')
-    if args.ik_backend == "mapped-palm":
-        # Only controller assets change; driver settings, measured startup,
-        # physical limits and operator confirmations remain the original path.
-        # Deployment config and assets are description resources; they are
-        # addressed through the shared resolver so an installed layout works.
-        bundle = package_share("tianji_description", "mapped_palm", "assets", "mapped_palm")
-        config = dict(config,
-                      controller_config=str(package_share(
-                          "tianji_description", "config", "deployment.yaml")),
-                      controller_model=str(bundle / "marvin_m6_wuji2.xml"))
     run_mode = "inspect" if args.inspect else ("real" if args.confirm_real else "dry-run")
     try:
         session_log = SessionLog.from_environment(
@@ -418,17 +476,12 @@ def main(argv=None):
             # The native controller is addressed through the single resource
             # authority, so a missing build fails here with an explicit hint.
             try:
-                viewer = native_executable(
-                    "mapped_palm_tjrc_controller" if args.ik_backend == "mapped-palm"
-                    else "tianji_qp_ik_viewer")
+                viewer = native_executable("tianji_qp_ik_viewer")
             except ResourceNotFound as error:
                 raise RuntimeError(
                     f"build the current arm controller before starting the real executor: {error}"
                 ) from error
             receiver = CommandReceiver(config["command_port"])
-            if event_channel:
-                from .mapped_events import EventReceiver
-                receiver=EventReceiver(receiver,bounded=bounded,calibration=real_calibration,dropout=dropout)
         # Rendering failures also precede sensor workers and device sessions.
         if staged:
             # Fail before connecting devices if the required monitor cannot open.
@@ -480,30 +533,15 @@ def main(argv=None):
         gate = (StagedMotionGate(config["safety"], devices, config["staged_motion"])
                 if staged else MotionGate(config["safety"], devices))
         observer.update_state(log_phase(gate, "WAITING"))
-        if bounded and staged:
-            gate.bounded_resync=True
-        if dropout and staged:
-            gate.dropout_hold=True
-        calibration_guard=None
-        if real_calibration:
-            from .mapped_calibration import CalibrationGuard
-            calibration_guard=CalibrationGuard(receiver)
-            gate.calibration_guard=calibration_guard
-        if collection is not None or real_calibration:
+        if collection is not None:
             from tianji_runtime import OperatorKeyboard
-            key_handler = observer.command if collection is not None else lambda key: None
-            keyboard = (OperatorKeyboard(key_handler, on_calibrate=lambda: calibration_guard.calibrate(gate))
-                        if real_calibration else OperatorKeyboard(key_handler))
+            keyboard = OperatorKeyboard(observer.command)
             enter_pressed = keyboard.poll_enter
-            if collection is not None:
-                print("TELEOP recording keys (no Enter needed): r=start, s=save success, d=discard current. "
-                      "Recording keys do not change robot mode.", flush=True)
-            if real_calibration:
-                print('MAPPED REAL: focus terminal; C calibrates X/Z while disabled; then Enter aligns, second Enter starts teleop. C never enables motors.',flush=True)
+            print("TELEOP recording keys (no Enter needed): r=start, s=save success, d=discard current. "
+                  "Recording keys do not change robot mode.", flush=True)
         enabled_devices = set()
         confirmation_prompted = False
         next_visual = 0.0
-        dropout_was_holding=False
 
         def check_monitor():
             if real_viewer is not None and not real_viewer.is_running():
@@ -528,11 +566,7 @@ def main(argv=None):
                 and -5_000_000 <= now_ns - packet.timestamp_ns
                 <= config["safety"]["command_timeout_s"] * 1e9
             })
-            phase=gate.phase
-            if calibration_guard is not None and not gate.armed:
-                cal_state=getattr(packet,'calibration_state',0)
-                phase={0:'C REQUIRED',1:'C SAMPLING',2:'C OK - ENTER TO ALIGN',3:'C LOCKED',4:'C FAILED - RETRY'}.get(cal_state,'C REQUIRED')
-            real_viewer.publish(actual, target, phase)
+            real_viewer.publish(actual, target, gate.phase)
             next_visual = now_ns / 1e9 + 1.0 / 30.0
 
         if staged:
@@ -564,25 +598,21 @@ def main(argv=None):
                     controller_config, source=str(resolve(base, config["controller_config"])))
             pico_port = config["pico_port"]
             if "arms" not in devices:
-                # SPARK keeps its original PICO-enabled control contract, but a
-                # hand-only executor neither consumes the user's arm port nor
-                # authorizes any arm output.
+                # The native shared-root executor requires a PICO input, but a
+                # hand-only session must not consume the operator's arm port
+                # or authorize any arm output.
                 with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as reserved:
                     reserved.bind(("127.0.0.1", 0))
                     pico_port = reserved.getsockname()[1]
-            command = [str(viewer),
+            command = [str(viewer), "--franka-dls-executor",
                        "--config", str(controller_config), "--model", str(resolve(base, config["controller_model"])),
-                       "--headless", "--continuous", "--hand-teleop", "--hand-port", str(config["hand_port"]),
+                       "--headless", "--continuous", "--hand-teleop", "--hand-bind", "127.0.0.1",
+                       "--hand-port", str(config["hand_port"]), "--pico-bind", "127.0.0.1",
                        "--pico-port", str(pico_port), "--joint-command-host", "127.0.0.1",
                        "--joint-command-port", str(receiver.port)]
             command.append("--pico-teleop")
-            process_options={}
-            if event_channel:
-                command.extend(receiver.arguments())
-                process_options['pass_fds']=(receiver.writer.fileno(),)
             controller = subprocess.Popen(command, cwd=str(workspace()), start_new_session=True,
-                                          stdin=subprocess.DEVNULL, **process_options)
-            if event_channel: receiver.writer.close()
+                                          stdin=subprocess.DEVNULL)
             started = time.monotonic()
             next_report = started
             last_reason = "waiting for controller packets"
@@ -630,16 +660,6 @@ def main(argv=None):
                     now = time.monotonic()
                     update_monitor(packet, measured)
                     now_ns = time.monotonic_ns()
-                    calibration_enter=False
-                    if calibration_guard is not None:
-                        # Poll even before readiness, so C is usable while
-                        # calibration deliberately revokes arm readiness.
-                        calibration_enter=enter_pressed()
-                        confirmation_prompted=True
-                        if calibration_guard.lock_pending and calibration_enter:
-                            raise SafetyFault('operator interrupted calibration lock/enable')
-                        if calibration_guard.lock_pending:
-                            calibration_guard.lock_acknowledged(packet,now_ns)
                     if session_log is not None:
                         session_log.sample(packet, measured, log_phase(gate, "WAITING"), now_ns)
                     try:
@@ -662,14 +682,7 @@ def main(argv=None):
                               f"Press ENTER to enable {', '.join(devices)}; press ENTER again to stop and disable:",
                               flush=True)
                         confirmation_prompted = True
-                    if calibration_guard is not None:
-                        if calibration_enter:
-                            calibration_guard.request_lock(packet,now_ns)
-                            continue
-                        enter_authorized=calibration_guard.lock_acknowledged(packet,now_ns)
-                    else:
-                        enter_authorized=enter_pressed()
-                    if not enter_authorized:
+                    if not enter_pressed():
                         remaining = cycle_deadline - time.monotonic()
                         if remaining > 0:
                             time.sleep(remaining)
@@ -724,17 +737,7 @@ def main(argv=None):
                     outputs = gate.step(packet, measured, now_ns)
                     observer.update_state(log_phase(gate, "TELEOP"))
                     if staged:
-                        message=_STAGED_STATUS[gate.phase]
-                        if bounded and gate._resync_since is not None:
-                            message+=' | 同 epoch 重同步待确认：保持最后命令（上限 100 ms）'
-                        holding=dropout and gate._dropout_since is not None
-                        if holding:
-                            message='PICO 短暂掉线：保持最后命令（距最后有效输入最多 300 ms） | '+message
-                        elif dropout_was_holding:
-                            status.update('PICO 已恢复：从保持命令限速继续')
-                            status.finish()
-                        dropout_was_holding=holding
-                        status.update(message)
+                        status.update(_STAGED_STATUS[gate.phase])
                         update_monitor(packet, measured)
                         if gate.phase == "HOME_REACHED":
                             final_reason = "staged sequence reached HOME_REACHED"

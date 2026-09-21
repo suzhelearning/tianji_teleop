@@ -1,24 +1,27 @@
 """Offline filtered mapping viewer. Static robot; no IK, mj_step, or sockets."""
+from contextlib import ExitStack
 from pathlib import Path
 import argparse
 import bisect
 import hashlib
 import subprocess
 import time
+import threading
 
 import mujoco
 import numpy as np
 import yaml
 
-CONTROL = Path(__file__).resolve().parents[1]
+from tianji_runtime import controller_profile, native_executable
+from tianji_runtime.resources import controller_resource
 
 
 def load(profile, trace):
     config = yaml.safe_load(profile.read_text())["spark_shared_root"]
-    artifact = (profile.parent / config["robot_geometry_artifact"]).resolve()
+    artifact = controller_resource(profile, config["robot_geometry_artifact"])
     geometry = yaml.safe_load(artifact.read_text())["robot_geometry"]
-    model = (artifact.parent / geometry["mujoco_xml_path"]).resolve()
-    result = subprocess.run([str(CONTROL / "build/tianji_shared_root_trace_audit"),
+    model = controller_resource(artifact, geometry["mujoco_xml_path"])
+    result = subprocess.run([str(native_executable("tianji_shared_root_trace_audit")),
                              str(profile), str(trace), "--mapping-frames"],
                             capture_output=True, text=True, timeout=60, check=True)
     if "ik_executed=false" not in result.stdout:
@@ -47,9 +50,11 @@ def load(profile, trace):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("trace", type=Path)
-    parser.add_argument("--profile", type=Path, default=CONTROL / "config/qp_ik_pico_shared_root.yaml")
+    parser.add_argument("--profile", type=Path)
     parser.add_argument("--check", action="store_true", help="validate without a window")
     args = parser.parse_args()
+    if args.profile is None:
+        args.profile = controller_profile("qp_ik_pico_shared_root.yaml")
     model_path, frames = load(args.profile.resolve(), args.trace.resolve())
     print(f"Mapping replay: {len(frames)} frames; FILTERED targets, no guidance blend/IK/physics.", flush=True)
     if args.check:
@@ -74,7 +79,12 @@ def main():
             state["quit"] = True
 
     print("Orange=left shape; green=right shape; white sphere + RGB axes=palm target; magenta=shape-to-palm gap. P pause; R replay; Q exit. End holds last frame.", flush=True)
-    with mujoco.viewer.launch_passive(model, data, key_callback=key) as viewer:
+    viewer_threads_before = set(threading.enumerate())
+    # MuJoCo closes its passive viewer asynchronously. Join the threads created
+    # by this launch before Python tears down the model and rendering libraries.
+    with ExitStack() as cleanup, mujoco.viewer.launch_passive(model, data, key_callback=key) as viewer:
+        for thread in set(threading.enumerate()) - viewer_threads_before:
+            cleanup.callback(thread.join)
         viewer.cam.lookat[:] = [.35, 0, 1.12]
         viewer.cam.distance = 2.2
         viewer.cam.azimuth = 135

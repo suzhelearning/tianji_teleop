@@ -561,5 +561,345 @@
       ]
     },
     "hardware_access": false
+  },
+  "offline_tools_cutover": {
+    "date": "2026-09-21",
+    "hardware_access": false,
+    "working_directory": "/tmp/tianji-offline-az02bc5a",
+    "binary_or_viewer_overrides": false,
+    "installed_resources": true,
+    "build": {"default_packages": 16, "control_native": "passed"},
+    "recording": {
+      "duration_requested_s": 50,
+      "frames": 5000,
+      "last_receive_relative_ns": 49991455955,
+      "complete": true,
+      "source_kind": "synthetic",
+      "motion_authorized": false,
+      "actions_confirmed": false,
+      "trace_sha256": "cc33fd488ba9af903e4e046bfd91931a12366c4f6f01d7414c727c4c9e57132c"
+    },
+    "audit": {
+      "recorded_frames_valid": 5000,
+      "synthetic_layer_side_samples": 1998,
+      "calibration_consistent_synthetic_frames": 500,
+      "body_mapping_perturbations": "completed",
+      "contract_validation": "passed"
+    },
+    "three_way": {
+      "replayed_frames_per_algorithm": 5000,
+      "algorithms": ["spark", "ceres", "dls"],
+      "report_window_s": [5, 47],
+      "common_unique_sources": 4200
+    },
+    "comparison": {
+      "replayed_frames_per_viewer": 5000,
+      "complete": true,
+      "max_fanout_send_span_us": 687.736,
+      "screenshot": "comparison-capture.png"
+    },
+    "mapping_viewer": {
+      "rendered_final_sequence": 500,
+      "screenshot": "mapping.png",
+      "quit_exit_code_after_thread_join_fix": 0
+    },
+    "cartesian_frf": {"smoke_cases_passed": 2, "analysis_completed": true},
+    "pico_trace_benchmark": {
+      "algorithm": "spark_upper_qpoases_velocity_qp",
+      "completed": true,
+      "analysis_common_count": 500,
+      "analysis_clean_common_count": 469
+    },
+    "regression": {
+      "files": 12,
+      "passed": 151,
+      "skipped": 9,
+      "skip_reason": "historical personnel recordings unavailable"
+    },
+    "external_ceres_source_comparison": {
+      "full_run_verified": false,
+      "reason": "explicit external source-root with historical Ceres profile and sources unavailable; local default resources migrated and unit regression passed"
+    },
+    "scope": "synthetic offline default-resource acceptance only; no hardware, input-route end-to-end acceptance or algorithm ranking"
+  },
+  "three_route_simulation": {
+    "date": "2026-09-21",
+    "scope": "synthetic device-boundary input through production processing to actual simulation; physical input acceptance blocked",
+    "artifacts": "/tmp/tianji-routes-hjc5phk_",
+    "final_controller_route_dds_domain": 121,
+    "robot_or_camera_access": false,
+    "physical_input_capture": false,
+    "real_time_qualified": false,
+    "fixes": [
+      "PICO UDP bridge launch resolves executable from tianji_cmd_pub",
+      "installer builds Manus collector before installing default/policy overlays",
+      "PICO2 waits for passive-viewer thread teardown before resource release"
+    ],
+    "manus": {
+      "input_boundary": "synthetic HAND/NODE/POSE collector stdout, production parser/ROS/isolated Hand2 worker",
+      "consumer_accepted_packets": 5905,
+      "consumer_bad_packets": 0,
+      "left_output_joint_range_max_rad": 0.8053424002991028,
+      "right_output_joint_range_max_rad": 0.8022251136102884,
+      "arm_reference_range_max_rad": 0.66078258402,
+      "recording_directory": "recordings/shared_root/dls_interactive_vo0io9ia",
+      "home_reached": true,
+      "single_side_stale_and_old_replay_rejected": true,
+      "pico_stale_and_reconnect_require_start": true
+    },
+    "exoskeleton": {
+      "input_boundary": "loopback HTTP metadata and encoder-v1 TCP, production validation/zero/four-bar/FK/native MANO/official worker",
+      "physical_nic_discovery_exercised": false,
+      "direction_acceptance_flags_changed": false,
+      "consumer_accepted_packets": 755,
+      "consumer_bad_packets": 0,
+      "left_output_joint_range_max_rad": 0.7245336174964905,
+      "right_output_joint_range_max_rad": 0.7696793675422668,
+      "arm_reference_range_max_rad": 0.5454237599599999,
+      "recording_directory": "recordings/shared_root/dls_interactive_ujpowbhl",
+      "home_reached": true,
+      "single_side_failure_invalidates_only_that_side": true,
+      "failed_side_requires_restart": true,
+      "additional_clean_restart_accepted_packets": 629
+    },
+    "barehand_v131": {
+      "input_boundary": "synthetic raw TCP through production receiver and native arm/hand workers",
+      "fault_scenario_raw_frames": 7236,
+      "fault_scenario_commands": 23116,
+      "stale_hold_samples": 10016,
+      "old_replay_hold_samples": 59,
+      "invalid_side_hold_samples": 58,
+      "hold_max_motion_rad": 0.0,
+      "initial_viewer_exit_code": 1,
+      "post_fix_exit_code": 0,
+      "post_fix_raw_frames": 1315,
+      "post_fix_commands": 2397,
+      "post_fix_arm_home_error_rad": 0.0,
+      "recording_complete": true,
+      "reconnect_returns_home_and_requires_start": true
+    },
+    "barehand_shared_root": {
+      "input_boundary": "synthetic raw TCP through production receiver and native DLS/Ruckig and Hand2 workers",
+      "raw_frames": 3846,
+      "commands": 12555,
+      "exit_code": 0,
+      "recording_complete": true,
+      "arm_home_error_rad": 1.1102230246251565e-16,
+      "home_finger_hold_samples": [25, 669],
+      "home_finger_max_motion_rad": 0.0,
+      "start_before_calibration_rejected": true,
+      "short_dropout_guarded_soft_resume": true,
+      "long_dropout_requires_start": true,
+      "tcp_reconnect_requires_recalibration": true,
+      "pause_cancels_home": true
+    },
+    "regression": {
+      "pico2_passed": 86,
+      "actual_ros_launch_udp_test_passed": 1,
+      "manus_default_check": "passed without hardware",
+      "exoskeleton_default_check_config": "passed without hardware",
+      "installer_bash_syntax": "passed"
+    },
+    "cleanup": {
+      "owned_route_processes_stopped": true,
+      "udp_rebind_verified": [15000, 16000, 16001],
+      "tcp_rebind_verified": [10002, 19999],
+      "unrelated_legacy_pico_pid_untouched": 1467197
+    },
+    "physical_input_blockers": [
+      "USB enumeration contains Manus 3325:0049 dongle but no PICO headset; actual glove pairing/stream not tested",
+      "No network interface matches exoskeleton MAC 02:33:80:00:00:01",
+      "Workspace personnel profiles directory absent; actual wearer and calibration identity not supplied",
+      "Operator must resolve unrelated legacy PICO process before physical input acceptance"
+    ],
+    "physical_routes_verified": {
+      "pico_manus": false,
+      "pico_exoskeleton": false,
+      "pico_barehand": false
+    }
+  },
+  "live_input_cutover_zjx": {
+    "date": "2026-09-21",
+    "wearer_confirmed_by_user": "zjx",
+    "pico_initial_adb": {
+      "serial": "PA9210MGK9250095G",
+      "model": "A9210",
+      "state": "device",
+      "existing_forwarded_tcp_ports": [9999, 10002]
+    },
+    "profile_migration": {
+      "active_revision": "cal-cea5ec573c7d42dda2edcddfb0cc3d4b",
+      "destination": "profiles/zjx/pico-simple",
+      "calibration_files_byte_identical": 7,
+      "active_index_copied": true,
+      "originals_unchanged": true,
+      "height_m": 1.75,
+      "hardware_acceptance_complete": false
+    },
+    "legacy_input_session": {
+      "name": "pico_tianji_teleop",
+      "checkout": "/home/current/syz/tianji_teleop/tracking",
+      "stop_explicitly_authorized": true,
+      "ownership_guarded_stop_completed": true
+    },
+    "manus": {
+      "calibration_user": "zjx",
+      "offline_runtime_check_passed": true,
+      "physical_sdk_started": true,
+      "dongle_detected": true,
+      "glove_pose_stream_verified": false,
+      "observation_seconds": 5,
+      "tjh2_packets_observed": 0
+    },
+    "pico_final_adb_state": "no devices in both ordinary shell and Pixi environment",
+    "failure_stage": "PICO ADB preflight after session cutover",
+    "simulation_started": false,
+    "physical_route_acceptance_completed": false,
+    "robot_or_camera_access": false,
+    "owned_live_processes_stopped": true,
+    "sanitized_evidence_directory": "/tmp/tianji-live-zjx-uzicb6r_",
+    "next_prerequisites": [
+      "Restore PICO ADB device state and run the appropriate acquisition application",
+      "Power and pair Manus gloves and obtain a valid skeleton stream"
+    ]
+  },
+  "dls_real_data_cutover": {
+    "date": "2026-09-21",
+    "modes": ["real", "data"],
+    "only_backend": "franka-dls",
+    "algorithm": "pico_ee_franka_dls",
+    "controller_profile": "qp_ik_pico_shared_root_dls.yaml",
+    "post_smoothing_mode": "ruckig",
+    "model": "marvin_m6_wuji2_shared_root_ceres.xml",
+    "native_executor_flag": "--franka-dls-executor",
+    "motion_authority": "external Python safety gate and operator confirmation",
+    "hardware_access": false,
+    "camera_access": false,
+    "physical_acceptance_completed": false,
+    "artifacts": "/tmp/tianji-dls-executor-u3jwe54d",
+    "build": {
+      "native_core_and_mapped_palm_installed": true,
+      "default_ros_packages": 16,
+      "ceres_reconfigure_cache_failure_fixed": true
+    },
+    "regression": {
+      "native_core_passed": 106,
+      "mapped_palm_model_passed": 1,
+      "executor_simulation_collection_passed": 343,
+      "executor_simulation_collection_skipped": 1,
+      "skip_reason": "explicit external mapped-palm source checkout unavailable",
+      "real_dds_collection_passed": 29,
+      "pico2_passed": 86,
+      "mocap_config_caller_passed": 37,
+      "mocap_config_caller_skipped": 4,
+      "mocap_skip_reason": "policy cases require torch absent from default environment"
+    },
+    "installed_executor_smoke": {
+      "scope": "actual native DLS/Ruckig and Python executor dry-run; loopback synthetic inputs; no SDK",
+      "initial_flags": 0,
+      "all_sources_live_flags": 7,
+      "pico_stale_flags": 6,
+      "same_epoch_restored_flags": 7,
+      "right_hand_stale_flags": 5,
+      "right_hand_restored_flags": 7,
+      "epoch_change_latched_flags": 6,
+      "standard_scale": 1.0,
+      "standard_max_reference_speed_rad_s": 4.0000000000000036,
+      "reduced_scale": 0.05,
+      "reduced_max_reference_speed_rad_s": 0.20000000000002238,
+      "reduced_speed_bound_rad_s": 0.2,
+      "hands_only_live_flags": 6,
+      "hands_only_right_stale_flags": 4,
+      "hands_only_arms_ever_ready": false,
+      "hardware_factory_calls": 0,
+      "motor_send_samples": 0
+    },
+    "guarded_boundaries": [
+      "Real/data executor permits only explicit DLS/Ruckig headless continuous loopback export",
+      "Shared-root export without the new flag, or with Ceres/SPARK, remains forbidden; historical non-shared-root offline paths are unchanged",
+      "Static invalid backend/profile/resources rejected before camera or SDK setup",
+      "Measured startup posture, feedback and physical bounds remain enforced",
+      "Staged operator alignment/teleop/Home authorization remains enforced",
+      "Collection preparation precedes device connection; recording cannot enable motion",
+      "Source epoch/reset inhibits arm readiness until a new authorized executor session"
+    ]
+  },
+  "pico_hand_dls_only_cutover": {
+    "date": "2026-09-21",
+    "launcher": "bash/run_pico_hand_sim.sh",
+    "old_launcher_removed": true,
+    "compatibility_alias": false,
+    "legacy_v131_sources_models_build_targets_removed": true,
+    "owned_legacy_build_removed": true,
+    "legacy_bytecode_files_removed": 13,
+    "mapping_mode_argument_removed": true,
+    "height_m_required": true,
+    "height_range_m": [1.0, 2.4],
+    "algorithm": "pico_ee_franka_dls",
+    "controller_profile": "qp_ik_pico_shared_root_dls.yaml",
+    "post_smoothing_mode": "ruckig",
+    "hand_retargeting": "existing native Hand2 unchanged",
+    "python_ros_package": "pico2_hands",
+    "recording_schema": "pico2_sim_session_v1",
+    "hardware_access": false,
+    "real_time_qualified": false,
+    "calibration_and_historical_recordings_preserved": true,
+    "build": {
+      "default_ros_packages": 16,
+      "hand_scheduler_passed": 1,
+      "hand_optimizer_fixture_passed": true,
+      "hand_reference_comparison_frames": 16,
+      "hand_reference_max_joint_error_rad": 0.0
+    },
+    "python_regression_passed": 63,
+    "python_regression_skipped": 0,
+    "self_test": {
+      "commands": 1575,
+      "raw_frames": 1575,
+      "height_m": 1.75,
+      "pre_calibration_start_rejected": true,
+      "sequence": ["C", "S", "H", "S", "Q"],
+      "recording_complete": true,
+      "exit_code": 0,
+      "home_max_error_rad": 3.3306690738754696e-16,
+      "home_finger_hold_samples": 507,
+      "home_finger_max_motion_rad": 0.0
+    },
+    "tcp_gui": {
+      "commands": 16851,
+      "raw_frames": 12927,
+      "source_generations": [1, 2],
+      "recording_complete": true,
+      "exit_code": 0,
+      "home_max_error_rad": 2.220446049250313e-16,
+      "home_finger_hold_samples": [25, 669],
+      "home_finger_max_motion_rad": 0.0,
+      "short_dropout_guarded_resume": true,
+      "long_dropout_requires_start": true,
+      "pause_cancels_home": true,
+      "reconnect_requires_calibration": true,
+      "screenshot": "dls-only-window.png"
+    },
+    "fresh_wheel": {
+      "legacy_payload_absent": true,
+      "isolated_installation_used": true,
+      "self_test_commands": 1592,
+      "raw_frames": 1592,
+      "recording_complete": true,
+      "exit_code": 0,
+      "home_max_error_rad": 1.5829351718288365e-17
+    },
+    "observation_only": {
+      "tcp_frames": 97,
+      "both_arms_and_hands_valid": true,
+      "robot_commands_enabled": false,
+      "exit_code": 0
+    },
+    "retained_provenance_verified": {
+      "receiver_records": 5,
+      "native_vendor_records": 28,
+      "existing_hand_cmake_eigen_config_adaptation_recorded": true
+    },
+    "artifacts": "/tmp/tianji-pico-hand-dls-q5ea_ryx"
   }
 }

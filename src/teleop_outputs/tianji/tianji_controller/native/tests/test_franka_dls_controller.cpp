@@ -155,6 +155,9 @@ TEST_F(FrankaDlsController, StaleDoesNotChaseLastGoalAndRecovers) {
   for(int n=0;n<100;++n) {
     const auto d=controller.step(t,.005);
     EXPECT_FALSE(d.accepted); EXPECT_FALSE(d.left.accepted); EXPECT_FALSE(d.right.accepted);
+    EXPECT_EQ(d.hold_reason, HoldReason::kNone);
+    EXPECT_TRUE(d.left.dls_posture_ruckig_accepted);
+    EXPECT_TRUE(d.right.dls_posture_ruckig_accepted);
   }
   EXPECT_LT(controller.previousVelocity(ArmSide::kLeft).norm(),1e-6);
   t.left_stale=false;
@@ -194,7 +197,11 @@ TEST_F(FrankaDlsController, OneInvalidResetCannotPartiallyCommitOtherArm) {
   ASSERT_TRUE(controller.setReferenceState(ArmSide::kRight,motion));
   const auto l=controller.reference(ArmSide::kLeft),r=controller.reference(ArmSide::kRight);
   auto t=target();t.left.position.x()+=.02;
-  EXPECT_FALSE(controller.step(t,.005).accepted);
+  const auto failed=controller.step(t,.005);
+  EXPECT_FALSE(failed.accepted);
+  EXPECT_FALSE(failed.left.accepted);
+  EXPECT_FALSE(failed.right.accepted);
+  EXPECT_EQ(failed.hold_reason,HoldReason::kSolverFailure);
   EXPECT_EQ(controller.reference(ArmSide::kLeft),l);
   EXPECT_EQ(controller.reference(ArmSide::kRight),r);
 }

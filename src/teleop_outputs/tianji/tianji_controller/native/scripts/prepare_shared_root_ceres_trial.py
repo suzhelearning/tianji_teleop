@@ -17,7 +17,8 @@ from scipy.spatial.transform import Rotation
 import yaml
 import mujoco
 
-CONTROL = Path(__file__).resolve().parents[1]
+from tianji_runtime import controller_profile, native_executable
+from tianji_runtime.resources import controller_resource
 
 
 def mapping_rows(text):
@@ -112,21 +113,25 @@ def main():
     parser.add_argument('--source-root', type=Path, required=True)
     parser.add_argument('--trace', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
-    parser.add_argument('--profile', type=Path, default=CONTROL/'config/qp_ik_pico_shared_root_reachable.yaml')
+    parser.add_argument('--profile', type=Path)
     args = parser.parse_args()
+    if args.profile is None:
+        args.profile = controller_profile('qp_ik_pico_shared_root_reachable.yaml')
     source, trace, profile, output = [p.resolve() for p in (args.source_root,args.trace,args.profile,args.output)]
     source_profile=source/'config/qp_ik_pico_ee_franka_ceres_lm_ruckig_mujoco.yaml'
     base=yaml.safe_load(profile.read_text())
-    geometry_path=(profile.parent/base['spark_shared_root']['robot_geometry_artifact']).resolve()
+    geometry_path=controller_resource(profile,base['spark_shared_root']['robot_geometry_artifact'])
     geometry=yaml.safe_load(geometry_path.read_text())['robot_geometry']
-    model=(geometry_path.parent/geometry['mujoco_xml_path']).resolve()
+    model=controller_resource(geometry_path,geometry['mujoco_xml_path'])
     if sha(model)!=geometry['mujoco_xml_sha256']:
         raise ValueError('frozen model hash mismatch')
-    native=subprocess.run([str(CONTROL/'build/tianji_shared_root_trace_audit'),str(profile),str(trace),'--mapping-frames'],capture_output=True,text=True,check=True)
+    native=subprocess.run([str(native_executable('tianji_shared_root_trace_audit')),str(profile),str(trace),'--mapping-frames'],capture_output=True,text=True,check=True)
     if 'ik_executed=false' not in native.stdout or 'trace_sha256='+sha(trace) not in native.stdout:
         raise ValueError('missing native provenance')
     rows, excluded=mapping_rows(native.stdout)
     cfg=yaml.safe_load(source_profile.read_text())
+    if cfg['controller'].get('home_config'):
+        cfg['controller']['home_config']=str(controller_resource(source_profile,cfg['controller']['home_config']))
     if cfg['ik']['algorithm']!='pico_ee_franka_ceres_lm' or cfg['pico_ee_franka_ceres_lm']['post_smoothing']['mode']!='ruckig':
         raise ValueError('unexpected source algorithm or smoother')
     output.mkdir(parents=True,exist_ok=False)

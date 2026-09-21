@@ -24,9 +24,10 @@ def dls_available():
 
 
 class CliTests(unittest.TestCase):
-    def test_cli_rejects_missing_height_and_legacy_height(self):
-        for args in (["--mapping-mode","shared-root"],["--height-m","1.62"],
-                     ["--mapping-mode","shared-root","--height-m","nan"]):
+    def test_cli_rejects_missing_invalid_height_and_removed_mode(self):
+        for args in ([], ["--height-m", "nan"], ["--height-m", "inf"],
+                     ["--height-m", ".99"], ["--height-m", "2.41"],
+                     ["--height-m", "1.62", "--mapping-mode", "shared-root"]):
             result=subprocess.run([sys.executable,"-m","pico2_hands.run_sim",*args],capture_output=True,timeout=10)
             self.assertEqual(result.returncode,2)
 

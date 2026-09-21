@@ -13,11 +13,9 @@ import time
 
 from report_shared_root_actions import ACTIONS, sha256, validate_annotations
 from run_pico_trace_algorithm_benchmark import _read_trace
-from tianji_runtime import workspace
+from tianji_runtime import controller_profile, native_executable, workspace
 
 CONTROL = Path(__file__).resolve().parents[1]
-ROOT = workspace()
-BINARY = CONTROL / "build/tianji_record_action_trace"
 
 
 def save_new(path, document):
@@ -56,15 +54,16 @@ def candidates(events, duration, trace_hash):
     return document
 
 
-def snapshot_sources(output, calibration):
-    paths = [CONTROL / "config" / name for name in (
+def snapshot_sources(output, calibration, binary):
+    paths = [controller_profile(name) for name in (
         "shared_root_tjvr_input_contract.yaml", "shared_root_robot_geometry.yaml",
         "qp_ik_pico_shared_root.yaml")]
-    paths += [BINARY, Path(__file__).resolve(), CONTROL / "apps/record_action_trace.cpp"]
+    paths += [binary, Path(__file__).resolve(), CONTROL / "apps/record_action_trace.cpp"]
     # Resolve the input contract's file list using the project's YAML dependency.
     import yaml
     contract = yaml.safe_load(paths[0].read_text())
-    paths += [ROOT / name for name in contract["tjvr_shared_root_input"]["source_files"]]
+    root = workspace()
+    paths += [root / name for name in contract["tjvr_shared_root_input"]["source_files"]]
     if calibration:
         paths += sorted(p for p in calibration.iterdir()
                         if p.is_file() and p.suffix in (".json", ".yaml", ".yml"))
@@ -78,7 +77,7 @@ def snapshot_sources(output, calibration):
     for index, path in enumerate(dict.fromkeys(p.resolve() for p in paths)):
         digest = sha256(path)
         hashes[str(path)] = digest
-        if path != BINARY.resolve():
+        if path != binary.resolve():
             with path.open("rb") as source, (snapshots / f"{index:02d}_{path.name}").open("xb") as dest:
                 dest.write(source.read())
                 dest.flush()
@@ -100,10 +99,10 @@ def capture(args):
                 phase_a_accepted=False, thresholds_frozen=False, actions_confirmed=False)
     child = None
     try:
-        hashes = snapshot_sources(output, args.calibration_dir)
+        hashes = snapshot_sources(output, args.calibration_dir, args.binary)
         meta["source_sha256"] = hashes
         save_new(output / "capture-start.json", meta)
-        command = [str(BINARY), "--output", str(output), "--port", str(args.port),
+        command = [str(args.binary), "--output", str(output), "--port", str(args.port),
                    "--countdown", str(args.countdown), "--wait-seconds", str(args.wait_seconds)]
         print(f"录制目录：{output}\n仅采集输入；请由观察者读出提示，或在主机终端查看。", flush=True)
         with (output / "native.stderr.log").open("x") as errors:
@@ -195,8 +194,10 @@ def confirm(args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
-    commands.add_parser("plan", help="show schedule without binding or writing files")
+    plan = commands.add_parser("plan", help="show schedule without binding or writing files")
     record = commands.add_parser("record")
+    for command in (plan, record):
+        command.add_argument("--binary", type=Path, help="native input-only collector executable")
     record.add_argument("--output", type=Path, required=True, help="new, non-existing directory")
     record.add_argument("--participant")
     record.add_argument("--calibration-dir", type=Path)
@@ -208,8 +209,11 @@ def main():
     review.add_argument("--session", type=Path, required=True)
     review.add_argument("--reviewer", required=True)
     args = parser.parse_args()
+    if args.command in ("plan", "record"):
+        args.binary = args.binary.resolve() if args.binary is not None else native_executable(
+            "tianji_record_action_trace")
     if args.command == "plan":
-        plan = json.loads(subprocess.check_output([str(BINARY), "--describe"], text=True))
+        plan = json.loads(subprocess.check_output([str(args.binary), "--describe"], text=True))
         for stage in plan["stages"]:
             print(f"{stage['scheduled_ns'] // 10**9:2d}s  {stage['prompt']}")
             if stage["action"] == "single_hand":

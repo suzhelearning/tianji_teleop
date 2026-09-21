@@ -15,13 +15,14 @@ setup(
     zip_safe=True,
     maintainer="Tianji operators",
     maintainer_email="ops@example.com",
-    description="RealSense camera launch, readiness monitor and preview",
+    description="RealSense camera launch, readiness monitor, preview and PICO video",
     license="Apache-2.0",
     entry_points={
         "console_scripts": [
             "tianji_camera_preflight = tianji_cameras.preflight:main",
             "tianji_camera_monitor = tianji_cameras.monitor:main",
             "tianji_camera_preview = tianji_cameras.preview:main",
+            "tianji_pico_camera = tianji_cameras.pico_stream:main",
         ],
     },
 )

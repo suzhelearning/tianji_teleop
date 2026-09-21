@@ -48,6 +48,8 @@ pytest = ">=8,<9"
 # libopencv 4.13) and an explicit pin only fights that. `py-opencv` IS pinned:
 # its bare name resolves to pre-4.13 builds linked against libprotobuf 5.x.
 py-opencv = "==4.13.0"
+# PICO video framing uses the existing software H.264 encoder, without PyAV.
+ffmpeg = { version = "==8.1.2", build = "gpl_*" }
 
 # Native toolchain for the ament/colcon packages in src/.
 cmake = ">=3.24,<4"
@@ -137,6 +139,7 @@ test-manus = "bash bash/test_python.sh manus"
 inspect-cameras = "bash bash/inspect_cameras.sh"
 preview = "bash bash/preview_cameras.sh"
 cameras = "bash bash/run_cameras.sh"
+pico-camera = "bash bash/run_pico_camera.sh"
 collect = "bash bash/run_data_collector.sh"
 setup-pico = "bash bash/run_setup_pico.sh"
 stop-pico = "bash bash/run_stop_pico.sh"

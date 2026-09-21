@@ -8,7 +8,8 @@ from pathlib import Path
 
 import numpy as np
 import yaml
-from tianji_runtime import workspace
+from tianji_runtime import controller_profile, workspace
+from tianji_runtime.resources import controller_resource
 
 
 def digest(path: Path) -> str:
@@ -23,8 +24,8 @@ def validate(profile_path: Path) -> dict:
         raise ValueError("Phase A artifacts are not a motion authorization: enabled must be false")
     if "mix" in cfg:
         raise ValueError("legacy/canonical mix is unsupported")
-    input_path = (profile_path.parent / cfg["input_contract_artifact"]).resolve(strict=True)
-    geometry_path = (profile_path.parent / cfg["robot_geometry_artifact"]).resolve(strict=True)
+    input_path = controller_resource(profile_path, cfg["input_contract_artifact"])
+    geometry_path = controller_resource(profile_path, cfg["robot_geometry_artifact"])
     root = workspace()
     contract = yaml.safe_load(input_path.read_text())["tjvr_shared_root_input"]
     geometry = yaml.safe_load(geometry_path.read_text())["robot_geometry"]
@@ -73,7 +74,7 @@ def validate(profile_path: Path) -> dict:
         if digest(root / name) != expected:
             raise ValueError("source fingerprint mismatch: " + name)
     for name in ("urdf", "mujoco_xml"):
-        path = (geometry_path.parent / geometry[name + "_path"]).resolve(strict=True)
+        path = controller_resource(geometry_path, geometry[name + "_path"])
         if digest(path) != geometry[name + "_sha256"]:
             raise ValueError("model fingerprint mismatch: " + name)
     np.testing.assert_array_equal(contract["o_Ct_contract_m"], [0, 0, 1.121])
@@ -117,6 +118,8 @@ def validate(profile_path: Path) -> dict:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("profile", type=Path)
+    parser.add_argument("profile", type=Path, nargs="?")
     args = parser.parse_args()
+    if args.profile is None:
+        args.profile = controller_profile("qp_ik_pico_shared_root.yaml")
     print(json.dumps(validate(args.profile), sort_keys=True))

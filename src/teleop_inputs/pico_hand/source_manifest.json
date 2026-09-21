@@ -2,7 +2,7 @@
   "schema_version": 1,
   "source_repository": "dexhand_deploy",
   "source_commit": "a6ff1bd9a32e0a2b3dac2c131abf0cf0c2ea00b4",
-  "stage": "receive_geometry_reference_only",
+  "stage": "receive_reference_only",
   "files": [
     {
       "source": "src/tianji_teleop/tianji_teleop/hand_tracking/models.py",
@@ -38,34 +38,6 @@
       "source_sha256": "29ecaddc1426ae42a8b6d5cf3f67013f1f111fa6566f01e035056e684eff8dbc",
       "destination_sha256": "8258e943c10827ca1542b94e1096a051287dfe272515bdc47d43f75bc729d666",
       "adaptation": "receive-only class/function extraction; standalone imports"
-    },
-    {
-      "source": "src/tianji_teleop/tianji_teleop/sources/common/pose_mapping.py",
-      "destination": "pico2_hands/reference/pose_mapping.py",
-      "source_sha256": "390bf5efe45cff8abff8cf44206121d4749817adbeaa112703807a03f62e7b45",
-      "destination_sha256": "5dc9a3c10ae329251178c34469600adca75bcae3ec4d508a51bbc1c580a382cd",
-      "adaptation": "relative model import; removed unrelated xr_incremental factory branch"
-    },
-    {
-      "source": "src/tianji_teleop/tianji_teleop/sources/common/control_geometry.py",
-      "destination": "pico2_hands/reference/control_geometry.py",
-      "source_sha256": "f92dd63822bfd4907f91908fc952bcfac729c897c39c02505f17840339579dbf",
-      "destination_sha256": "f92dd63822bfd4907f91908fc952bcfac729c897c39c02505f17840339579dbf",
-      "adaptation": "unchanged"
-    },
-    {
-      "source": "src/tianji_teleop/tianji_teleop/hand_tracking/height_calibration.py",
-      "destination": "pico2_hands/reference/height_calibration.py",
-      "source_sha256": "698bf025cc6846278a04c804cc10428b8f478000a463924236e4caaa152cdc7a",
-      "destination_sha256": "add10e7ea0fbb5d13100401d2771b3dd42faf5af001660660fcaf5983d37d854",
-      "adaptation": "local control_geometry import and bundled default URDF path; sampling mathematics unchanged"
-    },
-    {
-      "source": "src/tianji_teleop/config/sources/hand_tracking_target.yaml",
-      "destination": "pico2_hands/config/hand_tracking_target.yaml",
-      "source_sha256": "cb17c478c3b79524fb2ef72e2d8ae8bc75ef07bb8b86ebce2539ba367e4a53f1",
-      "destination_sha256": "cb17c478c3b79524fb2ef72e2d8ae8bc75ef07bb8b86ebce2539ba367e4a53f1",
-      "adaptation": "unchanged"
     }
   ]
 }

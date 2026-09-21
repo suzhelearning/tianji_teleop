@@ -19,15 +19,12 @@ setup(
     ],
     package_data={
         package_name: [
-            # Simulation configuration and the V131 kinematics models this
-            # package owns (the shared display model comes from
-            # tianji_description at runtime).
+            # The shared display and arm DLS models come from the main
+            # workspace; this package owns only its runtime configuration.
             "config/*.yaml",
-            "native/models/*",
-            # Native artifacts built by `native/CMakeLists.txt` and
-            # `native/hand/optimizer/CMakeLists.txt` into their own build trees.
-            "native/build/pico2-v131/pico2_v131_worker",
+            # Hand2 keeps its independent native ABI and build tree.
             "native/build/pico2-hand/tianji_hand_native_worker",
+            "native/build/pico2-hand/tianji_hand_native_scheduler",
             "native/build/pico2-hand/libtianji_hand_optimizer.so",
         ],
     },
@@ -39,6 +36,6 @@ setup(
     zip_safe=True,
     maintainer="Tianji operators",
     maintainer_email="ops@example.com",
-    description="PICO2 bare-hand simulation with V131 or shared-root DLS (no hardware)",
+    description="PICO2 shared-root DLS and native Hand2 bare-hand simulation (no hardware)",
     license="Apache-2.0",
 )

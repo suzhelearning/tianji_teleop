@@ -20,6 +20,8 @@ import hashlib
 import signal
 import time
 
+import yaml
+
 from tianji_controller.collection_supervisor import CollectionSupervisor, IdentityConflict
 from tianji_controller.observer import ExecutorObserver
 
@@ -27,7 +29,8 @@ from tianji_controller.observer import ExecutorObserver
 # through the shared contract rather than from this file's location.
 ROOT = workspace()
 from tianji_runtime import workspace
-from tianji_controller.run_teleop import CommandReceiver, main, load_configuration, poll_enter
+from tianji_controller.run_teleop import (
+    CommandReceiver, controller_configuration, main, load_configuration, poll_enter)
 from tianji_controller.safety import MotionGate, SafetyFault
 from tianji_controller.tests.test_safety import configuration, frame, feedback, NOW
 from tianji_controller.staged_motion import StagedMotionGate
@@ -209,7 +212,7 @@ class ExecutorTests(unittest.TestCase):
         self.assertIn("UNCONFIRMED_DISABLE", stderr.getvalue())
         self.assertIn("physical emergency stop", stderr.getvalue())
 
-    def _delayed_preflight(self, delay, *, stop_source_at=None, confirm=True, arm_pose=None, model=None,
+    def _delayed_preflight(self, delay, *, stop_source_at=None, confirm=True, arm_pose=None,
                            log_dir=None):
         clock = SimpleNamespace(now=NOW, reads=0, streaming=True, entered=False, enabled=False)
         receiver = Mock(port=17001)
@@ -255,14 +258,7 @@ class ExecutorTests(unittest.TestCase):
         monitor = Mock()
         monitor.is_running.return_value = True
         viewer_factory = Mock(return_value=monitor)
-        if model is not None:
-            viewer_factory.side_effect = RuntimeError("model unavailable")
         with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
-            if model is not None:
-                config, _ = load_configuration(config_path)
-                config["controller_model"] = model
-                config_path = Path(temporary) / "config.json"
-                config_path.write_text(json.dumps(config))
             viewer = Path(temporary) / "tianji_qp_ik_viewer"
             viewer.touch()
             controller_config = Path(temporary) / "controller.yaml"
@@ -314,10 +310,6 @@ class ExecutorTests(unittest.TestCase):
         result, enables, entered, output = self._delayed_preflight(.01, arm_pose=(0.0, 0.12) + (0.0,) * 12)
         self.assertEqual((result, enables, entered), (0, 1, True), output)
 
-    def test_unavailable_required_viewer_cannot_enable(self):
-        result, enables, entered, output = self._delayed_preflight(
-            .01, model="missing-model.xml")
-        self.assertEqual((result, enables, entered), (1, 0, False), output)
 
     def test_viewer_failure_happens_before_hardware_factory(self):
         with patch("tianji_controller.run_teleop.RealRobotViewer", side_effect=RuntimeError("display unavailable")), \
@@ -342,6 +334,58 @@ class ExecutorTests(unittest.TestCase):
             self.assertEqual(raised.exception.code, 2)
             viewer_factory.assert_not_called()
             hardware_factory.assert_not_called()
+
+    def test_invalid_dls_profiles_fail_before_collection_or_hardware(self):
+        config, _ = load_configuration(ROOT / "config/robot.json")
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            profile = controller_configuration(config, ROOT, {}, folder / "profile.yaml")
+            valid = yaml.safe_load(profile.read_text())
+            config["controller_config"] = str(profile)
+            config_path = folder / "robot.json"
+            config_path.write_text(json.dumps(config))
+            cases = (
+                ("ik", "algorithm", "pico_ee_ceres"),
+                ("pico_ee_franka_dls", "enabled", False),
+                ("post_smoothing", "mode", "none"),
+                ("post_smoothing", "max_jerk_rad_s3", [0.0] * 7),
+                ("controller", "model_state_only", False),
+                ("control", "level", "acceleration"),
+                ("controller", "pico_ee_dls_kinematics_urdf_path", str(folder / "missing.urdf")),
+                ("spark_shared_root", "robot_geometry_artifact", str(folder / "missing.yaml")),
+            )
+            for section, key, value in cases:
+                with self.subTest(section=section, key=key):
+                    candidate = yaml.safe_load(yaml.safe_dump(valid))
+                    target = (candidate["pico_ee_franka_dls"]["post_smoothing"]
+                              if section == "post_smoothing" else candidate[section])
+                    target[key] = value
+                    profile.write_text(yaml.safe_dump(candidate))
+                    with patch("tianji_controller.run_teleop.CollectionSupervisor") as collection, \
+                            patch("tianji_controller.run_teleop.make_hardware") as hardware, \
+                            patch("tianji_controller.run_teleop.RealRobotViewer") as viewer, \
+                            patch("tianji_controller.run_teleop.sys.stdin.isatty", return_value=True), \
+                            redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as raised:
+                        main(["--config", str(config_path), "--devices", "all", "--confirm-real",
+                              "--collection", "--dataset", str(folder / "dataset"), "--task", "safety"])
+                    self.assertEqual(raised.exception.code, 2)
+                    collection.assert_not_called()
+                    hardware.assert_not_called()
+                    viewer.assert_not_called()
+
+    def test_retired_backends_and_real_options_are_rejected_without_devices(self):
+        for options in (["--ik-backend", "spark"], ["--ik-backend", "ceres"],
+                        ["--ik-backend", "mapped-palm"], ["--mapped-palm-xz-calibration"],
+                        ["--mapped-palm-dropout-policy", "hold-300ms"],
+                        ["--mapped-palm-resync-policy", "bounded"]):
+            with self.subTest(options=options), \
+                    patch("tianji_controller.run_teleop.make_hardware") as hardware, \
+                    patch("tianji_controller.run_teleop.CollectionSupervisor") as collection, \
+                    redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as raised:
+                main(options)
+            self.assertEqual(raised.exception.code, 2)
+            hardware.assert_not_called()
+            collection.assert_not_called()
 
     def test_missing_controller_is_refused_before_hardware_connection(self):
         with tempfile.TemporaryDirectory() as folder, \

@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 import socket
 import struct
 import subprocess
@@ -9,20 +10,14 @@ import unittest
 import h5py
 import json
 
-from pico2_hands.ik_worker import ROOT
 from pico2_hands.tests.test_pico_hand_tracking import _packet
 from pico2_hands.tests.test_shared_root import dls_available
 
 
 class SimLauncherTest(unittest.TestCase):
-    @unittest.skipUnless((ROOT / "native/build/pico2-v131/pico2_v131_worker").is_file(),
-                         "build V131 before integration test")
-    def test_fake_tcp_raw_recording_and_timed_home_exit(self):
-        self._fake_tcp_raw_recording_and_timed_home_exit([])
-
     @unittest.skipUnless(dls_available(), "build DLS worker")
     def test_shared_root_fake_tcp_recording_no_automatic_start(self):
-        self._fake_tcp_raw_recording_and_timed_home_exit(["--mapping-mode", "shared-root", "--height-m", "1.62"])
+        self._fake_tcp_raw_recording_and_timed_home_exit(["--height-m", "1.62"])
 
     def _fake_tcp_raw_recording_and_timed_home_exit(self, extra_args):
         stop = threading.Event()
@@ -61,7 +56,8 @@ class SimLauncherTest(unittest.TestCase):
             try:
                 child = subprocess.run([sys.executable, "-m", "pico2_hands.run_sim", "--headless",
                     "--disable-hands", "--port", str(port), "--duration-s", ".25", "--record", str(output), *extra_args],
-                    capture_output=True, text=True, timeout=15)
+                    capture_output=True, text=True, timeout=15,
+                    env={**os.environ, "ROS_DOMAIN_ID": "121"})
             finally:
                 stop.set(); thread.join(timeout=2)
             self.assertFalse(thread.is_alive())
@@ -74,15 +70,14 @@ class SimLauncherTest(unittest.TestCase):
                 self.assertGreater(len(file["raw/pico_hand_tracking/packet"]), 5)
                 self.assertGreater(len(file["simulation/position_rad"]), 5)
                 self.assertEqual(file.attrs["accepted"], file.attrs["processed"])
-                if extra_args:
-                    self.assertNotIn(b"teleop", file["simulation/state"][:])
-                    events = [json.loads(v) for v in file["events/json"][:]]
-                    calibration = next(e["calibration"] for e in events if "calibration" in e)
-                    self.assertEqual(calibration["height_m"], 1.62)
-                    self.assertEqual(calibration["ik_backend"], "franka_dls_ruckig")
-                    self.assertFalse(calibration["calibration_allows_start"])
+                self.assertNotIn(b"teleop", file["simulation/state"][:])
+                events = [json.loads(v) for v in file["events/json"][:]]
+                calibration = next(e["calibration"] for e in events if "calibration" in e)
+                self.assertEqual(calibration["height_m"], 1.62)
+                self.assertEqual(calibration["ik_backend"], "franka_dls_ruckig")
+                self.assertFalse(calibration["calibration_allows_start"])
 
     def test_real_flag_is_rejected(self):
-        child = subprocess.run([sys.executable, "-m", "pico2_hands.run_sim", "--real"],
+        child = subprocess.run([sys.executable, "-m", "pico2_hands.run_sim", "--height-m", "1.62", "--real"],
                                capture_output=True, text=True, timeout=5)
         self.assertEqual(child.returncode, 2)

@@ -1,18 +1,20 @@
 import importlib.util
 from pathlib import Path
-import shutil
 import struct
 import sys
 import zlib
 
 import numpy as np
 import pytest
+import yaml
 
 from tianji_runtime import workspace
 
 ROOT = workspace()
 sys.path.insert(0, str(ROOT / "src/teleop_inputs/pico_controller/scripts"))
 from calibrate_pico_simple import build_bundle
+from pico_palm_orientation_core import OrientationSolution
+from pico_palm_tcp_calibrator import build_tcp_artifact
 spec = importlib.util.spec_from_file_location(
     "trace_audit", Path(__file__).resolve().parents[1] / "scripts/audit_shared_root_trace.py")
 module = importlib.util.module_from_spec(spec)
@@ -23,9 +25,19 @@ spec.loader.exec_module(module)
 def setup(tmp_path):
     directory = tmp_path / "calibration"
     directory.mkdir()
-    for name in ("pico_left_palm_tcp.yaml", "pico_left_wrist_pivot.yaml"):
-        shutil.copyfile(ROOT / "profiles/syz/pico/20260908-01" / name, directory / name)
-    build_bundle(directory, 1.62)
+    orientation = OrientationSolution(
+        rotation=np.eye(3), covariance=np.eye(3) * 1e-5,
+        sample_count=120, tracking_epoch=1, orientation_rms_rad=.01,
+        correction_angle_rad=.02)
+    tcp = build_tcp_artifact(
+        side="left", source_topic="/pico/pose/left_hand",
+        translation=np.array([.1, -.02, .03]), rotation=np.eye(3),
+        sample_count=20, position_rms=.003, calibration_revision=1,
+        sample_matrix_rank=6, sample_matrix_condition=12.,
+        orientation_solution=orientation)
+    tcp["source_recording"] = "synthetic_offline_fixture"
+    (directory / "pico_left_palm_tcp.yaml").write_text(yaml.safe_dump(tcp))
+    build_bundle(directory, 1.62, height_wrist=True)
     return directory, tmp_path / "input.tjvr"
 
 

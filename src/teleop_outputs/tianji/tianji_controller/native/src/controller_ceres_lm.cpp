@@ -36,8 +36,8 @@ void DualArmController::initializeCeres(IkAlgorithm algorithm) {
   const Vec7 home_right = dls ? d.home_right_rad : c.home_right_rad;
   if (dls && (d.planner_enabled || d.direct_velocity_limit_enabled))
     throw std::invalid_argument("Franka DLS port requires raw IK followed by Ruckig");
-  // This first port is model-reference simulation only. Hardware command
-  // authority and feedback supervision must not be inferred from an IK option.
+  // Model references are independent of hardware authority. Only the explicit
+  // viewer executor gate may export them; Python retains motion supervision.
   if (!(dls ? d.enabled : c.enabled) || !config_.controller.model_state_only ||
       config_.control_level != ControlLevel::kVelocity ||
       !p.enabled || p.velocity_scale != 1.0 ||
@@ -235,7 +235,7 @@ ControllerDiagnostics DualArmController::stepCeres(
   }
   out.accepted = out.left.accepted = out.right.accepted = live && left_ok && right_ok;
   out.hold_reason = out.left.hold_reason = out.right.hold_reason =
-      out.accepted ? HoldReason::kNone : HoldReason::kSolverFailure;
+      left_ok && right_ok ? HoldReason::kNone : HoldReason::kSolverFailure;
   out.left.safety = out.right.safety = {out.accepted, out.hold_reason, -1};
   out.left.q_ref = left_state_.q_ref; out.right.q_ref = right_state_.q_ref;
   out.compute_time_us = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now()-start).count();

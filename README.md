@@ -163,34 +163,62 @@ bash bash/run_teleop.sh --sim --user NEW_USER
 
 ```bash
 # 首次／原生代码更新后构建
+pixi run build
 pixi install --locked --manifest-path src/teleop_inputs/pico_hand/tools/wuji_hand_native/pixi.toml
 bash src/teleop_inputs/pico_hand/build_native.sh
 
-# 连接头显并授权 USB 调试后
-adb devices -l
-adb forward tcp:10002 tcp:10002
-bash bash/run_pico2_sim.sh
+# 连接头显并授权 USB 调试后；入口自动检查／补建默认 ADB 转发
+bash bash/run_pico_hand_sim.sh --height-m 1.75
 ```
+默认 `127.0.0.1:10002` 的 ADB 转发自动复用或补建，无需手动执行 `adb forward`；
+多设备须设置 `ANDROID_SERIAL`，冲突转发不会被覆盖。自测和自定义输入地址／端口不操作 ADB。
 
-默认显示双臂和双 Hand2，使用原版 V131 IK；只测试机械臂可加 `--disable-hands`。
-S 接管；C 可选前伸 X/Z 标定；H 回 Home；Q／Ctrl+C 回 Home 并退出。
+裸手只保留 **身高模板＋C 共享根映射＋Franka DLS/Ruckig**；旧 V131、旧启动脚本和
+`--mapping-mode` 已删除。`1.75` 必须替换为实际身高，不再有隐含人员或身高默认值。
+默认向 SPD 仿真发布 `/spd/tianji_wuji2/v1/joint_command`
+（`tianji_spd_interfaces/msg/JointCommand`，54 维 rad 目标），并由原生 Viewer 辅助显示。
+`--headless` 只关闭显示、不停止 ROS 发布；`--disable-hands` 清除双手 ready 位。
+此出口仅用于 SPD 仿真，不接入 Manus／外骨骼＋PICO 手柄的真机执行链。
+
+双臂前伸、双手间距约肩宽、掌心相对，面向前方按 **C** 保持约 1 秒，
+标定成功且有新帧后按 **S**。**H** 只回双臂、手指保持；
+**P／空格**可取消 H 回程并制动保持，**Q／Ctrl+C** 回双臂 Home 后退出。
+短时丢帧需满足同连接稳定恢复条件才软恢复；长时断流需 S，断连／重连必须重新 C。
+SPD 必须先完成模型／初始目标对齐，并在 C 后、S 前本地显式启用；ROS 发布本身不是授权。
+正常制动与 Home 期间继续发送目标，退出前尝试发布最后一帧；这不等于接收端物理回程已完成。
+
 窗口／终端显示张手、握拳、捏合等观察标签，**手势识别不自动使能或停止**。
-目前仅支持仿真，抖动和跟踪效果仍待验收，不能直接用于真机。
-Python 依赖、录制参数和故障行为见[PICO2 裸手说明](src/teleop_inputs/pico_hand/README.md)。
+身高模板不是实测肩肘，不等于完整 VR 人体骨架；仅支持仿真，真实输入精度与实时性
+仍需现场验收。离线可执行 `bash bash/run_pico_hand_sim.sh --height-m 1.75 --self-test`，
+它使用真实 DLS/Hand2 worker 和 C 标定流程，不连接设备，ROS 发布强制隔离到测试域 121。
+完整构建、录制和故障行为见[PICO 裸手说明](src/teleop_inputs/pico_hand/README.md)。
 
-已融合 upstream `90c575f` 的独立**身高＋C 共享根映射＋Franka DLS/Ruckig**模式：
+## top 相机画面传到 PICO
+
+先运行已有的官方相机节点，再在另一个终端启动视频串流：
 
 ```bash
-pixi run --locked build
-bash bash/run_pico2_sim.sh --mapping-mode shared-root --height-m 1.62
+# 相机驱动已有实例时不要重复启动
+bash bash/run_cameras.sh
+
+# 另一个终端；头显通过 USB 连接并已授权调试
+bash bash/run_pico_camera.sh
 ```
 
-替换为实际身高；双臂前伸、双手间距约肩宽、掌心相对，面向前方按 C 保持约 1 秒，
-成功后按 S。H 仅回双臂、手指保持；P／空格可取消 H 回程并制动保持。
-短时丢帧先制动，满足同连接稳定恢复条件才自动续接；长时断流、重连和主动暂停仍需人工恢复。
-Q／Ctrl+C 回双臂 Home 后退出，退出回程不响应暂停。
-身高模板不是实测肩肘，不等于完整 VR 人体骨架；真实输入精度与实时性仍待现场验收。
-默认 V131 行为不变；详见[新模式说明](src/teleop_inputs/pico_hand/README.md#身高c共享根dlsruckig-新模式)。
+等价 Pixi 任务为 `pixi run pico-camera`。脚本从 `config/collect_real.json` 读取 top 角色，
+只订阅 `/cameras/top/color/image_raw`，不另开 RealSense pipeline、不录制、不控制机器人。
+默认最多 30 fps、4 Mbps；可用 `--bitrate 6M` 调整码率，`--timeout 30` 调整初始图像等待。
+
+PICO 软件须启用支持 `OPEN_CAMERA` 的 PC 视频源，PC 地址填 **`127.0.0.1`**。
+脚本自动检查／建立 `adb reverse tcp:13579 tcp:13579` 与
+`adb forward tcp:12345 tcp:12345`，仅清理本次新建的视频映射，不改裸手输入的 `10002`。
+已有 manager 管理视频映射时可加 `--no-adb`；多设备用 `ANDROID_SERIAL` 选择。
+此脚本只支持有线回环视频，不按请求中的任意 IP 向外推送。
+
+H.264 使用 PICO 的 4 字节大端长度头协议，按请求尺寸生成左右眼相同的 top 画面
+（SBS，不是真双目深度）。源图像超过 250 ms 或视频发送阻塞会断开并报错，
+不积压／回放旧编码帧；恢复输入后重新启动串流。top 未启用、未发布或画面格式不符时明确失败，
+不会用黑图或冻结帧冒充相机。源码与编码器依赖随工作区安装，不依赖 Downloads 中的脚本。
 
 ## PICO＋Manus 双臂＋双手遥操
 
@@ -271,7 +299,7 @@ bash bash/run_teleop.sh --sim --ik-backend spark
 
 ## 外骨骼替代 Manus
 
-沿用上一节 PICO 和 SPARK 执行端，仅将终端 B 换成外骨骼输入：
+使用同一 PICO 输入和默认 DLS／Ruckig 执行端，仅将 Manus 发送器换成外骨骼输入：
 
 ```bash
 # 已有主环境时补装／更新外骨骼原生组件
@@ -286,7 +314,14 @@ bash bash/run_exoskeleton.sh
 
 ## 真机遥操
 
-真机是独立路线，**不是将默认 DLS 仿真直接连到硬件**；默认仍使用原真机后端。
+`--real` 和 `--data` 现与默认仿真统一为 **共享根掌心映射＋Franka DLS＋Ruckig**：
+后端 `franka-dls`，算法 `pico_ee_franka_dls`，配置 `qp_ik_pico_shared_root_dls.yaml`，
+`post_smoothing.mode=ruckig`。执行器仅接受这个后端，旧 real 的 SPARK／mapped-palm
+选项不再可用；双手仍独立接收 TJH2，不改成双臂 DLS／Ruckig 求解。
+
+真机仍是独立的安全执行路线，**不是将仿真窗口直接连到硬件**。原生控制器只导出
+本机 TJRC 参考，Python 执行器保留身份、反馈、限位、失鲜和分阶段人工授权。
+原生受限输出开关不授予运动权限，普通仿真仍不导出硬件指令。
 PICO2 裸手不支持真机。先退出仿真执行端，核对设备 IP、左右 SN、限位、急停及运动空间，
 按[真机完整流程](README-reference.md#二真机遥操作)完成设备配置。
 
@@ -305,7 +340,8 @@ bash bash/run_teleop.sh --real
 默认联合流程在**启动终端**等待提示后依次按 Enter：慢速对齐 → 遥操 → 回 Home 后失能；
 不要提前连续按键，也不要套用仿真窗口 S/H。
 仅双臂可用 `pixi run -e default bash -c 'source bash/environment.sh; exec python -m tianji real --devices arms --confirm-real'`，
-仍需先对 `arms` 做只读预检和干跑。mapped-palm 的 C 标定与授权流程另见[专用说明](docs/mapped-palm-real-readiness.md)。
+仍需先对 `arms` 做只读预检和干跑。旧 mapped-palm 的 C 标定／断流宽限参数已移除，
+相关[历史说明](docs/mapped-palm-real-readiness.md)不能作为当前真机启动命令。
 
 输入失鲜、身份／反馈异常时不要绕过门控；先停止并排查。
 运动使能期间不要按 PICO A 键、重新标定或重启输入。
@@ -318,11 +354,11 @@ bash bash/run_teleop.sh --real
 
 观察录制和带真机执行的采集是不同入口，不互相授予运动权限：
 
-- PICO2 裸手仿真录制：`bash bash/run_pico2_sim.sh --record recordings/pico2_sim/NEW_SESSION.h5`，
+- PICO 裸手仿真录制：`bash bash/run_pico_hand_sim.sh --height-m HEIGHT --record recordings/pico2_sim/NEW_SESSION.h5`，
   先创建父目录，每次使用新文件名；完整步骤见[裸手录制说明](src/teleop_inputs/pico_hand/README.md)。
 - 独立观察采集器：`pixi run collect --task TASK`，只订阅 DDS，不连接机器人或打开相机；
   先用 `pixi run cameras` 启动官方相机节点。R/S/D 仍在真机执行器的交互终端操作，见[观察采集](README-reference.md#观测数据集采集r--s--d)。
-- 真机任务采集：`bash bash/run_teleop.sh --data --task TASK`，沿用真机预检和人工授权。
+- 真机任务采集：`bash bash/run_teleop.sh --data --task TASK`，使用与 `--real` 完全相同的 DLS／Ruckig 控制入口、预检和人工授权。
   它在设备连接前确认相机验证和 writer 准备完成（prepared），连接后再等待真实反馈 ready。
   只复用身份、配置和就绪状态匹配的独立会话，退出只停止本次创建的进程，不接管他人会话。
   默认原始数据为 `/data/TianjiData/raw/YYYYMMDD/`，不是 `dataset/`；
@@ -335,9 +371,12 @@ bash bash/run_teleop.sh --real
 
 ## 共用 Home 与 Mocap／Regrind
 
-SPARK／mapped-palm 部署入口和真机受保护回位共用
-[`src/teleop_outputs/tianji/tianji_description/config/home.yaml`](src/teleop_outputs/tianji/tianji_description/config/home.yaml)。
-DLS／Ceres 仿真仍使用各自配置中的 Home，不因合并改变其速度或授权流程。
+真机受保护回位使用
+[`src/teleop_outputs/tianji/tianji_description/config/home.yaml`](src/teleop_outputs/tianji/tianji_description/config/home.yaml)，
+其 Home 向量与 DLS 配置一致；启动仍以只读实测姿态为初始参考，不会直接跳到 Home。
+`controller_velocity_scale` 同时缩放执行器运行副本的 Ruckig 速度上限；
+本次未改变设备限位、反馈保护或分阶段授权速度。模型名
+`marvin_m6_wuji2_shared_root_ceres.xml` 是冻结资源名称，不代表选择 Ceres 算法。
 
 远端新增的 H5 回放、Motive 接入和 Regrind 推理入口保留，详见
 [Mocap／Regrind 操作说明](README-mocap.md)。`bash/run_mocap.sh` 将 infer/live/regrind-real/regrind-hand-sim

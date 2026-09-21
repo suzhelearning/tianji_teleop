@@ -4,28 +4,23 @@ import csv
 import subprocess
 import tempfile
 from pathlib import Path
-import sys
-
-# The helper sits beside this script; ctest invokes it by path.
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+from tianji_runtime import controller_profile, package_share
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--binary", required=True)
     args = parser.parse_args()
-    from _workspace import workspace
-
-    root = workspace()
-    models = root / "src/teleop_outputs/tianji/tianji_description/models"
-    config = Path(__file__).resolve().parents[1] / "config"
+    binary = Path(args.binary).resolve()
+    models = package_share("tianji_description", "models")
+    config = controller_profile("qp_ik_pico_teleop.yaml")
     with tempfile.TemporaryDirectory() as tmp:
         outputs = []
         for index in range(2):
             output = Path(tmp) / f"run{index}.csv"
             subprocess.run([
-                args.binary,
-                "--config", str(config / "qp_ik_pico_teleop.yaml"),
+                str(binary),
+                "--config", str(config),
                 "--model", str(models / "marvin_m6_qp_test.xml"),
                 "--urdf", str(models / "marvin_m6_s_ccs_696_v4_local.urdf"),
                 "--algorithm", "hierarchical_qp", "--arm", "left",

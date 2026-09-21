@@ -5,6 +5,7 @@ import struct
 import subprocess
 
 import pytest
+from tianji_runtime import ResourceNotFound, controller_profile, native_executable, workspace
 
 CONTROL = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(CONTROL / "scripts"))
@@ -122,16 +123,19 @@ def test_half_open_action_boundaries_and_final_sample():
 
 
 def test_native_layer_replay_and_report_pairing(tmp_path):
-    source = CONTROL.parent / "recordings/shared_root/zhoujie_actions_20260918_041020/input.tjvr"
-    binary = CONTROL / "build/tianji_shared_root_trace_audit"
-    if not source.is_file() or not binary.is_file():
+    source = workspace() / "recordings/shared_root/zhoujie_actions_20260918_041020/input.tjvr"
+    try:
+        binary = native_executable("tianji_shared_root_trace_audit")
+    except ResourceNotFound as error:
+        pytest.skip(str(error))
+    if not source.is_file():
         pytest.skip("requires local action recording and built audit")
     raw = source.read_bytes()
     magic, version, size, count = struct.unpack_from("<4sHHQ", raw)
     assert magic == b"TJVT" and version == 1 and size == 656 and count >= 720
     trace = tmp_path / "layer-prefix.tjvr"
     trace.write_bytes(struct.pack("<4sHHQ", magic, version, size, 720) + raw[16:16+720*(size+8)])
-    result = subprocess.run([str(binary), str(CONTROL / "config/qp_ik_pico_shared_root_reachable.yaml"),
+    result = subprocess.run([str(binary), str(controller_profile("qp_ik_pico_shared_root_reachable.yaml")),
                              str(trace), "--layer-diagnostics"], capture_output=True, text=True, timeout=90)
     assert result.returncode == 0, result.stderr
     document = dict(schema_version=1, trace_sha256=module.sha256(trace),

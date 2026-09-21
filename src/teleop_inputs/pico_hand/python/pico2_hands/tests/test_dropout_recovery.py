@@ -112,7 +112,7 @@ class DropoutTests(unittest.TestCase):
         self.assertEqual(self.worker.starts,1)
 
     def test_manual_actions_during_brake_cancel_rearm(self):
-        for key in ("p"," ","h","q","r","c"):
+        for key in ("p"," ","h","q","c"):
             with self.subTest(key=key):
                 self.setUp();self.dropout()
                 self.core.action(key,self.now)
@@ -133,9 +133,9 @@ class DropoutTests(unittest.TestCase):
                 self.stream(generation=1 if disconnect else 2)
                 self.assertEqual(self.worker.starts,1)
                 self.assertIsNone(self.core._auto_resume)
-                if not disconnect:self.assertFalse(self.core.mapping.calibration_allows_start)
+                self.assertFalse(self.core.mapping.calibration_allows_start)
 
-    def test_disconnect_forces_hold_before_fast_reconnect_and_manual_s(self):
+    def test_disconnect_forces_hold_and_new_calibration_before_start(self):
         self.core.disconnected()
         # Reconnect can race the first simulation tick; it must not be solved
         # under the old TELEOP authorization.
@@ -146,6 +146,9 @@ class DropoutTests(unittest.TestCase):
         self.stream(30)
         self.assertEqual(self.worker.starts,1)
         self.assertEqual(self.core.phase,"HOLD")
+        self.assertFalse(self.core.action("s",self.now))
+        self.assertTrue(self.core.action("c",self.now))
+        self.stream(102)
         self.assertTrue(self.core.action("s",self.now))
         self.assertEqual(self.worker.starts,2)
 

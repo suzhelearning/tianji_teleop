@@ -3,6 +3,8 @@ from pathlib import Path
 
 import pytest
 import yaml
+from tianji_runtime import controller_profile
+from tianji_runtime.resources import controller_resource
 
 CONTROL = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location(
@@ -12,25 +14,19 @@ spec.loader.exec_module(validator)
 
 
 def test_frozen_contract_and_models_match():
-    result = validator.validate(CONTROL / "config/qp_ik_pico_shared_root.yaml")
+    result = validator.validate(controller_profile("qp_ik_pico_shared_root.yaml"))
     assert result["passed"] and not result["motion_authorized"]
-
-
-def test_complete_profile_keeps_all_legacy_parameters():
-    baseline = yaml.safe_load((CONTROL / "config/qp_ik_pico_teleop.yaml").read_text())
-    experiment = yaml.safe_load((CONTROL / "config/qp_ik_pico_shared_root.yaml").read_text())
-    experiment.pop("spark_shared_root")
-    assert experiment == baseline
 
 
 @pytest.mark.parametrize("mutation", ["enabled", "hash", "origin", "mix", "sources", "simple_basis", "closure_axis", "closure_frame", "closure_evidence"])
 def test_rejects_invalid_contract(tmp_path, mutation):
-    profile = yaml.safe_load((CONTROL / "config/qp_ik_pico_shared_root.yaml").read_text())
-    contract = yaml.safe_load((CONTROL / "config/shared_root_tjvr_input_contract.yaml").read_text())
-    geometry = yaml.safe_load((CONTROL / "config/shared_root_robot_geometry.yaml").read_text())
+    profile = yaml.safe_load(controller_profile("qp_ik_pico_shared_root.yaml").read_text())
+    contract = yaml.safe_load(controller_profile("shared_root_tjvr_input_contract.yaml").read_text())
+    geometry_path = controller_profile("shared_root_robot_geometry.yaml")
+    geometry = yaml.safe_load(geometry_path.read_text())
     for kind in ("urdf", "mujoco_xml"):
         geometry["robot_geometry"][kind + "_path"] = str(
-            (CONTROL / "config" / geometry["robot_geometry"][kind + "_path"]).resolve())
+            controller_resource(geometry_path, geometry["robot_geometry"][kind + "_path"]))
     if mutation == "enabled":
         profile["spark_shared_root"]["enabled"] = True
     if mutation == "mix":

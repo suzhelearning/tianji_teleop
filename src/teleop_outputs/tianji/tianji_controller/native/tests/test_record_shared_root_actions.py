@@ -17,8 +17,9 @@ sys.path.insert(0, str(CONTROL / "scripts"))
 import record_shared_root_actions as recorder
 from report_shared_root_actions import validate_annotations
 from run_pico_trace_algorithm_benchmark import _read_trace
+from tianji_runtime import native_executable
 
-BINARY = recorder.BINARY
+BINARY = native_executable("tianji_record_action_trace")
 
 
 def packet(sequence=1):
@@ -145,7 +146,7 @@ def test_wrapper_failure_metadata(tmp_path):
     result = subprocess.run([sys.executable, str(Path(recorder.__file__)), "record",
                              "--output", str(output), "--source-kind", "synthetic",
                              "--port", str(reserve_port()), "--wait-seconds", "1"],
-                            capture_output=True, text=True, timeout=10)
+                            capture_output=True, text=True, timeout=10, cwd=tmp_path)
     assert result.returncode == 2, result.stderr
     assert json.loads((output / "capture-result.json").read_text())["complete"] is False
     assert (output / "input.tjvr.partial").exists()
@@ -157,9 +158,10 @@ def test_full_50_second_capture_and_explicit_review(tmp_path):
     output = tmp_path / "complete"
     port = reserve_port()
     child = subprocess.Popen([sys.executable, str(Path(recorder.__file__)), "record",
-                              "--output", str(output), "--source-kind", "synthetic",
+                              "--output", output.name, "--source-kind", "synthetic",
                               "--port", str(port), "--countdown", "1"],
-                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                             cwd=tmp_path)
     sent = {}
     try:
         deadline = time.monotonic() + 60

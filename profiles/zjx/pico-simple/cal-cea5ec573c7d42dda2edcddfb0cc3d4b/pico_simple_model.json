@@ -1,0 +1,12 @@
+{
+  "schema_version": 2,
+  "model": "symmetric_local_y",
+  "height_m": 1.75,
+  "accepted_model_assumption": true,
+  "hardware_acceptance_complete": false,
+  "source_sha256": {
+    "pico_left_palm_tcp.yaml": "c98b953b2d6bdd508b42fc0e26aefb5d3f825a77baea911f5f9efc89c4905193"
+  },
+  "provenance": "left palm TCP measured; bilateral wrist distance estimated from height; no wrist capture",
+  "wrist_model": "height_times_0.037037_palm_local_positive_x"
+}

@@ -1,7 +1,6 @@
 import json
 import math
 import os
-from pathlib import Path
 import signal
 import socket
 import struct
@@ -10,7 +9,6 @@ import time
 import uuid
 import zlib
 
-from ament_index_python.packages import get_package_prefix
 from geometry_msgs.msg import Pose, PoseArray
 import pytest
 import rclpy
@@ -121,31 +119,26 @@ def test_corrected_skeleton_is_sent_once_as_atomic_udp_packet():
     status_topic = f"/test/{unique}/status"
     record_flag_topic = f"/test/{unique}/record_flag"
     diagnostics_topic = f"/test/{unique}/diagnostics"
-    executable = (
-        Path(get_package_prefix("tianji_cmd_pub"))
-        / "lib/tianji_cmd_pub/tianji_mujoco_teleop_bridge"
-    )
-    assert executable.exists(), "build tianji_cmd_pub before running this integration test"
 
     udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     udp_socket.bind(("127.0.0.1", 0))
     destination_port = udp_socket.getsockname()[1]
     process = subprocess.Popen(
         [
-            str(executable),
-            "--ros-args",
-            "-p", f"skeleton_topic:={skeleton_topic}",
-            "-p", f"status_topic:={status_topic}",
-            "-p", f"record_flag_topic:={record_flag_topic}",
-            "-p", f"diagnostics_topic:={diagnostics_topic}",
-            "-p", "destination_address:=127.0.0.1",
-            "-p", f"destination_port:={destination_port}",
-            "-p", "cache_capacity:=8",
+            "ros2", "launch", "tianji_cmd_pub", "start_tianji_mujoco_teleop.launch.py",
+            f"skeleton_topic:={skeleton_topic}",
+            f"status_topic:={status_topic}",
+            f"record_flag_topic:={record_flag_topic}",
+            f"diagnostics_topic:={diagnostics_topic}",
+            "destination_address:=127.0.0.1",
+            f"destination_port:={destination_port}",
+            "cache_capacity:=8",
         ],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
         env=os.environ.copy(),
+        start_new_session=True,
     )
 
     node = None
@@ -160,6 +153,11 @@ def test_corrected_skeleton_is_sent_once_as_atomic_udp_packet():
         record_publisher = node.create_publisher(
             Bool, record_flag_topic, status_qos
         )
+        diagnostics = []
+        node.create_subscription(
+            String, diagnostics_topic,
+            lambda message: diagnostics.append(json.loads(message.data)), status_qos,
+        )
         deadline = time.monotonic() + 3.0
         while time.monotonic() < deadline and (
             skeleton_publisher.get_subscription_count() == 0
@@ -170,6 +168,15 @@ def test_corrected_skeleton_is_sent_once_as_atomic_udp_packet():
         assert skeleton_publisher.get_subscription_count() == 1
         assert status_publisher.get_subscription_count() == 1
         assert record_publisher.get_subscription_count() == 1
+        # Graph discovery can precede best-effort data-plane readiness. Confirm
+        # actual receipt using an invalid probe that cannot produce a UDP frame.
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline and not any(
+            message["skeleton_messages"] for message in diagnostics
+        ):
+            skeleton_publisher.publish(_skeleton(1, pose_count=0))
+            rclpy.spin_once(node, timeout_sec=0.05)
+        assert any(message["skeleton_messages"] for message in diagnostics), diagnostics
 
         stamp_ns = 1_000_000_011
         _publish_pair(
@@ -279,11 +286,12 @@ def test_corrected_skeleton_is_sent_once_as_atomic_udp_packet():
             node.destroy_node()
         rclpy.shutdown()
         udp_socket.close()
-        process.send_signal(signal.SIGINT)
+        if process.poll() is None:
+            os.killpg(process.pid, signal.SIGINT)
         try:
             output, _ = process.communicate(timeout=3.0)
         except subprocess.TimeoutExpired:
-            process.kill()
+            os.killpg(process.pid, signal.SIGKILL)
             output, _ = process.communicate(timeout=1.0)
         if previous_domain is None:
             os.environ.pop("ROS_DOMAIN_ID", None)

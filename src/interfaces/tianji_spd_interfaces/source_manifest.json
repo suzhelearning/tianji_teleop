@@ -1,0 +1,11 @@
+{
+  "source_project": "spd",
+  "source_package": "src/interfaces/tianji_spd_interfaces",
+  "policy": "Pinned unchanged interface snapshot; update from the single SPD schema source, never edit the message independently. Build generated bindings separately for each environment ABI.",
+  "schema_version": 1,
+  "sha256": {
+    "msg/JointCommand.msg": "1cd78936ceed5168d42252fb76bd9faa7b13669f92253c94f98dc9d372b33fb1",
+    "CMakeLists.txt": "fcfc4e3321f874fbe1b5fb65d415381cd34831a7a5e937d2afcef8115b1d069c",
+    "package.xml": "23ee793f84d29057ec4dc29aa43cd3df06f19c855bebe7ea8733b5121b8b830c"
+  }
+}

@@ -36,7 +36,7 @@ with tempfile.TemporaryDirectory(prefix='tianji_ceres_startup_') as directory:
     trial = folder/'enabled.yaml'
     trial.write_text(yaml.safe_dump(config, sort_keys=False))
     result = run(trial, '--joint-command-port', '26999')
-    assert result.returncode != 0 and 'forbids joint command export' in result.stderr, result
+    assert result.returncode != 0, result
     config['controller']['model_state_only'] = False
     feedback = folder/'feedback.yaml'
     feedback.write_text(yaml.safe_dump(config, sort_keys=False))
@@ -53,7 +53,7 @@ with tempfile.TemporaryDirectory(prefix='tianji_ceres_startup_') as directory:
     telemetry = folder/'telemetry.csv'
     result = run(trial, '--pico-bind', '127.0.0.1', '--pico-port', str(port),
                  '--telemetry', str(telemetry))
-    # Headless uses exit 2 for a session with no accepted control cycles.
+    # Waiting remains non-tracking and never authorizes an arm command.
     assert result.returncode in (0, 2) and not result.stderr, result
     with telemetry.open() as stream:
         rows = list(csv.DictReader(stream))

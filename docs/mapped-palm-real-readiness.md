@@ -1,5 +1,7 @@
 # mapped-palm 真机执行层补齐
 
+> 历史记录：当前 `--real`／`--data` 已统一为 `franka-dls`／`pico_ee_franka_dls`／Ruckig，下面的 mapped-palm 真机参数、C 标定和宽限停流入口已从执行器移除，不能作为当前启动命令。原始现场证据保留，不转写成 DLS 的硬件验收结果。当前操作见 [README](../README.md#真机遥操)。
+
 本文现场证据来自合并前的 `tianji_teleop_full/tianji_teleop`，所述日志保留在该来源目录，
 未复制到当前工程。当前目录的软件验证见[迁移验收记录](migration-verification-status.md)，
 来源现场测试不等于本目录已经完成现场验收。

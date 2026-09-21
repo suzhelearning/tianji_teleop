@@ -2,9 +2,9 @@
 
 Resource ownership determines resolution:
 
-* the V131 kinematics models, the simulation config and the native artifacts
-  built by this package are *package* resources, so ``PACKAGE`` (this file's own
-  directory) addresses them and they keep working from an installed copy;
+* native Hand2 artifacts and its launcher are package resources, addressed
+  through ``PACKAGE`` (this file's own directory);
+* the DLS worker and controller profile belong to ``tianji_controller``;
 * the shared MuJoCo display models belong to ``tianji_description``;
 * the pinned Hand2 interpreter and vendored bridge belong to this package's
   source checkout, addressed through :func:`tianji_runtime.resources.workspace`.
@@ -28,7 +28,7 @@ PACKAGE = Path(__file__).resolve().parent
 SOURCE_PACKAGE = Path("src/teleop_inputs/pico_hand")
 
 #: Shared display model, owned by tianji_description.
-DISPLAY_MODEL = "marvin_m6_wuji2.xml"
+DISPLAY_MODEL = "marvin_m6_wuji2_shared_root_ceres.xml"
 
 #: Pinned Hand2 retargeting environment, relative to SOURCE_PACKAGE.
 HAND_ENV = "tools/wuji_hand_native/.pixi/envs/default"

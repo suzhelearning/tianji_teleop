@@ -1,7 +1,12 @@
 include(FetchContent)
 # Opt-in dependency: old builds do not find/download/link Ceres.
 option(TIANJI_ENABLE_CERES "Build the independent Ceres LM EE IK route" OFF)
-if(TIANJI_ENABLE_CERES)
+if(TIANJI_ENABLE_CERES AND NOT TARGET Ceres::ceres)
+  # A previous FetchContent build caches this project variable. Ceres 2.1's
+  # installed config treats it as an active in-tree build and skips importing
+  # Ceres::ceres, so discard that stale build-tree identity before discovery.
+  unset(Ceres_BINARY_DIR CACHE)
+  unset(Ceres_BINARY_DIR)
   find_package(Ceres 2.1 QUIET CONFIG)
   if(NOT Ceres_FOUND)
     # Function scope keeps Ceres' build options out of our existing test setup.

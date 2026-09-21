@@ -12,6 +12,8 @@ from collections import namedtuple
 from datetime import datetime
 from pathlib import Path
 
+from tianji_runtime import controller_profile, native_executable, package_share
+
 
 ALGORITHMS = [
     "hierarchical_qp",
@@ -85,10 +87,10 @@ def main():
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--smoke", action="store_true")
     parser.add_argument("--output-root")
-    parser.add_argument("--binary", default="build/tianji_cartesian_frf_benchmark")
-    parser.add_argument("--config", default="config/qp_ik_pico_teleop.yaml")
-    parser.add_argument("--model", default="models/marvin_m6_qp_test.xml")
-    parser.add_argument("--urdf", default="models/marvin_m6_s_ccs_696_v4_local.urdf")
+    parser.add_argument("--binary", type=Path)
+    parser.add_argument("--config", type=Path)
+    parser.add_argument("--model", type=Path)
+    parser.add_argument("--urdf", type=Path)
     args = parser.parse_args()
     project = Path(__file__).resolve().parents[1]
     if args.smoke and not any((args.algorithms, args.arms, args.working_points, args.channels)):
@@ -103,9 +105,17 @@ def main():
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     root = Path(args.output_root) if args.output_root else project / "benchmark_results" / f"cartesian_frf_{stamp}"
     raw = root / "raw"; raw.mkdir(parents=True, exist_ok=True)
-    paths = {"raw": raw, "binary": (project / args.binary).resolve(),
-             "config": (project / args.config).resolve(), "model": (project / args.model).resolve(),
-             "urdf": (project / args.urdf).resolve()}
+    paths = {
+        "raw": raw,
+        "binary": args.binary.resolve() if args.binary is not None else
+                  native_executable("tianji_cartesian_frf_benchmark"),
+        "config": args.config.resolve() if args.config is not None else
+                  controller_profile("qp_ik_pico_teleop.yaml"),
+        "model": args.model.resolve() if args.model is not None else
+                 package_share("tianji_description", "models", "marvin_m6_qp_test.xml"),
+        "urdf": args.urdf.resolve() if args.urdf is not None else
+                package_share("tianji_description", "models", "marvin_m6_s_ccs_696_v4_local.urdf"),
+    }
     durations = (0.1, 1.0, 0.1) if args.smoke else (2.0, 20.0, 2.0)
     pending = [case for case in cases if not (args.resume and case_complete(raw / f"{case.slug}.csv"))]
     failures = []

@@ -6,7 +6,8 @@ import math
 from pathlib import Path
 import subprocess
 
-from report_shared_root_actions import ACTIONS, CONTROL, sha256, validate_annotations
+from report_shared_root_actions import ACTIONS, sha256, validate_annotations
+from tianji_runtime import controller_profile, native_executable
 
 METRICS = ("ik_m", "ik_rad", "reference_command_m", "reference_ik_target_m",
            "ik_command_m", "ff_command_m", "reference_ff_m", "headroom_scale")
@@ -223,16 +224,18 @@ def build_report(text, annotations, trace_hash):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("trace", type=Path)
-    parser.add_argument("--profile", type=Path, default=CONTROL / "config/qp_ik_pico_shared_root_reachable.yaml")
+    parser.add_argument("--profile", type=Path)
     parser.add_argument("--annotations", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, help="new exclusive diagnostic directory; never overwritten")
     args = parser.parse_args()
     try:
+        if args.profile is None:
+            args.profile = controller_profile("qp_ik_pico_shared_root_reachable.yaml")
         paths = (args.trace, args.profile, args.annotations)
         hashes = tuple(sha256(p) for p in paths)
         if args.output_dir and args.output_dir.exists():
             raise ValueError("output directory already exists")
-        result = subprocess.run([str(CONTROL / "build/tianji_shared_root_trace_audit"),
+        result = subprocess.run([str(native_executable("tianji_shared_root_trace_audit")),
             str(args.profile), str(args.trace), "--layer-diagnostics"],
             capture_output=True, text=True, check=True, timeout=300)
         report = build_report(result.stdout, json.loads(args.annotations.read_text()), hashes[0])

@@ -29,7 +29,7 @@ def generate_launch_description():
         DeclareLaunchArgument("pico_world_x_offset_m", default_value="0.10"),
     ]
     bridge = Node(
-        package="pico_bridge",
+        package="tianji_cmd_pub",
         executable="tianji_mujoco_teleop_bridge",
         name="tianji_mujoco_teleop_bridge",
         output="screen",

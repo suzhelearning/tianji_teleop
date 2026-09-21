@@ -1,5 +1,7 @@
 # mapped-palm 独立后端移植
 
+> 历史移植说明：当前仿真默认及 `--real`／`--data` 主线为共享根 Franka DLS＋Ruckig；真机执行器不再接受 mapped-palm 后端及专属参数。以下旧默认值、真机流程和现场结果仅保留历史语境，当前操作以 [README](../README.md#真机遥操) 为准。
+
 本入口移植 `dexhand_deploy` 的 C++ `pico_ee_mapped_corrected_palm_velocity_qp`，
 在本工程中用 `--ik-backend mapped-palm` 选择。默认仍为 SPARK。
 源码基线为 `a6ff1bd9a32e0a2b3dac2c131abf0cf0c2ea00b4`；数学核心、模型/TCP、
