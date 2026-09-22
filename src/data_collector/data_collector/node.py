@@ -4,7 +4,7 @@ Responsibilities, and deliberately nothing more:
 
 * subscribe to the three measured-feedback topics and the executor state;
 * subscribe to the RGB pairs published by the official RealSense driver;
-* expose ``RecordingCommand`` and ``check_ready``;
+* expose ``StartCollect``, ``StopCollect`` and ``check_ready``;
 * publish ``CollectionStatus`` so an operator can see what actually happened.
 
 The node never opens a device, holds no SDK handle and exposes no service that
@@ -25,6 +25,7 @@ import rclpy
 from rcl_interfaces.msg import ParameterDescriptor, ParameterEvent, ParameterType
 from rcl_interfaces.srv import GetParameters
 from rclpy.node import Node
+from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.qos import (
     DurabilityPolicy,
     HistoryPolicy,
@@ -36,7 +37,7 @@ from rclpy.qos import (
 from sensor_msgs.msg import CameraInfo, Image
 from std_srvs.srv import Trigger
 from tianji_interfaces.msg import CollectionStatus, DeviceFeedback, ExecutorState
-from tianji_interfaces.srv import RecordingCommand
+from tianji_interfaces.srv import StartCollect, StopCollect
 from tianji_runtime import config_path, workspace
 from realsense2_camera_msgs.msg import Metadata as CameraMetadata
 
@@ -54,6 +55,7 @@ from tianji_runtime.constants import (
 )
 
 from .session import CollectionSession
+from .recording_services import RecordingServices
 
 # Measured feedback is a high-rate latest-value stream: dropping an old sample is
 # correct, queuing it is not.
@@ -102,7 +104,8 @@ FEEDBACK_TOPICS = {
 }
 EXECUTOR_STATE_TOPIC = "/tianji/executor/state"
 STATUS_TOPIC = "/tianji/collection/status"
-COMMAND_SERVICE = "/tianji/collection/command"
+START_SERVICE = "/start_collect"
+STOP_SERVICE = "/stop_collect"
 READY_SERVICE = "/tianji/collection/check_ready"
 CAMERA_READY_SERVICE = "/tianji/cameras/check_ready"
 MONITOR_NODE = ("tianji_camera_monitor", "/")
@@ -196,7 +199,12 @@ class CollectorNode(Node):
                                  self._on_camera_parameters, qos_profile_parameter_events)
         self.create_timer(CERTIFICATE_PERIOD_S, self._certify_cameras)
 
-        self.create_service(RecordingCommand, COMMAND_SERVICE, self._on_command)
+        self._recordings = RecordingServices(self)
+        self._recording_group = ReentrantCallbackGroup()
+        self.create_service(StartCollect, START_SERVICE, self._on_start,
+                            callback_group=self._recording_group)
+        self.create_service(StopCollect, STOP_SERVICE, self._on_stop,
+                            callback_group=self._recording_group)
         self.create_service(Trigger, READY_SERVICE, self._on_ready)
         self.create_timer(1.0 / status_rate_hz, self._publish_status)
         self.create_timer(1.0 / CAMERA_FPS, self._check_camera_freshness)
@@ -215,9 +223,12 @@ class CollectorNode(Node):
         if self._stopping:
             return
         self._stopping = True
-        self._session.finish()
-        if rclpy.ok():
-            self._drain_status()
+        try:
+            self._session.finish()
+            if rclpy.ok():
+                self._drain_status()
+        finally:
+            self._recordings.close()
 
     # -------------------------------------------------------------------- inputs
 
@@ -505,58 +516,11 @@ class CollectorNode(Node):
         response.message = "ready" if ready else detail
         return response
 
-    def _on_command(self, request, response):
-        command = (request.command or "").strip().lower()
-        if command not in ("start", "save", "discard", "abort"):
-            response.accepted = False
-            response.state = self._session.state
-            response.message = f"unknown command {request.command!r}"
-            return response
+    async def _on_start(self, request, response):
+        return await self._recordings.submit("start", request, response)
 
-        if command != "abort":
-            ok, reason = self._authorize(command, request)
-            if not ok:
-                response.accepted = False
-                response.state = self._session.state
-                response.message = reason
-                self.get_logger().warn(f"rejected {command}: {reason}")
-                return response
-
-        if command == "abort":
-            # Reducing recording state only; it never commands the robot.
-            if (self._session.state not in ("STARTING", "RECORDING")
-                    or self._recording_executor is None
-                    or request.session_id != self._recording_executor[0]):
-                response.accepted = False
-                response.state = self._session.state
-                response.message = "no active recording for this executor session"
-                return response
-            self._session.end_episode()
-        else:
-            if command == "start":
-                ready, detail = self._session.check_ready()
-                if not ready:
-                    response.accepted = False
-                    response.state = self._session.state
-                    response.message = detail
-                    return response
-                self._recording_executor = (
-                    self._executor.session_id, self._executor.phase_revision)
-            key = {"start": "r", "save": "s", "discard": "d"}[command]
-            state_before = self._session.state
-            self._session.command(key, self._phase())
-            if self._session.state == state_before:
-                response.accepted = False
-                response.state = self._session.state
-                response.message = f"{command} is not applicable in state {state_before}"
-                return response
-
-        response.accepted = True
-        response.state = self._session.state
-        # An enqueue acknowledgement, not a promise that bytes reached disk: the
-        # outcome is published on CollectionStatus.
-        response.message = f"{command} accepted"
-        return response
+    async def _on_stop(self, request, response):
+        return await self._recordings.submit("stop", request, response)
 
     def _authorize(self, command: str, request):
         """Refuse a control action that is not backed by a fresh, real session."""
@@ -599,7 +563,9 @@ class CollectorNode(Node):
         # for a consumer; only the executor's guard callback performs DDS work.
         self._transition_events.put((
             state, active_path, last_saved_path, error,
-            self._status_session(state), time.monotonic_ns()))
+            self._status_session(state), time.monotonic_ns(),
+            self._recordings.active_episode_id, self._recordings.last_episode_id,
+            self._session.operation_error))
         if not self._stopping and rclpy.ok():
             self._status_guard.trigger()
 
@@ -609,6 +575,11 @@ class CollectorNode(Node):
                 event = self._transition_events.get_nowait()
             except queue.Empty:
                 return
+            self._recordings.transition(event[0], event[1], event[2], event[8])
+            # The terminal status must identify the completed episode, not a
+            # following request that may be admitted after this guard returns.
+            if event[0] in ("IDLE", "FAILED", "CLOSED") and event[6] and not event[1]:
+                event = (*event[:6], "", event[6], event[8])
             self._publish_status(event)
 
     def _publish_status(self, event=None) -> None:
@@ -618,6 +589,8 @@ class CollectorNode(Node):
         state = event[0] if event else self._session.state
         message.session_id = event[4] if event else self._status_session(state)
         message.published_monotonic_ns = event[5] if event else time.monotonic_ns()
+        message.episode_id = event[6] if event else self._recordings.active_episode_id
+        message.last_episode_id = event[7] if event else self._recordings.last_episode_id
         message.state = state
         camera_ready, camera_detail = self._session.camera_ready()
         # `prepared` is cameras verified *and* the writer ready; `inputs_ready`

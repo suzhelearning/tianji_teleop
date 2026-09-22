@@ -222,11 +222,16 @@ native stdin/stdout worker 协议保持，不改为 DDS，也不增加第二条�
   sequence、源单调时间、位置与健康；BEST_EFFORT／VOLATILE／KEEP_LAST(1)。
 - `/tianji/executor/state` 的 `ExecutorState` 携带 mode、phase、phase_revision 和 fault；
   RELIABLE／VOLATILE／KEEP_LAST(8)，不是使能授权。
-- `/tianji/collection/status` 的 `CollectionStatus` 区分 prepared、inputs_ready、状态、文件路径与错误；
-  RELIABLE／TRANSIENT_LOCAL／KEEP_LAST(1)。
-- `/tianji/collection/command` 只接受 start/save/discard/abort。start/save/discard 必须匹配新鲜、
-  健康 real TELEOP 的 session／phase_revision；abort 只减少录制状态。响应是入队确认，
-  最终文件与错误看 status，不自动重试未知结果。
+- `/tianji/collection/status` 的 `CollectionStatus` 区分 prepared、inputs_ready、状态、文件路径与错误，
+  并携带活动 `episode_id` 和最近结束的 `last_episode_id`；RELIABLE／TRANSIENT_LOCAL／KEEP_LAST(1)。
+- `/start_collect`（`StartCollect`）和 `/stop_collect`（`StopCollect`）取代旧录制命令服务。
+  start 与普通 stop 必须匹配新鲜、健康 real TELEOP 的 session／phase_revision；
+  stop 还绑定精确 episode_id。s 使用 save=true，d 使用 save=false；故障内部
+  abort=true/save=false 仅结束录制并保留 partial。请求包含规范 UUID request_id，
+  同进程同请求复用结果，改参复用 UUID 拒绝，旧 stop 不会作用于下一条。
+  success 是 writer 真正开始或完成保存／丢弃／中止后的结果，不是入队确认。
+  服务等待异步完成，DDS 反馈／图像／状态继续处理。结果缓存不跨采集器重启，
+  执行器不自动重试未知结果；开始跟随和 Home 都须再确认匹配的当前状态。
 - `/tianji/collection/check_ready` 与 `/tianji/cameras/check_ready` 是只读就绪检查；
   服务不能增加硬件权限。执行器 TTY 的 R/S/D 经后台有界队列转交，不阻塞控制循环。
 

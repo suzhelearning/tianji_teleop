@@ -1,4 +1,4 @@
-"""Build/install the ROS-free Manus Python closure with this environment's ABI."""
+"""Build the retained ROS-free retargeting tools, not the Manus ROS pipeline."""
 from pathlib import Path
 import os
 import subprocess
@@ -15,14 +15,12 @@ def main() -> None:
     packages = (
         ("tianji_tools", root / "src/tools/tianji_tools", False),
         ("wuji_retargeting", root / "src/teleop_outputs/wuji/wuji_retargeting", True),
-        ("manus_bridge", root / "src/teleop_inputs/manus", False),
     )
     with tempfile.TemporaryDirectory(prefix="wheels-", dir=build) as temporary:
         for name, source, native in packages:
             command = [sys.executable, "-I", "setup.py", "build",
                        "--build-base", str(build / name)]
             if native:
-                # Never reuse an extension produced by default/another ABI.
                 command.append("--force")
             command.extend(["bdist_wheel", "--dist-dir", temporary,
                             "--bdist-dir", str(build / name / "wheel")])

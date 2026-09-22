@@ -101,6 +101,7 @@ class CollectionSession:
         self._finished = False
         self._last_error = None
         self._manager_error = None
+        self._operation_error = ""
         self._notice = None
         self._thread = None
         self.runtime = None
@@ -129,6 +130,11 @@ class CollectionSession:
     def last_error(self):
         """Latest acquisition or writer-manager failure for status subscribers."""
         return self._last_error or self._manager_error
+
+    @property
+    def operation_error(self):
+        """Writer-operation error, distinct from a source fault causing abort."""
+        return self._operation_error
 
     def current_writer(self):
         """The writer of the episode being recorded, or ``None``.
@@ -217,9 +223,11 @@ class CollectionSession:
             if self._closing:
                 return
             if key == 'r' and self._state == 'IDLE':
+                self._operation_error = ""
                 self._set_state('STARTING')
                 self._commands.put_nowait('start')
             elif key in ('s', 'd') and self._state == 'RECORDING':
+                self._operation_error = ""
                 # Freeze this segment immediately; saving/deletion remains asynchronous.
                 self.runtime.end_episode()
                 self._set_state('SAVING' if key == 's' else 'DISCARDING')
@@ -245,6 +253,7 @@ class CollectionSession:
         """An unsaved segment ends at HOME/stop/fault and is kept as partial, not success."""
         with self._lock:
             if self._state in ('STARTING', 'RECORDING'):
+                self._operation_error = ""
                 if self.runtime is not None:
                     self.runtime.end_episode()
                 self._set_state('ABORTING')
@@ -270,6 +279,7 @@ class CollectionSession:
                 else:
                     self._finish_recording(operation)
             except Exception as error:
+                self._operation_error = str(error)
                 self._last_error = str(error)
                 self._notify(f'DATASET OPERATION FAILED (robot control unchanged): {error}')
                 cleanup_failed = False

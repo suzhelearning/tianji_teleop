@@ -794,7 +794,7 @@ class CollectionOwnershipTests(unittest.TestCase):
             self.supervisor.start()
         self.supervisor.finish()
         self.duplicates.clear()
-        self.foreign_services["/tianji/collection/command"] = ("/rogue", "tianji_interfaces/srv/RecordingCommand")
+        self.foreign_services["/start_collect"] = ("/rogue", "tianji_interfaces/srv/StartCollect")
         with self.assertRaises(IdentityConflict):
             self.supervisor.start()
         self.assertEqual(self.events, [])
@@ -875,7 +875,8 @@ class CollectionObserverTests(unittest.TestCase):
         services = [
             ("/data_collector/get_parameters", ["rcl_interfaces/srv/GetParameters"]),
             ("/tianji/collection/check_ready", ["std_srvs/srv/Trigger"]),
-            ("/tianji/collection/command", ["tianji_interfaces/srv/RecordingCommand"]),
+            ("/start_collect", ["tianji_interfaces/srv/StartCollect"]),
+            ("/stop_collect", ["tianji_interfaces/srv/StopCollect"]),
         ]
         node.get_service_names_and_types_by_node.return_value = services
         endpoint = SimpleNamespace(node_name="data_collector", node_namespace="/", endpoint_gid=b"collector")

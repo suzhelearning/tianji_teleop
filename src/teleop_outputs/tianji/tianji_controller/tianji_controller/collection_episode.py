@@ -10,7 +10,7 @@ from .safety import SafetyFault
 
 
 class CollectionEpisodes:
-    def __init__(self, gate, observer, *, timeout_s=30.0, notify=print):
+    def __init__(self, gate, observer, *, timeout_s=300.0, notify=print):
         self.gate = gate
         self.observer = observer
         self.state = "WAITING"
@@ -27,6 +27,8 @@ class CollectionEpisodes:
         self._active_path = ""
         self._completed = False
         self._number = 0
+        self._episode_id = ""
+        self._saved_path = ""
 
     def on_key(self, key):
         """Accept only a current-state action; never queue the next episode."""
@@ -65,6 +67,9 @@ class CollectionEpisodes:
         self._previous_saved = status.last_saved_path
         self._active_path = status.active_path
         self._completed = False
+        if operation == "start":
+            self._episode_id = ""
+        self._saved_path = ""
         self._future = self.observer.submit_recording(operation)
 
     def _acknowledged(self, now_ns):
@@ -76,8 +81,17 @@ class CollectionEpisodes:
             reply = self._future.result()
         except Exception as error:
             raise SafetyFault(f"collection {self._operation} failed: {error}") from error
-        if not reply.accepted:
+        if not reply.success:
             raise SafetyFault(f"collection {self._operation} rejected: {reply.message}")
+        if reply.session_id != self.observer.session_id or not reply.episode_id:
+            raise SafetyFault("collection result identity mismatch")
+        if self._operation == "start":
+            if reply.state != "RECORDING":
+                raise SafetyFault("collector has not completed recording start")
+            self._episode_id = reply.episode_id
+        elif reply.episode_id != self._episode_id or reply.state != "IDLE":
+            raise SafetyFault("collector has not completed this episode")
+        self._saved_path = reply.saved_path
         return True
 
     def _current_result(self, status):
@@ -136,7 +150,8 @@ class CollectionEpisodes:
 
         if self.state == "STARTING":
             if self._acknowledged(now_ns) and self._current_result(status):
-                if status.state == "RECORDING" and status.active_path:
+                if (status.state == "RECORDING" and status.active_path
+                        and status.episode_id == self._episode_id):
                     if self.gate.teleop_stopped:
                         self.gate.release_teleop_hold()
                         self._active_path = status.active_path
@@ -147,7 +162,8 @@ class CollectionEpisodes:
 
         if self.state == "RECORDING":
             if (status.state != "RECORDING" or status.active_path != self._active_path
-                    or status.session_id != self.observer.session_id):
+                    or status.session_id != self.observer.session_id
+                    or status.episode_id != self._episode_id):
                 raise SafetyFault("active recording lost; stopping episode without automatic Home")
             if key in ("s", "d", "q"):
                 self._finish = key == "q"
@@ -159,12 +175,14 @@ class CollectionEpisodes:
         if self.state == "ENDING":
             acknowledged = self._acknowledged(now_ns)
             if acknowledged and self._current_result(status):
-                if status.state == "IDLE" and not status.active_path:
+                if (status.state == "IDLE" and not status.active_path
+                        and status.last_episode_id == self._episode_id):
                     if self._operation == "save" and (
-                            not status.last_saved_path or status.last_saved_path == self._previous_saved):
+                            not self._saved_path or status.last_saved_path != self._saved_path
+                            or status.last_saved_path == self._previous_saved):
                         raise SafetyFault("save acknowledged but no new saved episode was confirmed")
                     self._completed = True
-                elif status.state not in ("RECORDING", "SAVING", "DISCARDING"):
+                elif status.state not in ("IDLE", "RECORDING", "SAVING", "DISCARDING"):
                     raise SafetyFault(f"unexpected collector finish state {status.state}")
             if self._completed and self.gate.teleop_stopped:
                 self.gate.start_homing(frame, feedback, now_ns)

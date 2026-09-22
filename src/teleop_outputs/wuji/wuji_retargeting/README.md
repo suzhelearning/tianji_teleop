@@ -80,12 +80,12 @@ python -m example.teleop_sim --play data/avp1.pkl --hand right --config config/v
 
 Other input sources — video, RealSense, ZED, and Vision Pro — use the same `teleop_*.py` entry with the matching flag. For full commands, Wuji Glove preparation, Wuji Hand 2, and the tuning tool, see the docs below.
 
-For Manus, keep the existing paired `.mcal` calibrations in the Manus package's
-`calibration/` directory. After building the native SDK collector with that
-package's `build.sh`, launch through the workspace entry `bash bash/run_manus.sh`
-(or `python -m manus_bridge.start_hand_teleop --list-users` /
-`--user <USER>` in the Pixi environment). Hand offset calibration is
-`python -m example.calibrate_offset --help`.
+The workspace Manus route now uses ROS acquisition, semantic landmarks and the
+official Wuji SDK Hand2 `RetargetSession`, not this legacy Pinocchio pipeline.
+Keep wearer calibrations in `profiles/<USER>/manus/`; build with
+`bash bash/build_manus.sh`, then run `bash bash/run_manus.sh --user <USER>`.
+It publishes named 20-joint ROS targets only and does not execute hardware.
+This library and its other offline tools remain available independently.
 
 ## Documentation
 

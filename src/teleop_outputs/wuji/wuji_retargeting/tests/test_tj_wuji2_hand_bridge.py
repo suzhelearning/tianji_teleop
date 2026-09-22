@@ -341,42 +341,6 @@ class ModelWristFrameTests(unittest.TestCase):
                     untouched = [i for i in range(20) if i // 4 != slot // 4]
                     self.assertLess(float(np.max(np.abs(output[untouched]))), 0.05)
 
-    def test_sdk_world_stream_preserves_palmward_finger_flexion(self):
-        from scipy.spatial.transform import Rotation
-        from manus_bridge.manus_hand_input import ManusParser
-
-        rotation = Rotation.from_euler("xyz", [25, -40, 70], degrees=True).as_matrix()
-        for side, sdk_side in (("left", 1), ("right", 2)):
-            for stem in ("thumb_mcp", "index_finger_pip", "middle_finger_pip",
-                         "ring_finger_pip", "pinky_pip"):
-                with self.subTest(side=side, joint=stem):
-                    hand = bridge.HandRetargeter(side)
-                    qpos = np.zeros(20)
-                    names = hand.retargeter.optimizer.robot.dof_joint_names
-                    qpos[names.index(side[0] + "_" + stem)] = 0.6
-                    points = self.model_landmarks(hand, side, qpos) @ rotation.T + [1, 2, 3]
-                    nodes = [(701, 701, 13, sdk_side, 0, 0)]
-                    for finger, chain in enumerate(range(5, 10)):
-                        parent = 701
-                        joints = (1, 2, 4, 5) if chain == 5 else (2, 3, 4, 5)
-                        for offset, joint in enumerate(joints):
-                            keypoint = 1 + finger * 4 + offset
-                            node_id = 1000 + keypoint * 17
-                            nodes.append((node_id, parent, chain, sdk_side, joint, keypoint))
-                            parent = node_id
-                    nodes.reverse()
-                    parser = ManusParser()
-                    parser.feed_line(f"HAND abc {side.title()} 21", now_ns=1000)
-                    for index, node in enumerate(nodes):
-                        parser.feed_line(f"NODE abc {index} " + " ".join(map(str, node[:5])), now_ns=1000)
-                    values = [value for node in nodes for value in (*points[node[5]], 1, 0, 0, 0)]
-                    frame = parser.feed_line("POSE abc 1 1000 0 " + " ".join(map(str, values)), now_ns=1000)
-                    self.assertIsNotNone(frame)
-                    decoded = bridge.interpret_hand_input(message(frame.data, side))[side]
-                    for _ in range(25):
-                        output = hand.retarget(decoded)
-                    slot = hand_protocol.JOINT_STEMS.index(stem)
-                    self.assertAlmostEqual(float(output[slot]), 0.6, delta=0.05)
 
     def test_rigid_hand_motion_preserves_model_wrist_targets(self):
         from scipy.spatial.transform import Rotation

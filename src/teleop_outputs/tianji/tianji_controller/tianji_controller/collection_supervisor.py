@@ -24,7 +24,8 @@ class CollectionSupervisor:
     SERVICES = {
         CAMERA: {"/tianji/cameras/check_ready": "std_srvs/srv/Trigger"},
         COLLECTOR: {"/tianji/collection/check_ready": "std_srvs/srv/Trigger",
-                    "/tianji/collection/command": "tianji_interfaces/srv/RecordingCommand"},
+                    "/start_collect": "tianji_interfaces/srv/StartCollect",
+                    "/stop_collect": "tianji_interfaces/srv/StopCollect"},
     }
 
     def __init__(self, observer, dataset, task, config, model):

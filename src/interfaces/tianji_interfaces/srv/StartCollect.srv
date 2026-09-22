@@ -1,0 +1,16 @@
+# Recording only: never enables or commands hardware.
+# UUID retained by the caller on retry. episode_id equals request_id for this session.
+string request_id
+string session_id
+uint64 phase_revision
+# Empty uses the collector's configured task; a nonempty value must match it.
+string task
+---
+# True only once the episode writer has entered RECORDING, not when queued.
+bool success
+string request_id
+string session_id
+string episode_id
+string state
+string saved_path
+string message

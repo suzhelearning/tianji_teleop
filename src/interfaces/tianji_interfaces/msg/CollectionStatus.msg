@@ -1,9 +1,14 @@
 # Collector status. Published 10 Hz and immediately on every transition.
 #
-# This reports what the collector has *already done*, not what a request asked
-# for: a service response is an enqueue acknowledgement, the outcome is here.
+# This reports what the collector has already done. Service success also means
+# completion; consumers correlate both results with executor and episode IDs.
 
 string session_id
+
+# Active episode identity through STARTING/RECORDING/finalization; empty in IDLE.
+string episode_id
+# Most recently completed episode, including discarded/aborted episodes.
+string last_episode_id
 
 # Host CLOCK_MONOTONIC nanoseconds at publication.
 int64 published_monotonic_ns

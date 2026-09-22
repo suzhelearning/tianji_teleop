@@ -7,6 +7,11 @@
 本轮安装与图形窗口证据及仍待完成项统一见[迁移验证状态](docs/migration-verification-status.md)。
 本文历史实机、微基准和回归记录保留原日期与范围，不作为迁移后的硬件或全量测试通过声明。
 
+> Manus 范围更新（2026-09-22）：当前 `run_manus.sh` 已切换为 ROS 采集、21 点适配、
+> SDK Hand2 重定向和左右手各 20 维命令发布；不再发送 TJH2，尚未接入执行器。
+> 本页旧 `/hand_input`、私有 worker、`--check`／`--port` 和 Manus 联合真机／仿真命令
+> 仅保留为历史记录，不可作为当前操作步骤。当前入口与边界见 [Manus 发布链](README.md#picomanus-双臂双手遥操)。
+
 # 天机遥操数据采集
 
 PICO 裸手使用独立[仿真入口 `bash/run_pico_hand_sim.sh --height-m HEIGHT`](src/teleop_inputs/pico_hand/README.md)，只保留共享根 DLS/Ruckig，旧 V131 和模式选择已删除。

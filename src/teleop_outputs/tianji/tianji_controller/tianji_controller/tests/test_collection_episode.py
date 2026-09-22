@@ -14,9 +14,12 @@ class Observer:
 
     def __init__(self):
         self.requests = []
+        self.episode_id = ""
+        self.number = -1
         self.message = SimpleNamespace(
             state="IDLE", session_id=self.session_id, published_monotonic_ns=NOW,
-            error="", prepared=True, inputs_ready=True, active_path="", last_saved_path="")
+            error="", prepared=True, inputs_ready=True, active_path="", last_saved_path="",
+            episode_id="", last_episode_id="")
 
     def status(self):
         return self.message
@@ -25,13 +28,20 @@ class Observer:
         self.phase = phase
 
     def submit_recording(self, command):
+        if command == "start":
+            self.number += 1
+            self.episode_id = f"episode-{self.number}"
         future = Future()
         self.requests.append((command, future))
         return future
 
     def acknowledge(self, accepted=True):
+        command = self.requests[-1][0]
         self.requests[-1][1].set_result(SimpleNamespace(
-            accepted=accepted, state=self.message.state, message="accepted" if accepted else "rejected"))
+            success=accepted, state="RECORDING" if command == "start" else "IDLE",
+            session_id=self.session_id, episode_id=self.episode_id,
+            saved_path=f"{self.episode_id}.h5" if command == "save" else "",
+            message="completed" if accepted else "rejected"))
 
 
 class Run:
@@ -68,6 +78,7 @@ class Run:
         assert self.observer.requests[-1][0] == "start"
         self.observer.acknowledge()
         self.observer.message.state = "RECORDING"
+        self.observer.message.episode_id = self.observer.episode_id
         self.observer.message.active_path = f"episode-{index}.partial.h5"
         self.until("RECORDING")
 
@@ -75,7 +86,9 @@ class Run:
         self.observer.acknowledge()
         self.observer.message.state = "IDLE"
         self.observer.message.active_path = ""
-        self.observer.message.last_saved_path = f"episode-{index}.h5"
+        self.observer.message.episode_id = ""
+        self.observer.message.last_episode_id = self.observer.episode_id
+        self.observer.message.last_saved_path = f"{self.observer.episode_id}.h5"
 
 
 def test_three_episodes_home_without_rearming_and_explicit_final_exit():
@@ -116,6 +129,7 @@ def test_start_acknowledgement_does_not_release_before_recording_status():
         assert run.tick(target=.8) == alignment
         assert run.episodes.state == "STARTING"
     run.observer.message.state = "RECORDING"
+    run.observer.message.episode_id = run.observer.episode_id
     run.observer.message.active_path = "new.partial.h5"
     run.until("RECORDING", target=.8)
     assert run.tick(target=.8)["arms"] != alignment["arms"]
@@ -142,6 +156,7 @@ def test_busy_keys_are_not_replayed_and_stale_idle_is_not_save_confirmation():
     run.observer.acknowledge()
     run.observer.message.state = "IDLE"
     run.observer.message.active_path = ""
+    run.observer.message.last_episode_id = run.observer.episode_id
     with pytest.raises(SafetyFault, match="no new saved episode"):
         run.tick()
     assert [op for op, _ in run.observer.requests] == ["start", "save"]
@@ -177,3 +192,33 @@ def test_finish_during_recording_saves_and_waits_for_home_before_exit():
     run.until("DONE")
     assert run.positions["arms"] == HOME_LEFT + HOME_RIGHT
     assert run.motion.armed and run.episodes.done
+
+
+def test_completed_start_cannot_release_another_episode_status():
+    run = Run()
+    run.episodes.on_key("r")
+    run.until("STARTING")
+    hold = dict(run.positions)
+    run.observer.acknowledge()
+    run.observer.message.state = "RECORDING"
+    run.observer.message.active_path = "foreign.partial.h5"
+    run.observer.message.episode_id = "another-episode"
+    for _ in range(10):
+        assert run.tick(target=.8) == hold
+    assert run.episodes.state == "STARTING"
+
+
+def test_idle_status_without_completed_stop_response_cannot_start_home():
+    run = Run()
+    run.start(1)
+    run.episodes.on_key("d")
+    run.tick()
+    run.observer.message.state = "IDLE"
+    run.observer.message.active_path = ""
+    run.observer.message.episode_id = ""
+    run.observer.message.last_episode_id = run.observer.episode_id
+    for _ in range(10):
+        run.tick()
+    assert run.episodes.state == "ENDING" and run.motion.phase == "TELEOP"
+    run.observer.acknowledge()
+    run.until("HOMING")

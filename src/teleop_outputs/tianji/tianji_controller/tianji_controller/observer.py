@@ -32,6 +32,7 @@ class ExecutorObserver:
         self._commands = queue.Queue(maxsize=8)
         self._requests = queue.Queue(maxsize=8)
         self._recording_receipts = set()
+        self._episode_id = ""
         self._abort = threading.Event()
         self._stop = threading.Event()
         self._ready = threading.Event()
@@ -67,11 +68,10 @@ class ExecutorObserver:
         return queued
 
     def submit_recording(self, command: str) -> Future:
-        """Enqueue without RPC/wait; resolve to RecordingCommand.Response.
+        """Enqueue without RPC/wait; resolve to a completed start/stop response.
 
-        A rejected RPC still returns its response (accepted=False). Local rejection,
-        cancellation by teardown, or an unknown RPC outcome raises on result().
-        No failure is retried automatically.
+        A rejected RPC returns success=False. Unknown outcomes raise and never
+        release motion. One UUID is retained for the lifetime of each request.
         """
         result, _ = self._enqueue_recording(command)
         return result
@@ -89,7 +89,9 @@ class ExecutorObserver:
                 error = RuntimeError(self._collection_error or "recording requires healthy TELEOP")
             else:
                 try:
-                    self._commands.put_nowait((command, self.session_id, revision, result))
+                    self._commands.put_nowait((
+                        command, self.session_id, revision, result,
+                        str(uuid.uuid4()), self._episode_id))
                 except queue.Full:
                     self._dropped += 1
                     error = RuntimeError("recording command queue full")
@@ -170,7 +172,8 @@ class ExecutorObserver:
         if sum(name == "data_collector" and namespace == "/" for name, namespace in nodes) != 1:
             raise RuntimeError("collection node identity missing or ambiguous")
         for service, kind in (
-                ("/tianji/collection/command", "tianji_interfaces/srv/RecordingCommand"),
+                ("/start_collect", "tianji_interfaces/srv/StartCollect"),
+                ("/stop_collect", "tianji_interfaces/srv/StopCollect"),
                 ("/tianji/collection/check_ready", "std_srvs/srv/Trigger"),
                 ("/data_collector/get_parameters", "rcl_interfaces/srv/GetParameters")):
             if self._service_owners(node, service) != [("/data_collector", [kind])]:
@@ -213,6 +216,7 @@ class ExecutorObserver:
     def _run(self):
         context = node = executor = None
         pending = []
+        recording_requests = {}
         try:
             os.environ.setdefault("RMW_IMPLEMENTATION", "rmw_fastrtps_cpp")
             os.environ.setdefault("ROS_AUTOMATIC_DISCOVERY_RANGE", "LOCALHOST")
@@ -224,7 +228,7 @@ class ExecutorObserver:
             from rcl_interfaces.srv import GetParameters
             from std_srvs.srv import Trigger
             from tianji_interfaces.msg import DeviceFeedback, ExecutorState, CollectionStatus
-            from tianji_interfaces.srv import RecordingCommand
+            from tianji_interfaces.srv import StartCollect, StopCollect
 
             context = Context()
             # No global signal handlers: the foreground executor owns SIGINT/SIGTERM.
@@ -255,7 +259,8 @@ class ExecutorObserver:
                 self._receive_status(message, gid)
 
             node.create_subscription(CollectionStatus, "/tianji/collection/status", receive_status, status_qos)
-            command_client = node.create_client(RecordingCommand, "/tianji/collection/command")
+            start_client = node.create_client(StartCollect, "/start_collect")
+            stop_client = node.create_client(StopCollect, "/stop_collect")
             clients = {}
             state_sequence = 0
             feedback_sequences = {name: 0 for name in publishers}
@@ -309,8 +314,10 @@ class ExecutorObserver:
                         future, _, _, label, command_revision = entry
                         if command_revision is not None:
                             pending.remove(entry)
+                            recording_requests.pop(future, None)
                             future.cancel()
-                    request = ("abort", self.session_id, revision, None)
+                    request = ("abort", self.session_id, revision, None,
+                               str(uuid.uuid4()), self._episode_id)
                 elif not any(command_revision is not None for _, _, _, _, command_revision in pending):
                     try:
                         request = self._commands.get_nowait()
@@ -319,7 +326,7 @@ class ExecutorObserver:
                 else:
                     request = None
                 if request is not None:
-                    command, session, command_revision, receipt = request
+                    command, session, command_revision, receipt, request_id, episode_id = request
                     try:
                         if self._status_gid is None:
                             raise RuntimeError("collector has not been verified")
@@ -334,11 +341,24 @@ class ExecutorObserver:
                                     or time.monotonic_ns() - current_touched > 300_000_000
                                     or receipt not in self._recording_receipts or receipt.cancelled()):
                                 raise RuntimeError(self._collection_error or "recording precondition changed")
-                        if not command_client.service_is_ready():
+                        client = start_client if command == "start" else stop_client
+                        if not client.service_is_ready():
                             raise RuntimeError("service unavailable")
-                        future = command_client.call_async(RecordingCommand.Request(
-                            command=command, session_id=session, phase_revision=command_revision))
-                        pending.append((future, now + 2, receipt, command, command_revision))
+                        if command == "start":
+                            message = StartCollect.Request(
+                                request_id=request_id, session_id=session,
+                                phase_revision=command_revision, task="")
+                            episode_id = request_id
+                            with self._lock:
+                                self._episode_id = episode_id
+                        else:
+                            message = StopCollect.Request(
+                                request_id=request_id, session_id=session,
+                                phase_revision=command_revision, episode_id=episode_id,
+                                save=command == "save", abort=command == "abort")
+                        future = client.call_async(message)
+                        recording_requests[future] = (request_id, session, episode_id)
+                        pending.append((future, now + 300, receipt, command, command_revision))
                     except Exception as error:
                         if receipt is not None:
                             self._finish_recording(receipt, error=error)
@@ -398,12 +418,14 @@ class ExecutorObserver:
                     recording = command_revision is not None
                     if recording and result is not None and result.done():
                         pending.remove(entry)
+                        recording_requests.pop(future, None)
                         future.cancel()
                         self._finish_recording(result, error=RuntimeError("recording receipt cancelled"))
                         continue
                     if not future.done() and now < deadline:
                         continue
                     pending.remove(entry)
+                    expected_recording = recording_requests.pop(future, None)
                     try:
                         if not future.done():
                             future.cancel()
@@ -412,6 +434,11 @@ class ExecutorObserver:
                             raise RuntimeError(f"{label}: RPC cancelled; operation result UNKNOWN; do not retry")
                         response = future.result()
                         if recording:
+                            if (response.request_id, response.session_id, response.episode_id) != expected_recording:
+                                raise RuntimeError("recording response identity mismatch")
+                            if response.success and response.state != (
+                                    "RECORDING" if label == "start" else "IDLE"):
+                                raise RuntimeError("recording response is not a completed operation")
                             with self._lock:
                                 current_phase, current_revision, current_faulted, _, current_touched = self._state
                                 if result is not None and (
@@ -421,8 +448,10 @@ class ExecutorObserver:
                                         or time.monotonic_ns() - current_touched > 300_000_000):
                                     raise RuntimeError("recording precondition changed; operation result UNKNOWN; do not retry")
                                 completed = result is None or self._finish_recording(result, response=response)
+                                if response.success and label != "start" and self._episode_id == response.episode_id:
+                                    self._episode_id = ""
                             if completed:
-                                print(f"COLLECTION {label}: accepted={response.accepted} "
+                                print(f"COLLECTION {label}: success={response.success} "
                                       f"state={response.state} {response.message}", flush=True)
                         else:
                             result.set_result(response)

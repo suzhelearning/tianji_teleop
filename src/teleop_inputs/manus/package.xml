@@ -4,24 +4,28 @@
   <name>manus_bridge</name>
   <version>0.3.0</version>
   <description>
-    Manus Metaglove Pro input: the Integrated SDK collector launcher and the
-    /hand_input publisher that feeds the Wuji Hand2 retargeter. Per-user
-    calibration lives in workspace profiles. Input only; it never commands hardware.
+    Calibrated MANUS Integrated SDK acquisition, semantic skeleton adaptation,
+    and Wuji SDK Hand2 retargeting to per-hand 20-joint ROS commands.
+    Publication only; this package never connects to or enables Wuji hardware.
   </description>
   <maintainer email="ops@example.com">Tianji operators</maintainer>
   <license>Apache-2.0</license>
+  <license>MIT</license>
 
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>ament_cmake_python</buildtool_depend>
+  <depend>rclcpp</depend>
+  <depend>geometry_msgs</depend>
+  <depend>tianji_interfaces</depend>
   <exec_depend>rclpy</exec_depend>
-  <exec_depend>std_msgs</exec_depend>
-  <exec_depend>tianji_interfaces</exec_depend>
-  <!-- The default ROS decoder and the isolated manus worker share the
-       existing Wuji bridge implementation. Native imports occur only in the
-       worker's own environment, never through a foreign Python path. -->
-  <exec_depend>wuji_retargeting</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
 
   <test_depend>python3-pytest</test_depend>
 
   <export>
-    <build_type>ament_python</build_type>
+    <build_type>ament_cmake</build_type>
   </export>
 </package>

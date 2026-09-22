@@ -19,13 +19,11 @@
 已安装并完成本人标定后的常用命令：
 
 ```bash
-# 终端 A（需要双手时）：Manus 使用本人已有的手套标定
-pixi run manus --calibration-user MANUS_USER --check
+# Manus 独立发布左右手各 20 维 ROS 目标；当前不连接执行器
 pixi run manus --calibration-user MANUS_USER
 
-# 终端 B：PICO 人员选择 + DLS/Ruckig 双臂 + 默认双手接收
-bash bash/run_teleop.sh --sim --user NEW_USER
-# 不使用手套：bash bash/run_teleop.sh --sim --user NEW_USER --no-hand-teleop
+# PICO 人员选择 + DLS/Ruckig 双臂仿真（不接入新 Manus 目标）
+bash bash/run_teleop.sh --sim --user NEW_USER --no-hand-teleop
 ```
 
 首次使用不要跳过下方安装、PICO 标定和 Manus 准备步骤。PICO 人员名与 Manus 标定名
@@ -52,8 +50,9 @@ bash bash/install.sh
 
 `bash/install.sh` 按锁文件安装 default、control、cameras、manus、policy 及独立外骨骼／PICO2
 环境，构建 default/policy ROS 工作空间、原生控制器和 Manus；不会启动设备。
-默认运行环境为 **ROS 2 Jazzy＋Python 3.12＋Fast DDS**。控制工具链、官方 RealSense
-4.58.3 驱动和 ROS-free Manus 重定向分别隔离，入口自动选择环境，不创建或使用旧 `.venv`。
+默认运行环境为 **ROS 2 Jazzy＋Python 3.12＋Fast DDS**。控制工具链和官方 RealSense
+4.58.3 驱动保持隔离；新 Manus ROS 链在 default 中使用 `wuji-sdk==2026.8.31` 的
+`RetargetSession`，只发布目标，不连接 Wuji。旧 manus/Pinocchio 环境不再用于该入口。
 构建输出为 `build/<环境>`、`install/<环境>`、`log/<环境>`，原生程序在 `install/control/bin/`。
 不要 source 旧 tracking/Humble 或其他环境的 overlay。
 
@@ -147,7 +146,6 @@ profiles/zjx/
 
 ```bash
 bash bash/run_manus.sh --list-calibration-users
-bash bash/run_manus.sh --user zjx --check  # 只检查，不连接设备或发送数据
 bash bash/run_manus.sh --user zjx
 # 等价人员选择：bash bash/run_manus.sh --calibration-user zjx
 ```
@@ -293,80 +291,60 @@ H.264 使用 PICO 的 4 字节大端长度头协议，按请求尺寸生成左�
 
 ## PICO＋Manus 双臂＋双手遥操
 
-### DLS＋Ruckig 双臂＋Manus（新接入）
+### 当前范围：Manus 仅发布 Hand2 ROS 命令
 
-先按第 2 节完成 PICO 标定。Manus 需要单独的左右 `.mcal` 文件，PICO 标定不会生成它们。
-首次／更新手部原生代码后执行以下准备。Manus 采集／ROS 适配由 default Jazzy 环境启动，
-重定向使用独立 Python 3.12＋Pinocchio 3.8、无 ROS 的 manus 环境，经私有通道交接，不混入其他环境的 Python 库：
-
-```bash
-# SDK 若仍是 Git LFS 占位文件，先取回真实库
-git lfs pull --include="vendor/manus_sdk/lib/libManusSDK_Integrated.so"
-pixi run prepare-manus
-```
-
-该步骤只安装／编译依赖，不连接手套。完整安装已包含它；仅运行 `pixi run build` 不能替代 Manus 准备。
-`bash bash/run_manus.sh` 与下列 Pixi 入口使用同一环境路由，不再使用旧解释器回退。
-两个终端分别运行：
+新 Manus 路线迁入参考 `wuji_teleop-main` 的采集／语义适配和 SDK Hand2 重定向，
+不再运行 rawviz 文本管道、私有重定向 worker 或 TJH2 UDP 出口。
+**本次止于目标发布，没有接入仿真／真机执行器，也不改变采集系统。**
+不能把下面的 ROS 命令当作电机已经执行，不能依靠启动 `--data` 来消费这些新目标。
 
 ```bash
-# 终端 A：只读列出具备双侧文件的 Manus 标定名
-pixi run manus --list-calibration-users
-# 可选：准备好本人标定后，只检查运行环境和模型，不启动设备
-# pixi run manus --calibration-user MANUS_USER --check
-# 将 MANUS_USER 换成实际佩戴者对应的手套标定名
-pixi run manus --calibration-user MANUS_USER
-
-# 终端 B：PICO 人员 + 默认 DLS/Ruckig 双臂 + 手部接收
-bash bash/run_teleop.sh --sim --user NEW_USER
-# 等价：pixi run sim --user NEW_USER
-# 仅双臂：bash bash/run_teleop.sh --sim --user NEW_USER --no-hand-teleop
+# 首次／原生代码更新后：只构建，不启动设备
+bash bash/build_manus.sh
+# NAME 必须替换为实际佩戴者的完整左右手标定名
+bash bash/run_manus.sh --user NAME
 ```
 
-`--calibration-user` 显式选择 Manus 标定，不依赖旧 `profile.yaml`，不修改人员配置。
-已有完整档案时，终端 A 也可用 `bash bash/run_manus.sh --user NEW_USER` 保留原映射选择。
-不得同时启动两套 Manus 或外骨骼；仿真不自动启动／停止 Manus，退出后在其终端 Ctrl+C。
-
-点击机械臂窗口按 S 后双臂、双手跟随。P／空格停止跟随；H 仅让双臂回 Home，
-手指保持。WAIT、制动、Home、HOLD、FAULT 均不跟随手套；重新 S 后只接受新样本。
-单侧手部失鲜时该侧保持，恢复新鲜数据后在 TELEOP 内继续；手部失鲜不单独停止双臂。
-Ruckig 用于双臂，手指复用现有插值、时效检查和模型限位，不宣称手指经过 Ruckig。
-
-默认手部端口为本机 `16000`；改端口时，Manus 加 `--port PORT`，仿真加 `--hand-port PORT`，
-并与 PICO 端口不同。本模式仍不支持动力学／真机，默认会话日志也不是完整 Manus 原始录制。
-该接线已进行离线测试，真实 Manus＋PICO 联合仿真仍需现场验证。
-
-### 旧 SPARK 双臂＋Manus
-
-这一路 PICO 控制双臂，Manus 控制双 Hand2。需要正确的人员档案及独立的 Manus 标定；
-`setup-pico` **不会生成 Manus 标定或旧完整 `profile.yaml`**。
-先按[完整人员档案说明](README-reference.md#人员档案与标定版本)准备已发布的 PICO 配置，
-核对档案的 `manus.user` 及对应的左右 `.mcal` 文件。
-
-安装完成后，以下三个终端分别运行；`NEW_USER` 必须是实际已有完整档案的佩戴者：
+`run_manus.sh` 只管理 Pixi/default 和 Jazzy overlay，然后执行：
 
 ```bash
-# 终端 A：完整档案 PICO 输入（不能与其他输入会话重复启动）
-pixi shell -e default
-source bash/environment.sh
-PICO_PROFILE_DIR=$(python -m tianji profile --user NEW_USER --component pico) &&
-bash bash/start_tianji_pico_teleop.sh --calibration-dir "$PICO_PROFILE_DIR"
-
-# 终端 B：Manus 已开机、配对，保持此终端运行
-bash bash/run_manus.sh --list-users
-bash bash/run_manus.sh --user NEW_USER
-
-# 终端 C：双臂＋双手仿真，必须显式选择旧 SPARK 路线
-bash bash/run_teleop.sh --sim --ik-backend spark
-# 若需要动力学，改用：
-# bash bash/run_teleop.sh --sim --ik-backend spark --simulation-mode dynamics
+# 已进入 Pixi 且 source bash/environment.sh 后
+ros2 launch manus_bridge manus_hand2.launch.py user:=NAME
 ```
 
-此处是旧 SPARK 路线，不能省略 `--ik-backend spark`；新 DLS 路线默认接收手部输入，
-无需再加 `--hand-teleop`。
-先小幅检查双臂，再保持手腕稳定逐指检查左右对应和弯曲方向。
-结束时先退出执行端，再在 Manus 终端 Ctrl+C，最后 `pixi run stop-pico`。
-完整接线、环境和诊断见[联合仿真参考](README-reference.md#一仿真遥操作)。
+| 边界 | ROS 消息与话题 |
+|---|---|
+| Manus 采集 | `tianji_interfaces/msg/ManusGlove`，`/manus/raw/{left,right}` |
+| 21 点骨架适配 | `tianji_interfaces/msg/HandLandmarks`，`/manus/landmarks/{left,right}` |
+| 每手 20 关节目标 | `tianji_interfaces/msg/HandJointCommand`，`/wuji/{left,right}_hand/joint_commands` |
+
+三段均为 BEST_EFFORT／KEEP_LAST 1／VOLATILE。每侧携带 `glove_id`、`side`、
+`session_id`、`boot_id`、`sequence`、`source_monotonic_ns` 和 `valid`；
+时间在 SDK 原始骨架回调处取本机 CLOCK_MONOTONIC，并在适配／求解后原样保留，
+不是手套内部采样时间。关节单位 rad，顺序为 thumb/index/middle/ring/pinky 各 S1～S4。
+原始姿态使用右手 VUH XFromViewer、Z-up、世界坐标米；适配器仅做一次 `(x,-y,z)` 转换。
+
+无新源帧不重复刷新目标时间；单侧超时、无效骨架或发布者冲突会发布 `valid=false`，
+无效数值使用 NaN，绝不当作补零命令。另一侧数据不会刷新失鲜侧。
+启动／模型加载日志不代表有有效目标；需看到各侧 `published first fresh valid 20-joint commands`。
+
+```bash
+# 只读观察，不连接 Wuji 设备；需在同一 ROS 环境
+ros2 topic echo /wuji/left_hand/joint_commands
+ros2 topic echo /wuji/right_hand/joint_commands
+```
+
+调试可以只运行适配／求解节点：
+`ros2 launch manus_bridge manus_hand2.launch.py user:=NAME start_acquisition:=false`。
+该模式不启动 Manus SDK，仍校验所选人员档案，等待外部测试骨架；
+离线验证应在 source 环境后设置 `ROS_DOMAIN_ID=121`，不要向生产域注入合成数据。
+`--check`、`--host`、`--port` 和旧 `/hand_input`／UDP 接线已退役，不保留旧后端回退。
+两只手仍须使用本人的 `.mcal`，不会复制参考仓库的标定、设备身份或自动使能设置。
+
+后续执行接入须单独实现：现有执行器保有唯一硬件写入权和最小安全门控，
+逐条录制确认开始后才放行手部目标；记录真机反馈，而不是把重定向目标当作实测状态。
+外骨骼现有 TJH2 路线、PICO 裸手、双臂 DLS/Ruckig 和真机授权未在本次修改。
+
 
 ## 外骨骼替代 Manus
 
@@ -472,6 +450,24 @@ policy 锁定 CPU PyTorch 2.10 与 Zenoh；GPU 运行库及模型权重仍须显
 | 双侧实测标定、完整人员档案 | [人员档案参考](README-reference.md#人员档案与标定版本) |
 | Manus／外骨骼输入 | [输入链路参考](README-reference.md#2-启动-manus-灵巧手输入)，一次只选一种 |
 | 真机遥操 | [真机预检与授权流程](README-reference.md#二真机遥操作)，不沿用仿真放行结论 |
+录制控制已统一为两个 ROS Service，旧 `/tianji/collection/command` 已移除：
+
+| 按键 | Service | 完成条件 |
+|---|---|---|
+| `r` | `/start_collect` (`tianji_interfaces/srv/StartCollect`) | writer 已进入 RECORDING；执行器再核对当前状态的会话／条目标识后放行跟随 |
+| `s` | `/stop_collect` (`tianji_interfaces/srv/StopCollect`)，`save=true, abort=false` | 文件保存完成，且停止跟随已完成，再回双臂 Home |
+| `d` | `/stop_collect`，`save=false, abort=false` | 本条文件丢弃完成，且停止跟随已完成，再回双臂 Home |
+
+请求携带 `request_id`（规范 UUID）、`session_id` 和 `phase_revision`；
+start 的可选 `task` 必须与采集器启动配置一致，空值沿用配置。start 的 `episode_id`
+等于它的 `request_id`，stop 必须指定这个条目。响应 `success` 是完成结果，不是入队确认，
+并回传请求／会话／条目标识、状态、`saved_path` 与错误说明。
+同一进程内，同 UUID／同参数重试复用原结果或等待原操作；同 UUID 改参数拒绝，
+旧条目的 stop 不能结束新条目。缓存不跨 collector 重启，执行器不自动重放未知结果。
+`CollectionStatus` 增加 `episode_id`／`last_episode_id`，用于与服务结果交叉核对。
+故障／退出内部使用 `abort=true, save=false` 保留 partial，不等同于操作者 `d` 的删除。
+所有 Service 只操作录制；首次本地使能、运动门控、Home 和实际反馈采集仍由原模块负责。
+
 | 数据集／相机／录制 | [采集参考](README-reference.md#观测数据集采集r--s--d) |
 | 控制器与原生测试 | [原生控制器 README](src/teleop_outputs/tianji/tianji_controller/native/README.md) |
 | 安装细节、目录与历史说明 | [完整参考页](README-reference.md) |

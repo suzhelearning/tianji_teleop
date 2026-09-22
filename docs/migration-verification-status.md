@@ -4,6 +4,72 @@
 
 > 范围更新：现已按三条主输入路线移除旧 PICO 专用录制、外接 IMU 与 Odin 辅助包；正式 schema-v1 collector 和 PICO2 仿真录制保留。下方第 1～5 节是删除前的迁移验收快照，历史构建数量和测试数量不反写为本次结果；删除后的验证另记于文末。
 
+## 采集双服务与三键门控（2026-09-22）
+
+录制控制已从旧 `RecordingCommand` 切换为 `/start_collect`（StartCollect）和
+`/stop_collect`（StopCollect），没有旧服务别名。请求按规范 UUID、执行会话、
+phase_revision 与条目 ID 关联；start 的条目 ID 等于该请求 UUID。
+同进程重复请求返回原完成结果或等待同一在途操作，UUID 改参数拒绝，
+拒绝过的同一请求不会在授权条件改变后悄悄变成成功。
+
+- r 等待实际开始的成功响应及匹配的当前 RECORDING 状态，再释放原执行器的跟随保持。
+- s/d 先停止跟随，再请求保存／丢弃；只有本条完成响应、匹配终态和受控制动完成，
+  才允许双臂 Home。迟到的上一条 stop 或状态不能作用于下一条。
+- stop 的内部 abort 标志保留 partial，不等同操作者 d。慢写盘期间服务异步等待，
+  不阻塞 DDS 图像、实测反馈、状态或执行器控制循环。
+- 结果缓存仅在当前 collector 进程内有效；采集器重启后不自动重放未知结果。
+  首次本地授权、硬件安全门控和 schema-v1 实测数据契约没有放宽。
+
+| 检查 | 结果 |
+|---|---|
+| default 定向构建 | 新消息、执行器和采集器 3 包通过 |
+| policy 构建 | 补齐已有缺失依赖后，6 包通过 |
+| 执行器回归 | **241 passed，1 skipped**，含错条目结果不放行、未完成 stop 不 Home |
+| 采集器非 DDS 回归 | **81 passed** |
+| 完整真实 DDS 回归（domain 121） | **32 passed**，含重复 start/stop、过期条目 stop、拒绝结果重放、慢写盘等待和 partial 保留 |
+| 独立冒烟 | 合成 ROS 相机／实测反馈源＋真实采集器，经两个真实服务保存 HDF5、丢弃下一条；重复请求不新建条目，旧服务不存在 |
+| 实际执行器后台客户端 | 无硬件 `ExecutorObserver` 对真实 collector 发起 start/save，Future 仅在 RECORDING／IDLE 完成结果时返回，条目身份匹配且 HDF5 实际存在 |
+
+原 DDS 回归有两处将现行有效的 `640,480,30` 当作错误模式；已改为从当前图像契约
+构造必定不匹配的宽度，保留真实的模式拒绝／恢复检查，没有修改相机生产配置。
+本轮没有连接相机、机器人或手套，也没有使能／运动。Manus 的新 ROS 目标尚未接入
+执行器，不能据此宣称完整 Manus 真机采集已经可用。隔离验证进程与临时数据已清理。
+
+## Manus Hand2 ROS 目标发布（2026-09-22）
+
+本轮用户明确限定“先执行到把双手命令发送出来”：已将 Manus 生产输入切换为
+`manus_data_publisher → manus_adapter → manus_hand2_retarget`，统一
+`ros2 launch manus_bridge manus_hand2.launch.py user:=NAME`，Shell 入口保持
+`bash bash/run_manus.sh --user NAME`。参考 `wuji_teleop-main` 的 SDK
+`RetargetSession`，锁定 `wuji-sdk==2026.8.31`，没有旧 Pinocchio 算法回退。
+
+- ROS 输出为 `/wuji/left_hand/joint_commands` 和 `/wuji/right_hand/joint_commands`，
+  `tianji_interfaces/msg/HandJointCommand`，每侧 20 维 rad，具名固件顺序。
+- 采集、21 点和目标消息保留每侧 glove/session/boot/sequence/源单调时间和 valid；
+  SDK 回调时间不是手套内部采样时间，SDK 之前的传输延迟未被测量。
+- 移除 rawviz 文本管道、私有重定向 worker 和 Manus TJH2 出口；
+  外骨骼／裸手、原生双臂链、执行器授权及录制系统未修改。
+- 原 ROS-free 重定向库继续用于其他离线工具，其构建入口迁到
+  `src/teleop_outputs/wuji/wuji_retargeting/build_runtime.py`，不是新 Manus 依赖。
+
+| 实际检查 | 结果 |
+|---|---|
+| default／policy 定向构建 | 各构建 `tianji_interfaces`、`manus_bridge` 成功 |
+| `pixi run test-manus` | **32 passed** |
+| `pixi run test-interfaces` | **33 passed** |
+| 保留的离线重定向工具 | 独立 wheel 构建／安装成功；`pixi run test-retargeting` **18 passed**，移除仅覆盖已退役 Manus 文本管道的一项旧集成测试 |
+| `pixi run check-env` | Jazzy／Python 3.12.14／Fast DDS／domain 120／LOCALHOST，通过 |
+| 实际 ament 入口 | 仅 `manus_data_publisher`、`manus_adapter`、`manus_hand2_retarget`；launch 的 user 必填 |
+| 合成骨架 → 真实 SDK → DDS，隔离域 121 | 左右各接收 **227** 个有效目标；检查 20 关节命名、有限值、源身份；左侧停发后失效、右侧继续，左侧恢复后重新有效 |
+| SDK 回调夹具 → 实际原生采集节点 → 真实 SDK 求解 → DDS，隔离域 121 | 12 秒观测左侧 **867**、右侧 **1167** 个有效目标；夹具故意间歇断左侧，左侧 **3** 次失效，右侧 **0** 次。夹具仅为临时测试库，不属于生产包 |
+| 实际 Manus 设备尝试 | SDK 检测到 Dongle；本次隔离域 12 秒观测无左右手原始骨架或关节命令，未取得真实手套端到端输出证据 |
+| 真机运动／采集联动 | **未执行**；没有启动机器人执行器，没有连接／使能 Wuji 硬件，没有录制机器人数据 |
+
+本次证明了命令发布软件链路，不宣称真实佩戴效果已验收。真实采集仍需现场确认双手
+连接和有效骨架。新消息尚未接入 `run_teleop.sh --data`，不得按旧四终端 Manus 组合
+直接做真机采集；后续由现有执行器在逐条录制确认开始后放行手部目标，并记录实测反馈。
+本轮启动的测试／采集进程已停止，临时合成输入与 SDK 夹具已清理。
+
 ## 1. 环境、安装与原生资源
 
 - 从未激活 Pixi 的 shell 执行 `bash bash/install.sh` 成功：安装锁定环境、重建外骨骼扩展、构建原生目标与 default/policy overlay、构建 Manus 和 PICO2 worker。没有启动设备。

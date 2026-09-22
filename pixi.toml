@@ -4,7 +4,8 @@ version = "0.3.0"
 # robostack-jazzy carries the ROS 2 Jazzy packages; conda-forge carries every
 # C/C++ dependency they link against and the camera SDK.
 channels = ["https://prefix.dev/robostack-jazzy", "conda-forge"]
-platforms = ["linux-64"]
+# Official Hand2 RetargetSession wheels require manylinux_2_34.
+platforms = [{ name = "linux-x64-glibc234", platform = "linux-64", glibc = "2.34" }]
 
 [activation.env]
 # Fast DDS on the supported default same-host transport. `ROS_LOCALHOST_ONLY`
@@ -239,3 +240,6 @@ cameras = { features = ["cameras"], no-default-feature = true, solve-group = "ca
 control = { features = ["control"], no-default-feature = true, solve-group = "control" }
 manus = { features = ["manus"], no-default-feature = true, solve-group = "manus" }
 policy = { features = ["policy"], solve-group = "default" }
+
+[pypi-dependencies]
+wuji-sdk = "==2026.8.31"

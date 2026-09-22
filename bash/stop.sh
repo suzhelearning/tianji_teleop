@@ -24,12 +24,14 @@ root = Path(sys.argv[1])
 TARGETS = {
     "tianji_controller.run_teleop": "src/teleop_outputs/tianji/tianji_controller/tianji_controller/run_teleop.py",
     "simulation.run_sim": "src/simulation/simulation/run_sim.py",
-    "manus_bridge.start_hand_teleop": "src/teleop_inputs/manus/manus_bridge/start_hand_teleop.py",
+    "manus_adapter": "src/teleop_inputs/manus/scripts/manus_adapter",
+    "manus_hand2_retarget": "src/teleop_inputs/manus/scripts/manus_hand2_retarget",
 }
 # Native viewers are matched by executable name inside the workspace install tree.
 TARGET_NAMES = {
     "tianji_qp_ik_viewer": "install/control/bin/tianji_qp_ik_viewer",
     "mapped_palm_native_worker": "install/control/lib/mapped_palm/mapped_palm_native_worker",
+    "manus_data_publisher": "install/default/manus_bridge/lib/manus_bridge/manus_data_publisher",
 }
 
 
@@ -65,7 +67,7 @@ def _matches(entry: Path, target_name: str) -> bool:
                 script = (entry / "cwd").resolve() / script
             return script.resolve() == (root / TARGETS[target_name]).resolve()
         if base == target_name and target_name in TARGET_NAMES:
-            return (entry / "exe").resolve() == root / TARGET_NAMES[target_name]
+            return (entry / "exe").resolve() == (root / TARGET_NAMES[target_name]).resolve()
     except (OSError, ValueError):
         return False
     return False

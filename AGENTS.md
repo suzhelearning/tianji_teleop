@@ -1,6 +1,6 @@
 # 三条输入路线
 
-工作目录：`~/syz/tianji_teleop-ros2`。PICO 手柄 + Manus、PICO 手柄 + 外骨骼两条组合路线共用 `bash bash/run_teleop.sh`；PICO 裸手由 `bash bash/run_pico_hand_sim.sh --height-m HEIGHT` 独立运行，仅支持仿真。输入侧物理目录只保留 `src/teleop_inputs/` 下的 `pico_controller`、`manus`、`exoskeleton`、`pico_hand` 四个主输入包（ROS 包名仍为 `pico_bridge`、`manus_bridge`、`exoskeleton_bridge`、`pico2_hands`）；正式 schema-v1 采集器独立于输入目录。
+工作目录：`~/syz/tianji_teleop-ros2`。PICO 手柄 + 外骨骼使用 `bash bash/run_teleop.sh`；Manus 已迁移为独立 ROS Hand2 目标发布链，当前止于发布，尚未接入仿真／真机执行器；PICO 裸手由 `bash bash/run_pico_hand_sim.sh --height-m HEIGHT` 独立运行，仅支持仿真。输入侧物理目录只保留 `src/teleop_inputs/` 下的 `pico_controller`、`manus`、`exoskeleton`、`pico_hand` 四个主输入包（ROS 包名仍为 `pico_bridge`、`manus_bridge`、`exoskeleton_bridge`、`pico2_hands`）；正式 schema-v1 采集器独立于输入目录。
 
 环境由 Pixi 管理，统一为 ROS 2 Jazzy + Fast DDS：`RMW_IMPLEMENTATION=rmw_fastrtps_cpp`、`ROS_DOMAIN_ID=120`、`ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST`（只支持同机采集与共享单调时钟）。大多数 `bash/` 入口会自行进入 Pixi 环境并 `source bash/environment.sh`，确认 `ROS_DISTRO=jazzy`、Python 3.12，并清掉旧 shell 可能残留的 Humble／旧 `tracking/install` overlay；`bash bash/build.sh` 与 `bash bash/test_native.sh` 例外，它们要求调用者已经在 Pixi 环境内（推荐用 `pixi run build`／`pixi run test-native`）。不要手动 source 旧环境。
 
@@ -33,7 +33,7 @@
 
 模型及共用部署 Home 属于 `src/teleop_outputs/tianji/tianji_description/`，运行时用 `tianji_runtime.package_share()` 读取安装资源；native 程序用 `native_executable()`，不指向旧构建树。根 config／profiles／vendor 由 Pixi 注入的 `TIANJI_WORKSPACE` 定位，不能依赖 cwd。DLS／Ceres 的 Home 保持各自配置。缺少消息包 overlay 的节点必须先构建，不靠源码路径注入或旧环境回退。
 
-环境保持隔离：default 为 Jazzy／Python 3.12／Fast DDS，control 为无 ROS 的原生工具链，cameras 为官方 RealSense 4.58.3，manus 为无 ROS 的 Python 3.12／Pinocchio 3.8。policy 使用同一 Jazzy／Python ABI，但拥有自己的 overlay，锁定 CPU torch 2.10.0＋Zenoh；模型权重、CUDA wheel／驱动需要显式准备，CPU 验证不等于 GPU 验收。
+环境保持隔离：default 为 Jazzy／Python 3.12／Fast DDS，新 Manus 链在此使用锁定 `wuji-sdk==2026.8.31` 的纯求解 `RetargetSession`，不连接 Wuji 硬件；control 为无 ROS 的原生工具链，cameras 为官方 RealSense 4.58.3。保留的 manus/Python 3.12/Pinocchio 3.8 环境只服务历史离线重定向工具，不再属于新 Manus 生产链。policy 使用同一 Jazzy／Python ABI，但拥有自己的 overlay，锁定 CPU torch 2.10.0＋Zenoh；模型权重、CUDA wheel／驱动需要显式准备，CPU 验证不等于 GPU 验收。
 
 ## 外骨骼 + PICO → Tianji + Wuji
 
@@ -60,28 +60,27 @@ bash bash/run_teleop.sh --sim
 - 此路径不运行 `bash bash/run_manus.sh`；外骨骼使用自己的设备身份、零位和方向档案。设备与零位档案在 `src/teleop_inputs/exoskeleton/config/dataglove/devices/`，任务绑定在 `src/teleop_inputs/exoskeleton/config/teleoperation/`，传给入口的相对配置路径以该目录（ROS 包 `exoskeleton_bridge`）为基准。
 - 默认直接向 `127.0.0.1:16000` 发送控制器的 TJH2 v2 数据，不需要独立桥接进程；源时间使用同机单调时钟，只允许回环 IPv4 目的地址。每侧保留原始帧读取完成时的本机时间，另一侧更新不刷新旧姿态；没有新结果不发包，失败侧清除缓存，退出不补零。
 
-## Manus + PICO → Tianji + Wuji
+## Manus → 独立 Hand2 ROS 目标发布
 
 ```text
-PICO → UDP :15000 → 双臂控制
-Manus → bash/run_manus.sh（采集、重定向和 Hand2 UDP 桥）→ UDP :16000 → 双手控制
-双臂／双手控制 → bash/run_teleop.sh 选择仿真或真机
+Manus SDK → /manus/raw/{left,right} → 21 点适配
+  → /manus/landmarks/{left,right} → Wuji SDK RetargetSession
+  → /wuji/{left,right}_hand/joint_commands（每手 20 维 rad）
 ```
 
 ```bash
-# 终端 1：PICO
-bash bash/run_pico.sh --user zj
-
-# 终端 2：Manus，使用同一实际佩戴者的档案
-bash bash/run_manus.sh --user zj
-
-# 终端 3：仿真
-bash bash/run_teleop.sh --sim
+# NAME 换成实际佩戴者；只采集和发布目标，不连接 Wuji、不发送 UDP
+bash bash/run_manus.sh --user NAME
+# 已进入 Pixi 并 source bash/environment.sh 时的等价入口
+ros2 launch manus_bridge manus_hand2.launch.py user:=NAME
 ```
 
-- `bash bash/run_manus.sh` 需要且只需要一个人名档案：`--user NAME`（或 `--calibration-user NAME` 直接使用已有标定）；`--list-users`／`--list-calibration-users` 列出可用档案。传给发送器的 Manus 参数原样透传。
-- 此路径不运行 `bash bash/run_exoskeleton.sh`；该入口已管理 Manus 采集、手部适配和 Hand2 UDP 桥。
-- Manus 桥入口运行在 `default`（Jazzy）环境；手部重定向所用的 `manus` Pixi 环境独立、无 ROS，Pinocchio 固定 3.8。桥输入通过既有私有进程协议进入重定向端，再以 TJH2 输出，不跨环境导入 `rclpy` 或注入 site-packages。源码改动后用 `bash bash/build_manus.sh` 重建。
+- 入口需要且只需要一个人员档案：`--user NAME`（或 `--calibration-user NAME`）；`--list-users`／`--list-calibration-users` 列出完整双侧档案。后续参数是 ROS launch 的 `name:=value`，旧 `--check`、`--host`、`--port` 已移除。
+- 使用 `tianji_interfaces` 的 `ManusGlove`、`HandLandmarks`、`HandJointCommand`。每侧保留 glove/side/session/boot/sequence 和 SDK 回调处的 CLOCK_MONOTONIC 源时间；不能用发布或求解时间刷新旧样本。BEST_EFFORT/KEEP_LAST1/VOLATILE；默认失鲜 250ms，失效发布 valid=false 和不可执行数值，禁止补零冒充目标。
+- SDK 原始世界坐标为右手 VUH XFromViewer/Z-up/米；适配器仅执行一次 `(x,-y,z)`。输出固定为 thumb/index/middle/ring/pinky 各 S1–S4，SDK 已做重定向，不再套旧 Hand2 关节重排或双臂 IK。
+- `start_acquisition:=false` 只启动适配和求解，用于独立调试。合成数据只在 source 环境后显式设置的隔离域 121 发布。显示／调试不参与生产进程的生存条件。
+- 包仍是 `manus_bridge`，现使用 ament_cmake_python；`bash bash/build_manus.sh` 构建 ROS 包及消息。rawviz 文本管道、私有 worker、旧 Manus TJH2 输出已退役，无旧算法回退。
+- 本次用户限定只完成目标发布：**执行器、安全授权和采集系统未改，新目标不会被当前 `run_teleop.sh --data` 执行。** 后续接入时须由现有执行器唯一写入硬件，逐条录制确认开始后才放行 Hand2 目标，保留最小执行安全门控，采集继续记录实测反馈。不得启动参考仓库自动使能的独立手部驱动。
 
 ## 共用执行模式与切换
 
@@ -127,7 +126,8 @@ pixi run bash -c 'source bash/environment.sh; python -m tianji_controller.run_te
 
 - 每个启用角色一个驱动节点，私有 RGB 话题统一为 `/cameras/<role>/color/image_raw`，同目录有 `camera_info` 与 metadata。
 - 采集节点只订阅相机图像和 `/tianji/feedback/*`、`/tianji/executor/state`；它不打开相机、不连接机器人。`--data` 管理本次创建的相机／collector，已运行节点只有精确配置、身份和 ready 一致才复用；退出只停止本次拥有的进程。
-- DDS 服务只能启停录制，永远不能获得使能或运动权限。
+- DDS 录制操作只使用 `/start_collect`（StartCollect）与 `/stop_collect`（StopCollect），旧 RecordingCommand 已移除。r 等待实际 RECORDING 的服务结果及匹配条目状态后放行遥操作；s 调 stop(save=true)，d 调 stop(save=false)，确认本条完成且受控制动结束后才回双臂 Home。首次本地授权不变；服务永远不能获得使能或运动权限。
+- 请求用规范 UUID request_id 绑定 session／phase_revision；stop 还绑定 episode_id（start 的 request_id）。同进程同请求复用终态结果或等待同一操作，改参复用 ID 拒绝；缓存不跨采集器重启，不自动重试未知结果。内部故障 stop(abort=true,save=false) 保留 partial，不等同 d 的删除。服务 success 是实际完成，不是入队确认；连续反馈／状态仍走 Topic。
 
 PICO 视频串流运行在 default，只订阅唯一配置中的 top RGB，不打开相机 pipeline，不影响 Manus／外骨骼或真机执行。先运行官方相机节点；头显 PC 视频源地址为 127.0.0.1。视频脚本只管理 reverse 13579 与 forward 12345，复用匹配映射、冲突拒绝、退出只清理本次新建且仍匹配的映射，绝不修改裸手 10002。使用现有 PICO OPEN/CLOSE_CAMERA 控制协议及大端长度头 H.264、同源双眼 SBS，无录制；无相机、失鲜或背压不能用重复旧帧掩盖。物理相机与头显显示的现场验收独立于合成 ROS／编码／协议验证。
 

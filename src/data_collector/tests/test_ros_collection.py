@@ -31,13 +31,15 @@ from std_srvs.srv import Trigger
 
 from data_collector.dataset import ensure_dataset_config, validate_episode
 from tianji_interfaces.msg import CollectionStatus, ExecutorState
-from tianji_interfaces.srv import RecordingCommand
+from tianji_interfaces.srv import StartCollect, StopCollect
+from tianji_runtime.constants import IMAGE_WIDTH, IMAGE_HEIGHT, CAMERA_FPS
 
 # A test domain, deliberately not the deployment default, so a running
 # production session can never be observed or commanded by these tests.
 TEST_DOMAIN = "121"
 STATUS_TOPIC = "/tianji/collection/status"
-COMMAND_SERVICE = "/tianji/collection/command"
+START_SERVICE = "/start_collect"
+STOP_SERVICE = "/stop_collect"
 READY_SERVICE = "/tianji/collection/check_ready"
 
 HERE = Path(__file__).resolve().parent
@@ -165,7 +167,9 @@ class Client(Node):
                                  self._on_executor, QoSProfile(depth=8))
         self.create_subscription(CollectionStatus, STATUS_TOPIC, self._on_status,
                                  STATUS_QOS)
-        self._command = self.create_client(RecordingCommand, COMMAND_SERVICE)
+        self._start = self.create_client(StartCollect, START_SERVICE)
+        self._stop = self.create_client(StopCollect, STOP_SERVICE)
+        self.episode_id = ""
         self._ready = self.create_client(Trigger, READY_SERVICE)
 
     def _on_status(self, message: CollectionStatus) -> None:
@@ -176,7 +180,8 @@ class Client(Node):
         self.executor_state = message
 
     def wait_for_services(self, timeout: float = 20.0) -> None:
-        assert self._command.wait_for_service(timeout_sec=timeout), "command service absent"
+        assert self._start.wait_for_service(timeout_sec=timeout), "start service absent"
+        assert self._stop.wait_for_service(timeout_sec=timeout), "stop service absent"
         assert self._ready.wait_for_service(timeout_sec=timeout), "ready service absent"
 
     def spin_for(self, seconds: float) -> None:
@@ -200,14 +205,20 @@ class Client(Node):
         return bool(response.success), response.message
 
     def command(self, name: str) -> tuple[bool, str, str]:
-        request = RecordingCommand.Request()
-        request.command = name
-        request.session_id = self.session_id or ""
-        request.phase_revision = self.phase_revision
-        future = self._command.call_async(request)
-        self._wait(future)
+        import uuid
+        common = dict(request_id=str(uuid.uuid4()), session_id=self.session_id or "",
+                      phase_revision=self.phase_revision)
+        if name == "start":
+            request = StartCollect.Request(**common)
+            self.episode_id = request.request_id
+            future = self._start.call_async(request)
+        else:
+            request = StopCollect.Request(**common, episode_id=self.episode_id,
+                                          save=name == "save", abort=name == "abort")
+            future = self._stop.call_async(request)
+        self._wait(future, timeout=60.0)
         response = future.result()
-        return bool(response.accepted), response.state, response.message
+        return bool(response.success), response.state, response.message
 
     session_id: str = ""
     phase_revision: int = 1
@@ -523,7 +534,7 @@ def test_commands_require_exact_session_revision_and_live_teleop(node, harness):
 
 
 @pytest.mark.parametrize("arguments", [
-    ["--profile", "640,480,30"],
+    ["--profile", f"{IMAGE_WIDTH + 1},{IMAGE_HEIGHT},{CAMERA_FPS}"],
     ["--device-serial", "WRONGSERIAL"],
     ["--monitor-owner", "foreign-owner"],
     ["--duplicate-monitor"],
@@ -567,7 +578,7 @@ def test_same_config_path_with_changed_bytes_cannot_recertify(node, harness):
 @pytest.mark.parametrize("fault", [
     {"restart_publisher": True},
     {"reset_frames": True},
-    {"profile": "640,480,30"},
+    {"profile": f"{IMAGE_WIDTH + 1},{IMAGE_HEIGHT},{CAMERA_FPS}"},
 ])
 def test_recertified_camera_requires_a_new_start_and_preserves_partial(node, harness, fault):
     case = harness([])
@@ -628,7 +639,16 @@ def test_writer_queue_overflow_keeps_partial_and_executor_continues(node, harnes
     assert int(node.executor_state.detail.removeprefix("gate_steps=")) > before
     assert node.executor_state.phase == "TELEOP"
     assert not node.executor_state.faulted
+    pending_stop = node._stop.call_async(StopCollect.Request(
+        request_id=str(uuid.uuid4()), session_id=case.session_id,
+        phase_revision=1, episode_id=node.episode_id, abort=True))
+    steps = int(node.executor_state.detail.removeprefix("gate_steps="))
+    node.spin_for(.15)
+    assert not pending_stop.done(), "stop must not acknowledge queued, still-blocked closure"
+    assert int(node.executor_state.detail.removeprefix("gate_steps=")) > steps
     case.control()
+    node._wait(pending_stop)
+    assert pending_stop.result().success and pending_stop.result().state == "IDLE"
     node.wait_for_state("IDLE", timeout=8)
     assert not case.completed_episodes()
     partials = case.partial_episodes()
@@ -660,3 +680,79 @@ def test_abort_is_scoped_to_the_recording_executor_without_teleop_authority(node
     node.wait_for_state("IDLE")
     assert len(case.partial_episodes()) == 1
     assert not case.completed_episodes()
+
+
+def test_request_replays_do_not_create_or_finalize_another_episode(node, harness):
+    case = harness([])
+    node.session_id = case.session_id
+    node.wait_for_services()
+    node.wait_ready()
+    request = StartCollect.Request(request_id=str(uuid.uuid4()),
+                                   session_id=case.session_id, phase_revision=1)
+    first = node._start.call_async(request)
+    duplicate = node._start.call_async(request)
+    node._wait(first)
+    node._wait(duplicate)
+    result = first.result()
+    assert result.success and duplicate.result().episode_id == result.episode_id
+    assert result.state == "RECORDING"
+    node.wait_for_state("RECORDING")
+    node.spin_for(.5)
+    stop = StopCollect.Request(request_id=str(uuid.uuid4()),
+                               session_id=case.session_id, phase_revision=1,
+                               episode_id=result.episode_id, save=True)
+    first = node._stop.call_async(stop)
+    duplicate = node._stop.call_async(stop)
+    node._wait(first, timeout=60)
+    node._wait(duplicate, timeout=60)
+    assert first.result().success and duplicate.result().success
+    saved = Path(first.result().saved_path)
+    assert saved.is_file() and duplicate.result().saved_path == str(saved)
+    node.wait_for_state("IDLE")
+    replay = node._start.call_async(request)
+    node._wait(replay)
+    assert replay.result().success and replay.result().episode_id == result.episode_id
+    node.spin_for(.2)
+    assert node.status.state == "IDLE" and not node.status.episode_id
+    assert case.completed_episodes() == [saved] and not case.partial_episodes()
+
+
+def test_delayed_stop_cannot_close_a_new_episode(node, harness):
+    case = harness([])
+    saved = _record(node, case, seconds=.5)
+    previous = node.episode_id
+    assert node.command("start")[0]
+    current = node.episode_id
+    node.wait_for_state("RECORDING")
+    stale = StopCollect.Request(request_id=str(uuid.uuid4()),
+                                session_id=case.session_id, phase_revision=1,
+                                episode_id=previous, save=False)
+    future = node._stop.call_async(stale)
+    node._wait(future)
+    assert not future.result().success
+    node.spin_for(.1)
+    assert node.status.state == "RECORDING" and node.status.episode_id == current
+    assert node.command("discard")[0]
+    assert saved.is_file() and case.completed_episodes() == [saved]
+
+
+def test_rejected_request_cannot_become_a_start_after_authority_changes(node, harness):
+    case = harness(["--mode", "dry_run"])
+    node.session_id = case.session_id
+    node.wait_for_services()
+    node.wait_for_state("IDLE")
+    request = StartCollect.Request(request_id=str(uuid.uuid4()),
+                                   session_id=case.session_id, phase_revision=1)
+    rejected = node._start.call_async(request)
+    node._wait(rejected)
+    assert not rejected.result().success
+    case.control(mode="real")
+    node.wait_ready()
+    replay = node._start.call_async(request)
+    node._wait(replay)
+    assert not replay.result().success
+    node.spin_for(.1)
+    assert node.status.state == "IDLE" and not node.status.episode_id
+    assert node.command("start")[0]
+    assert node.command("discard")[0]
+    assert not case.completed_episodes() and not case.partial_episodes()

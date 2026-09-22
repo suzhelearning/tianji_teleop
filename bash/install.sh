@@ -52,6 +52,12 @@ pixi install --locked --all
 install_exoskeleton
 pixi run --locked check-env
 bash bash/build_manus.sh
+# Preserve the independent offline tools; the new Manus publisher does not use them.
+env -u PYTHONPATH -u PYTHONHOME -u LD_LIBRARY_PATH -u LD_PRELOAD \
+  -u AMENT_PREFIX_PATH -u COLCON_PREFIX_PATH -u CMAKE_PREFIX_PATH \
+  -u TIANJI_PYTHON -u ROS_DISTRO -u ROS_VERSION TIANJI_ENVIRONMENT=manus \
+  pixi run --locked -e manus python -I \
+  src/teleop_outputs/wuji/wuji_retargeting/build_runtime.py "$project_root"
 pixi run --locked build
 pixi run --locked -e policy build
 pico2_root="$project_root/src/teleop_inputs/pico_hand"

@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
-# Manus glove input -> TJH2 UDP. Exactly one personnel profile.
+# Manus -> semantic ROS skeleton -> SDK Hand2 ROS targets. No hardware execution.
 set -euo pipefail
 root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 source "$root/bash/pixi.bash" "$@"
-# The supervisor and its ROS nodes always use default. Native dependencies
-# belong exclusively to the worker started with `pixi run -e manus`.
+# Both ROS nodes and the SDK-only RetargetSession use the Jazzy interpreter.
 if [[ "${PIXI_ENVIRONMENT_NAME:-}" != default ]]; then
   exec env -u TIANJI_PYTHON -u PYTHONPATH -u PYTHONHOME -u LD_LIBRARY_PATH \
     -u AMENT_PREFIX_PATH -u COLCON_PREFIX_PATH -u CMAKE_PREFIX_PATH \
@@ -15,7 +14,7 @@ fi
 export TIANJI_PYTHON="$CONDA_PREFIX/bin/python" TIANJI_ENVIRONMENT=default
 source "$root/bash/environment.sh"
 usage() {
-  printf "Usage: %s (--user NAME | --calibration-user NAME) [Manus arguments...]\n" "$0"
+  printf "Usage: %s (--user NAME | --calibration-user NAME) [launch_name:=value ...]\n" "$0"
   printf "       %s (--list-users | --list-calibration-users)\n" "$0"
 }
 case "${1:-}" in
@@ -30,8 +29,10 @@ case "${1:-}" in
 esac
 for argument in "$@"; do
   case "$argument" in
-    --u|--us|--use|--user|--u=*|--us=*|--use=*|--user=*|--calibration-user|--calibration-user=*)
+    --u|--us|--use|--user|--u=*|--us=*|--use=*|--user=*|--calibration-user|--calibration-user=*|user:=*)
       printf "Select exactly one personnel profile with --user NAME.\n" >&2; exit 2 ;;
   esac
 done
-exec "$TIANJI_PYTHON" -m manus_bridge.start_hand_teleop --user "$user" "$@"
+printf 'Manus user=%s; ROS domain=%s; publishing Hand2 targets only (no UDP or hardware execution).\n' \
+  "$user" "$ROS_DOMAIN_ID"
+exec ros2 launch manus_bridge manus_hand2.launch.py "user:=$user" "$@"
