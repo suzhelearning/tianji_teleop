@@ -17,9 +17,10 @@ import tty
 class OperatorKeyboard:
     """Read single keys without blocking; Enter is reported separately."""
 
-    def __init__(self, on_key, on_calibrate=None):
+    def __init__(self, on_key, on_calibrate=None, *, on_finish=None):
         self._on_key = on_key
         self._on_calibrate = on_calibrate
+        self._on_finish = on_finish
         self._fd = sys.stdin.fileno()
         self._original = termios.tcgetattr(self._fd)
         self._closed = False
@@ -41,6 +42,9 @@ class OperatorKeyboard:
                 return True
             if character.lower() == b"c" and self._on_calibrate is not None:
                 self._on_calibrate()
+                continue
+            if character.lower() == b"q" and self._on_finish is not None:
+                self._on_finish()
                 continue
             if character.lower() in (b"r", b"s", b"d"):
                 try:

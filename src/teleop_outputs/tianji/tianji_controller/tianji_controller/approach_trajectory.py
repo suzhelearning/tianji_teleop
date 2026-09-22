@@ -79,3 +79,47 @@ class ApproachTrajectory:
             if self.elapsed == self.duration:
                 self.progress, self.velocity = 1.0, 0.0
         return self.position
+
+
+class BrakingTrajectory:
+    """Stop emitted joint velocities with bounded acceleration, then hold.
+
+    Unlike ApproachTrajectory, this accepts a moving initial state. Each joint
+    decelerates monotonically to its exact stopping point; callers must validate
+    that point against device limits before emitting any part of the brake.
+    """
+
+    def __init__(self, position, velocity, acceleration):
+        self.start = tuple(position)
+        self.initial_velocity = tuple(velocity)
+        if not self.start or len(self.start) != len(self.initial_velocity):
+            raise ValueError("brake position and velocity must have matching nonzero dimensions")
+        if not all(math.isfinite(q) for q in self.start + self.initial_velocity):
+            raise ValueError("brake state must be finite")
+        if not math.isfinite(acceleration) or acceleration <= 0:
+            raise ValueError("brake acceleration must be positive and finite")
+        self.acceleration = acceleration
+        self.target = tuple(q + v * abs(v) / (2 * acceleration)
+                            for q, v in zip(self.start, self.initial_velocity))
+        self.position = self.start
+        self.velocity = self.initial_velocity
+        self.elapsed = 0.0
+        self.duration = max(abs(v) for v in self.initial_velocity) / acceleration
+
+    @property
+    def stopped(self):
+        return self.elapsed >= self.duration
+
+    def advance(self, dt):
+        if not math.isfinite(dt) or dt <= 0:
+            raise ValueError("brake timestep must be positive and finite")
+        self.elapsed = min(self.duration, self.elapsed + dt)
+        self.velocity = tuple(math.copysign(
+            max(0.0, abs(v) - self.acceleration * self.elapsed), v)
+            for v in self.initial_velocity)
+        self.position = tuple(
+            target if self.elapsed >= abs(v) / self.acceleration else
+            q + v * self.elapsed - math.copysign(
+                .5 * self.acceleration * self.elapsed * self.elapsed, v)
+            for q, v, target in zip(self.start, self.initial_velocity, self.target))
+        return self.position

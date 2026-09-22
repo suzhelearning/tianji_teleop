@@ -461,6 +461,7 @@ def main(argv=None):
     observer = None
     sampler = None
     keyboard = None
+    episodes = None
     enter_pressed = poll_enter
 
     def request_stop(signum, frame):
@@ -535,10 +536,15 @@ def main(argv=None):
         observer.update_state(log_phase(gate, "WAITING"))
         if collection is not None:
             from tianji_runtime import OperatorKeyboard
-            keyboard = OperatorKeyboard(observer.command)
+            from .collection_episode import CollectionEpisodes
+            episodes = CollectionEpisodes(gate, observer, notify=lambda text: print(text, flush=True))
+            keyboard = OperatorKeyboard(episodes.on_key, on_finish=lambda: episodes.on_key("q"))
             enter_pressed = keyboard.poll_enter
-            print("TELEOP recording keys (no Enter needed): r=start, s=save success, d=discard current. "
-                  "Recording keys do not change robot mode.", flush=True)
+            print("COLLECTION EPISODES: measured Home is required before initial Enter enables the run. "
+                  "At Home r=align/start a new episode; s=save then Home; "
+                  "d=discard then Home; q=finish the entire run and disable. "
+                  "Between episodes devices remain enabled but do not follow inputs. "
+                  "Use one-shot pedal keys without Enter.", flush=True)
         enabled_devices = set()
         confirmation_prompted = False
         next_visual = 0.0
@@ -571,11 +577,17 @@ def main(argv=None):
 
         if staged:
             update_monitor(None, measured, force=True)
-            print("Enter 1: slow alignment; READY then Enter 2: teleop; "
-                  "Enter 3 during teleop: slow HOME then disable.\n"
-                  "Enter during ALIGNING/HOMING, Ctrl+C, or closing the window: "
-                  "stop immediately without HOME. Keep the physical emergency stop reachable.",
-                  flush=True)
+            if episodes is not None:
+                print("One enable for the collection run; Home and alignment are not task recordings. "
+                      "Enter while enabled, Ctrl+C, or closing the window stops immediately "
+                      "without Home. q is normal completion at Home or during RECORDING. "
+                      "Keep the physical emergency stop reachable.", flush=True)
+            else:
+                print("Enter 1: slow alignment; READY then Enter 2: teleop; "
+                      "Enter 3 during teleop: slow HOME then disable.\n"
+                      "Enter during ALIGNING/HOMING, Ctrl+C, or closing the window: "
+                      "stop immediately without HOME. Keep the physical emergency stop reachable.",
+                      flush=True)
 
         def check_source():
             check_monitor()
@@ -663,7 +675,10 @@ def main(argv=None):
                     if session_log is not None:
                         session_log.sample(packet, measured, log_phase(gate, "WAITING"), now_ns)
                     try:
-                        gate.check_enable_ready(packet, measured, now_ns)
+                        if episodes is not None:
+                            gate.check_home_enable_ready(packet, measured, now_ns)
+                        else:
+                            gate.check_enable_ready(packet, measured, now_ns)
                     except SafetyFault as error:
                         last_reason = str(error)
                         if not confirmation_prompted and now - started > config["startup_timeout_s"]:
@@ -674,7 +689,8 @@ def main(argv=None):
                         time.sleep(.005)
                         continue
                     if staged:
-                        status.update(_STAGED_STATUS["WAITING"])
+                        status.update("WAITING | 实测已在 Home，未使能 | Enter: 本场使能并保持"
+                                      if episodes is not None else _STAGED_STATUS["WAITING"])
                         confirmation_prompted = True
                     elif not confirmation_prompted:
                         print("Physical emergency stop must be reachable.\n"
@@ -682,7 +698,13 @@ def main(argv=None):
                               f"Press ENTER to enable {', '.join(devices)}; press ENTER again to stop and disable:",
                               flush=True)
                         confirmation_prompted = True
-                    if not enter_pressed():
+                    pressed = enter_pressed()
+                    if episodes is not None:
+                        episodes.tick(packet, measured, now_ns)
+                        if episodes.done:
+                            final_reason = "operator finished before enable"
+                            break
+                    if not pressed:
                         remaining = cycle_deadline - time.monotonic()
                         if remaining > 0:
                             time.sleep(remaining)
@@ -696,7 +718,11 @@ def main(argv=None):
                         session_log.sample(packet, measured, log_phase(gate, "LIVE"), now_ns)
                     if collection is not None:
                         collection.check_before_enable()
-                    gate.arm(packet, measured, now_ns)
+                    if episodes is not None:
+                        gate.arm_home(packet, measured, now_ns)
+                        episodes.enabled()
+                    else:
+                        gate.arm(packet, measured, now_ns)
                     observer.update_state(log_phase(gate, "TELEOP"))
                     for name, device in hardware.items():
                         check_source()
@@ -704,7 +730,7 @@ def main(argv=None):
                         enabled_devices.add(name)
                         check_source()
                     if staged:
-                        status.update(_STAGED_STATUS["ALIGNING"])
+                        status.update(_STAGED_STATUS[gate.phase])
                         update_monitor(packet, measured, force=True)
                     else:
                         print("REAL OUTPUT ARMED: returning to zero, then ramping to the current input pose; "
@@ -717,6 +743,9 @@ def main(argv=None):
                         packet = receiver.drain(
                             lambda frame: gate.observe_source(frame, time.monotonic_ns()))
                         if enter_pressed():
+                            if episodes is not None:
+                                final_reason = "operator interrupted collection; stopping without Home"
+                                break
                             if gate.phase == "READY":
                                 gate.start_teleop(packet, measured, time.monotonic_ns())
                                 observer.update_state(gate.phase)
@@ -729,6 +758,8 @@ def main(argv=None):
                                 status.update("STOPPING")
                                 final_reason = f"operator stopped during {gate.phase}"
                                 break
+                        if episodes is not None:
+                            episodes.tick(packet, measured, time.monotonic_ns())
                     now_ns = time.monotonic_ns()
                     if session_log is not None:
                         # Sampled before the step, so a frame that fails a gate
@@ -737,9 +768,14 @@ def main(argv=None):
                     outputs = gate.step(packet, measured, now_ns)
                     observer.update_state(log_phase(gate, "TELEOP"))
                     if staged:
-                        status.update(_STAGED_STATUS[gate.phase])
+                        status.update(
+                            f"EPISODE {episodes.state} | {gate.phase} | enabled, no queued start"
+                            if episodes is not None else _STAGED_STATUS[gate.phase])
                         update_monitor(packet, measured)
-                        if gate.phase == "HOME_REACHED":
+                        if episodes is not None and episodes.done:
+                            final_reason = "collection run completed at Home; disabling"
+                            break
+                        if episodes is None and gate.phase == "HOME_REACHED":
                             final_reason = "staged sequence reached HOME_REACHED"
                             break
                     for name, positions in outputs.items():

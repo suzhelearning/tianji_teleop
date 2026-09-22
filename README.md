@@ -429,11 +429,16 @@ bash bash/run_teleop.sh --real
   先创建父目录，每次使用新文件名；完整步骤见[裸手录制说明](src/teleop_inputs/pico_hand/README.md)。
 - 独立观察采集器：`pixi run collect --task TASK`，只订阅 DDS，不连接机器人或打开相机；
   先用 `pixi run cameras` 启动官方相机节点。R/S/D 仍在真机执行器的交互终端操作，见[观察采集](README-reference.md#观测数据集采集r--s--d)。
-- 真机任务采集：`bash bash/run_teleop.sh --data --task TASK`，使用与 `--real` 完全相同的 DLS／Ruckig 控制入口、预检和人工授权。
+- 真机任务采集：`bash bash/run_teleop.sh --data --task TASK`，复用 DLS／Ruckig 和安全门控，采用一次使能、多条采集循环；普通 `--real` 的三阶段 Enter 流程不变。
   它在设备连接前确认相机验证和 writer 准备完成（prepared），连接后再等待真实反馈 ready。
   只复用身份、配置和就绪状态匹配的独立会话，退出只停止本次创建的进程，不接管他人会话。
   默认原始数据为 `/data/TianjiData/raw/YYYYMMDD/`，不是 `dataset/`；
   `TIANJI_DATASET`／`--dataset` 可覆盖根目录，日期目录内独立保存配置。
+  启动前双臂须已在 Home，执行器按实测反馈和配置容差确认，不在 Home 时拒绝使能；初次 Enter 只授权本场使能并保持。`HOME_READY` 后 `r` 冻结目标并慢速对齐，采集确认开始后才跟随。
+  `s` 停止跟随、保存当前条并回双臂 Home；`d` 丢弃当前条并回 Home。条目间保持使能，不跟随 PICO／Manus。
+  `q` 在 Home 结束整场；录制中按 `q` 则保存当前条、回 Home 后失能退出。其他过渡阶段拒绝录制键，不排队下一条。
+  使能后 Enter、Ctrl+C 或关闭机器人窗口均立即安全停止，不自动 Home。故障路径不强行回程、不自动重新使能。
+  USB 键盘式双踏板可映射为单次 `r`／`s`（不带 Enter、不连发），焦点必须保持在执行器终端；这不是全局脚踏设备监听。
 
 `pixi run preview` 是相机话题订阅者，可与采集并行，不再自行打开 SDK pipeline。
 离线压缩使用 `bash bash/compress.sh --date YYYYMMDD`，查看使用

@@ -106,7 +106,7 @@ class CollectionSession:
         self.runtime = None
         self.saved_paths = []
         print(f'DATASET WRITER READY: {self.dataset_dir} task={task} cameras={self.cameras}; '
-              'TELEOP keys: r=start, s=save success, d=discard current; no actions recorded', flush=True)
+              'recording service only; executor owns motion and episode controls; no actions recorded', flush=True)
 
     def _set_state(self, state):
         """Called under _lock; handoff must never publish DDS or wait for a consumer."""
@@ -350,10 +350,10 @@ class CollectionSession:
             if operation == 'save':
                 path = writer.finish(success=True)
                 self.saved_paths.append(path)
-                self._notify(f'DATASET SAVED: {path} success=true; TELEOP continues, r starts next episode')
+                self._notify(f'DATASET SAVED: {path} success=true; executor determines the next motion phase')
             elif operation == 'discard':
                 writer.discard()
-                self._notify('DATASET DISCARDED: current segment only; TELEOP continues')
+                self._notify('DATASET DISCARDED: current segment only; executor determines the next motion phase')
             else:
                 writer.abort()
                 self._notify(f'DATASET PARTIAL (not saved by operator): {writer.partial_path}')

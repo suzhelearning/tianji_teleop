@@ -438,24 +438,28 @@ collector 只通过 DDS 观察实际反馈、执行器状态及 RGB/Metadata，�
 普通 `--real` 不要求相机或 collector，collector 故障不授予或撤销硬件运动权限。
 
 默认输出到 `/data/TianjiData/raw/`（可用 `TIANJI_DATASET` 或 `--dataset` 覆盖），
-按原 Enter 流程完成对齐并进入 TELEOP；若需外层 console／退出日志，激活 default overlay 后使用
+启动前必须以实测反馈确认双臂已在 Home（配置的关节对齐容差内），否则拒绝使能；初次 Enter 授权本场使能并保持。若需外层 console／退出日志，激活 default overlay 后使用
 `python -m tianji real --devices all --confirm-real --collection --task pick_hammer`，日志保存至 `logs/real/`。
-**进入 TELEOP 不自动录制**。R/S/D 在真机执行器的启动终端直接按单键，不追加 Enter：
+`--data` 使用逐条遥操采集：机器人整场只使能一次，条目之间回 Home 保持，不跟随输入。
+按键在执行器终端直接输入，不追加 Enter：
 
-| 按键 | 数据操作 | 对机器人模式的影响 |
+| 按键 | 数据操作 | 机器人行为 |
 | --- | --- | --- |
-| `r` | 开始新的一段，等待 `DATASET RECORDING` 提示 | 保持 TELEOP |
-| `s` | 结束当前段，后台保存并校验；操作者确认成功，`success=true` | 保持 TELEOP |
-| `d` | 丢弃当前录制段；不会删除以前已保存的数据 | 保持 TELEOP |
+| `r` | 在 `HOME_READY` 申请新条目 | 冻结当前目标、慢速对齐；确认实际 `RECORDING` 后开始跟随 |
+| `s` | 截止当前条，保存为 `success=true` | 停止跟随并受控制动；保存确认且实测静止后回双臂 Home，保持使能 |
+| `d` | 丢弃当前条，不删除已保存文件 | 同样制动、回 Home，保持使能 |
+| `q` | 在 Home 结束整场；录制中则先保存当前条 | 正常回 Home 完成后失能退出 |
 
-看到 `DATASET SAVED` / `DATASET DISCARDED` 后可再次按 `r`；保存/准备尚未完成时不会叠加另一段。
+必须等 `HOME_READY` 才能开始下一条，保存、制动、对齐和回程中不排队开始键。
+双手在回程中保持，不自动张开；下一条重新对齐后才接入 Manus。对齐和 Home 过程不录入任务片段。
+脚踏板应配置成键盘单次 `r`／`s`，不连发、不附带 Enter；当前依赖执行器终端焦点。
 按键经有界队列异步发送 ROS 服务请求，不阻塞控制循环。start/save/discard 必须匹配当前健康、
 新鲜的 real/TELEOP session 与 phase_revision；服务 accepted 只是入队，不表示写盘完成。
 S/D 的冻结截止时刻是 collector 接受有效请求时，不是按键发出时；超时结果未知时查看状态，不自动重发。
-原有 Enter（进入 HOME）、Ctrl+C 和关闭机器人窗口的停止行为不变。
-离开 TELEOP 或采集故障时，未按 `s` 的当前段保留 `.partial.h5`，不会自动当作成功样本。
-采集故障只结束数据段并报告；机器人自身的反馈、限位、输入新鲜度等保护仍独立生效。
-发布者身份变化、反馈／图像回退或断流后，先排除故障，重新建立 ready，再开始新 episode，不能续接旧段。
+`--data` 使能后的 Enter、Ctrl+C 或关闭机器人窗口立即安全停止，不自动 Home；普通 `--real` 的原 Enter 流程不变。
+采集拒绝、超时、失鲜、反馈／限位或执行器异常均结束本场并走安全清理，不强行回 Home、不自动重试或重新使能。
+未完成的录制保留 `.partial.h5`；已成功保存的条目不会因后续回程故障被删除。保存成功不等于 Home 或失能已确认。
+独立 collector 服务仍没有运动权限；由执行器协调这些状态，不能用 DDS 录制请求触发机器人使能。
 录制中即使进程仍存活，真实反馈超过 300 ms 或有效 Image/Metadata 配对超过 2 s 未更新也会判为采集故障；
 结束当前段时再次检查并冻结该段状态。按 `s` 截止后的相机故障不否决已结束的正常录制，
 但截止前的采集故障及该段 HDF5 写入/校验错误仍会阻止成功发布。

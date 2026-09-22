@@ -191,7 +191,7 @@ shared-root 的人体尺度、坐标与目标构建具有指令转换职责，�
 - `session.py`：由原 `integration.py` 迁移，管理开始、冻结、保存／丢弃／abort 及 episode 文件归属。
 - `dataset.py`：有界队列、后台 HDF5 写入、关闭、校验和最终文件发布。
 
-预览、压缩、可视化不混进机器人控制循环。开始/停止录制不改变机器人 TELEOP 状态；记录故障与机器人自身安全机制的关系沿用现有定义。
+预览、压缩、可视化不混进机器人控制循环。独立 collector 服务只管理数据；`--data` 执行器协调逐条采集与运动：本场一次使能，条目间回双臂 Home 保持使能，整场结束才失能。异常仍走安全停止，不自动回程。
 
 collector 是独立 ROS 进程，不持有 SDK 或相机 pipeline。真实设备仍只由执行器连接一次，其 feedback sampler 复用同一锁定 SDK 会话，独立线程发布 DDS。`--data` 在设备连接前检查相机与 writer prepared，连接后再等待真实反馈 inputs_ready；相机／collector 已运行时只在精确配置、身份与 ready 验证通过后复用。退出只停止本次拥有的进程，不杀复用会话。
 
@@ -334,7 +334,7 @@ CLI / shell：解析参数、选择配置、启动会话
 2. 启动官方相机节点后同时预览／检查，确认 serial、profile、Image＋Metadata 和健康；预览只是订阅者，无需为录制释放另一套 pipeline。
 3. 选择一种路线：DLS/Ceres 可由 `--user` 校验并启动／复用 PICO；旧路线手动启动 PICO。需要手部时另启 Manus 或外骨骼，二选一；PICO2 使用自己的入口。
 4. 仿真使用对应窗口的接入操作；真机／任务采集先做只读预检，再完成现场人工授权，不复用仿真放行结论。
-5. 在拥有采集生命周期的会话内启用录制；进入 TELEOP 不自动录制，按既有 R/S/D 流程管理 episode，不再启动第二个执行器。
+5. `--data` 首次使能前要求双臂实测已在 Home，初次 Enter 授权本场使能并保持；`HOME_READY` 按 r 对齐并开始新条目，s 保存／d 丢弃后回 Home，q 先确认回 Home、再失能退出。对齐、制动和 Home 期间拒绝新开始请求，不排队。
 6. 停止录制、确认任务结果、验证文件并进行离线压缩/查看。
 
 `bash/run_data_collector.sh` 启动独立 DDS collector，不连接机器人、不开相机；`--data` 则管理本次需要的相机／collector 并保留执行器交互 TTY。已有独立节点必须通过精确配置／身份／ready 检查才复用，冲突拒绝，不偷偷接管。

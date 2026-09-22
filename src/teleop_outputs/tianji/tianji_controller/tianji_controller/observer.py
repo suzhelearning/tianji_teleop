@@ -20,7 +20,7 @@ class ExecutorObserver:
         self.collection = collection
         if not self.boot_id:
             raise RuntimeError("local boot identity unavailable")
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._state = ("PREFLIGHT", 0, False, "", time.monotonic_ns())
         self._sampler = None
         self._status = None
@@ -31,6 +31,7 @@ class ExecutorObserver:
         self._error = None
         self._commands = queue.Queue(maxsize=8)
         self._requests = queue.Queue(maxsize=8)
+        self._recording_receipts = set()
         self._abort = threading.Event()
         self._stop = threading.Event()
         self._ready = threading.Event()
@@ -55,28 +56,80 @@ class ExecutorObserver:
             previous, revision, _, _, _ = self._state
             self._state = (phase, revision + (phase != previous), faulted,
                            detail, time.monotonic_ns())
-        if previous == "TELEOP" and phase != "TELEOP" or faulted:
-            self.abort()
+            if previous == "TELEOP" and phase != "TELEOP" or faulted:
+                self.abort()
 
     def command(self, key):
         command = {"r": "start", "s": "save", "d": "discard"}.get(key.lower())
         if command is None:
             return False
+        _, queued = self._enqueue_recording(command)
+        return queued
+
+    def submit_recording(self, command: str) -> Future:
+        """Enqueue without RPC/wait; resolve to RecordingCommand.Response.
+
+        A rejected RPC still returns its response (accepted=False). Local rejection,
+        cancellation by teardown, or an unknown RPC outcome raises on result().
+        No failure is retried automatically.
+        """
+        result, _ = self._enqueue_recording(command)
+        return result
+
+    def _enqueue_recording(self, command):
+        result = Future()
         with self._lock:
             phase, revision, faulted, _, _ = self._state
-        if not self.collection or self._draining or phase != "TELEOP" or faulted:
-            return False
-        try:
-            self._commands.put_nowait((command, self.session_id, revision))
+            if command not in ("start", "save", "discard"):
+                error = ValueError(f"unsupported recording command: {command}")
+            elif self._stop.is_set() or self._error:
+                error = RuntimeError(self._error or "executor DDS stopped")
+            elif (not self.collection or self._draining or self._abort.is_set()
+                  or phase != "TELEOP" or faulted or self._collection_error):
+                error = RuntimeError(self._collection_error or "recording requires healthy TELEOP")
+            else:
+                try:
+                    self._commands.put_nowait((command, self.session_id, revision, result))
+                except queue.Full:
+                    self._dropped += 1
+                    error = RuntimeError("recording command queue full")
+                else:
+                    self._recording_receipts.add(result)
+                    return result, True
+            result.set_exception(error)
+            return result, False
+
+    def _finish_recording(self, result, *, response=None, error=None):
+        # Claim completion atomically against abort, phase changes, and close.
+        # RLock also permits a Future callback to inspect this observer.
+        with self._lock:
+            if result not in self._recording_receipts:
+                return False
+            self._recording_receipts.remove(result)
+            if not result.set_running_or_notify_cancel():
+                return False
+            if error is not None:
+                result.set_exception(error)
+            else:
+                result.set_result(response)
             return True
-        except queue.Full:
-            self._dropped += 1
-            return False
+
+    def _reject_recordings(self, reason):
+        with self._lock:
+            while True:
+                try:
+                    self._commands.get_nowait()
+                except queue.Empty:
+                    break
+            for result in tuple(self._recording_receipts):
+                self._finish_recording(result, error=RuntimeError(reason))
 
     def abort(self):
         # Abort cannot be lost behind a full recording queue.
         if self.collection:
-            self._abort.set()
+            with self._lock:
+                self._abort.set()
+                self._reject_recordings("recording aborted; operation result may be UNKNOWN; do not retry")
 
     def status(self):
         with self._lock:
@@ -95,7 +148,9 @@ class ExecutorObserver:
         return result.result(timeout=timeout + 0.1)
 
     def close(self):
-        self._stop.set()
+        with self._lock:
+            self._stop.set()
+            self._reject_recordings("executor DDS stopped; operation result may be UNKNOWN; do not retry")
         if self._thread is not None:
             self._thread.join(5)
             if self._thread.is_alive():
@@ -246,15 +301,17 @@ class ExecutorObserver:
                         source_monotonic_ns=value.received_monotonic_ns, device=name,
                         position_rad=value.position_rad, healthy=value.healthy,
                         enabled=value.enabled, detail=value.detail))
-                if self._abort.is_set() and not any(label == "abort" for _, _, _, label in pending):
-                    self._abort.clear()
-                    while True:
-                        try:
-                            self._commands.get_nowait()
-                        except queue.Empty:
-                            break
-                    request = ("abort", self.session_id, revision)
-                elif not any(result is None for _, _, result, _ in pending):
+                if self._abort.is_set() and not any(label == "abort" for _, _, _, label, _ in pending):
+                    with self._lock:
+                        self._reject_recordings("recording aborted; operation result may be UNKNOWN; do not retry")
+                        self._abort.clear()
+                    for entry in tuple(pending):
+                        future, _, _, label, command_revision = entry
+                        if command_revision is not None:
+                            pending.remove(entry)
+                            future.cancel()
+                    request = ("abort", self.session_id, revision, None)
+                elif not any(command_revision is not None for _, _, _, _, command_revision in pending):
                     try:
                         request = self._commands.get_nowait()
                     except queue.Empty:
@@ -262,19 +319,29 @@ class ExecutorObserver:
                 else:
                     request = None
                 if request is not None:
-                    command, session, command_revision = request
+                    command, session, command_revision, receipt = request
                     try:
                         if self._status_gid is None:
                             raise RuntimeError("collector has not been verified")
                         self._validate_collector(node)
-                        if command != "abort" and (self._draining or self._collection_error):
-                            raise RuntimeError(self._collection_error or "collector is draining")
+                        with self._lock:
+                            current_phase, current_revision, current_faulted, _, current_touched = self._state
+                            if command != "abort" and (
+                                    self._draining or self._collection_error or self._abort.is_set()
+                                    or self._stop.is_set() or current_phase != "TELEOP"
+                                    or current_faulted or current_revision != command_revision
+                                    or session != self.session_id
+                                    or time.monotonic_ns() - current_touched > 300_000_000
+                                    or receipt not in self._recording_receipts or receipt.cancelled()):
+                                raise RuntimeError(self._collection_error or "recording precondition changed")
                         if not command_client.service_is_ready():
                             raise RuntimeError("service unavailable")
                         future = command_client.call_async(RecordingCommand.Request(
                             command=command, session_id=session, phase_revision=command_revision))
-                        pending.append((future, now + 2, None, command))
-                    except RuntimeError as error:
+                        pending.append((future, now + 2, receipt, command, command_revision))
+                    except Exception as error:
+                        if receipt is not None:
+                            self._finish_recording(receipt, error=error)
                         print(f"COLLECTION {command} not sent: {error}; no automatic retry", flush=True)
                 if self._dropped:
                     print("COLLECTION key rejected: command queue full", flush=True)
@@ -303,13 +370,14 @@ class ExecutorObserver:
                             self._collection_active = True
                             result.set_result(True)
                         elif operation == "drain_collection":
-                            self._draining = True
+                            with self._lock:
+                                self._draining = True
                             self.update_state("STOPPING")
                             self.abort()
                             result.set_result(True)
                         elif operation == "collection_pending":
                             result.set_result(self._abort.is_set() or not self._commands.empty()
-                                              or any(reply is None for _, _, reply, _ in pending))
+                                              or any(rev is not None for _, _, _, _, rev in pending))
                         else:
                             if operation not in ("parameters", "trigger"):
                                 raise ValueError(f"unsupported observer request: {operation}")
@@ -322,11 +390,17 @@ class ExecutorObserver:
                                 raise RuntimeError(f"service not available: {service}")
                             message = (GetParameters.Request(names=rest[0]) if operation == "parameters"
                                        else Trigger.Request())
-                            pending.append((client.call_async(message), deadline, result, service))
+                            pending.append((client.call_async(message), deadline, result, service, None))
                     except Exception as error:
                         result.set_exception(error)
                 for entry in tuple(pending):
-                    future, deadline, result, label = entry
+                    future, deadline, result, label, command_revision = entry
+                    recording = command_revision is not None
+                    if recording and result is not None and result.done():
+                        pending.remove(entry)
+                        future.cancel()
+                        self._finish_recording(result, error=RuntimeError("recording receipt cancelled"))
+                        continue
                     if not future.done() and now < deadline:
                         continue
                     pending.remove(entry)
@@ -334,23 +408,40 @@ class ExecutorObserver:
                         if not future.done():
                             future.cancel()
                             raise TimeoutError(f"{label}: operation result UNKNOWN; inspect collection status, do not retry")
+                        if future.cancelled():
+                            raise RuntimeError(f"{label}: RPC cancelled; operation result UNKNOWN; do not retry")
                         response = future.result()
-                        if result is not None:
+                        if recording:
+                            with self._lock:
+                                current_phase, current_revision, current_faulted, _, current_touched = self._state
+                                if result is not None and (
+                                        self._abort.is_set() or self._draining or self._stop.is_set()
+                                        or self._collection_error or current_phase != "TELEOP"
+                                        or current_revision != command_revision or current_faulted
+                                        or time.monotonic_ns() - current_touched > 300_000_000):
+                                    raise RuntimeError("recording precondition changed; operation result UNKNOWN; do not retry")
+                                completed = result is None or self._finish_recording(result, response=response)
+                            if completed:
+                                print(f"COLLECTION {label}: accepted={response.accepted} "
+                                      f"state={response.state} {response.message}", flush=True)
+                        else:
                             result.set_result(response)
-                        else:
-                            print(f"COLLECTION {label}: accepted={response.accepted} "
-                                  f"state={response.state} {response.message}", flush=True)
                     except Exception as error:
-                        if result is not None:
-                            result.set_exception(error)
-                        else:
+                        if recording:
+                            if result is not None:
+                                self._finish_recording(result, error=error)
                             print(f"COLLECTION {error}", flush=True)
+                        elif not result.done():
+                            result.set_exception(error)
         except Exception as error:
             with self._lock:
                 self._error = str(error)
             print(f"EXECUTOR DDS STOPPED (motion gate unchanged): {error}", flush=True)
         finally:
             self._ready.set()
+            with self._lock:
+                self._stop.set()
+                self._reject_recordings("executor DDS stopped; operation result may be UNKNOWN; do not retry")
             while True:
                 try:
                     _, _, result, _ = self._requests.get_nowait()
@@ -358,8 +449,9 @@ class ExecutorObserver:
                     break
                 if not result.done():
                     result.set_exception(RuntimeError("executor DDS stopped"))
-            for _, _, result, _ in pending:
-                if result is not None and not result.done():
+            for future, _, result, _, command_revision in pending:
+                future.cancel()
+                if command_revision is None and result is not None and not result.done():
                     result.set_exception(RuntimeError("executor DDS stopped"))
             if executor is not None:
                 executor.shutdown(timeout_sec=1.0)

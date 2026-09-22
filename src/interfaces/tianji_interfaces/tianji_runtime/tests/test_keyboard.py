@@ -85,6 +85,24 @@ def test_calibrate_key_is_dispatched_separately(monkeypatch):
         os.close(slave)
 
 
+def test_collection_finish_key_never_becomes_enter_authorization(monkeypatch):
+    master, slave, _ = _open_pty()
+    events = []
+    try:
+        with os.fdopen(os.dup(slave), "r") as terminal:
+            monkeypatch.setattr(sys, "stdin", terminal)
+            keyboard = OperatorKeyboard(events.append, on_finish=lambda: events.append("finish"))
+            try:
+                os.write(master, b"rQs")
+                assert keyboard.poll_enter() is False
+                assert events == ["r", "finish", "s"]
+            finally:
+                keyboard.close()
+    finally:
+        os.close(master)
+        os.close(slave)
+
+
 def test_key_handler_failure_does_not_break_polling(monkeypatch, capsys):
     master, slave, _ = _open_pty()
     handled: list[str] = []

@@ -492,6 +492,163 @@ class StagedMotionGateTests(unittest.TestCase):
             motion.reset_staged_motion()
         self.assertIsNotNone(motion.fault)
 
+    def test_collection_refuses_enable_outside_measured_home(self):
+        motion = gate()
+        with self.assertRaisesRegex(SafetyFault, "measured Home before enable"):
+            motion.arm_home(frame(), feedback(), NOW)
+        self.assertFalse(motion.armed)
+        self.assertEqual(motion.phase, "WAITING")
+        self.assertEqual(motion.display_targets, {})
+        # A desired Home target cannot stand in for measured Home feedback.
+        target = CommandFrame(1, NOW, 7, 7, HOME_LEFT, HOME_RIGHT, (0.0,) * 20, (0.0,) * 20)
+        with self.assertRaises(SafetyFault):
+            motion.check_home_enable_ready(target, feedback(), NOW)
+
+    def test_home_first_and_repeated_episodes_keep_hands_and_frozen_targets(self):
+        motion = gate(settle_time_s=.05)
+        command = held()
+        command["left_hand"] = (.15,) * 20
+        command["right_hand"] = (.25,) * 20
+        command["arms"] = HOME_LEFT + HOME_RIGHT
+        motion.arm_home(frame(value=.8), feedback(values=command), NOW)
+        self.assertEqual(motion.phase, "HOMING")
+        self.assertEqual(motion.display_targets["left_hand"], command["left_hand"])
+        self.assertEqual(motion.display_targets["right_hand"], command["right_hand"])
+        now = NOW
+        for target in (.1, .2):
+            grip = {device: command[device] for device in ALL if device != "arms"}
+            for _ in range(6000):
+                now += TICK
+                command = motion.step(frame(value=.8, stamp=now),
+                                      feedback(enabled=True, stamp=now, values=command), now)
+                for device, pose in grip.items():
+                    self.assertEqual(command[device], pose)
+                if motion.phase == "HOME_REACHED":
+                    break
+            self.assertEqual(motion.phase, "HOME_REACHED")
+            home_command = command
+            now += TICK
+            command = motion.step(frame(value=-.5, stamp=now),
+                                  feedback(enabled=True, stamp=now, values=command), now)
+            self.assertEqual(command, home_command)
+            motion.align_episode(frame(value=target, stamp=now),
+                                 feedback(enabled=True, stamp=now, values=command), now)
+            now, command = settle(motion, .8, command, now)
+            self.assertEqual(command, held(target))
+            motion.start_teleop(frame(value=target, stamp=now),
+                                feedback(enabled=True, stamp=now, values=command), now)
+            motion.hold_teleop()
+            for _ in range(30):
+                now += TICK
+                command = motion.step(frame(value=.8, stamp=now),
+                                      feedback(enabled=True, stamp=now, values=command), now)
+                self.assertEqual(command, held(target))
+            self.assertTrue(motion.teleop_stopped)
+            motion.start_homing(frame(value=.8, stamp=now),
+                                feedback(enabled=True, stamp=now, values=command), now)
+            self.assertTrue(motion.armed)
+            self.assertEqual(motion.phase, "HOMING")
+
+    def test_teleop_hold_brakes_continuously_and_never_chases_changed_input(self):
+        motion = gate(settle_time_s=.05, maximum_acceleration_rad_s2=2)
+        motion.arm(frame(), feedback(), NOW)
+        now, command = settle(motion, 0.0, held(), NOW)
+        motion.start_teleop(frame(stamp=now), feedback(enabled=True, stamp=now, values=command), now)
+        # Legacy live slew caps displacement to one tick, but braking must use
+        # the emitted displacement over the actual (longer) wall-time interval.
+        now += 2 * TICK
+        source = CommandFrame(1, now, 7, 7, (.8,) * 7, (.8,) * 7, (.8,) * 20, (-.8,) * 20)
+        command = motion.step(source, feedback(enabled=True, stamp=now, values=command), now)
+        start = command
+        speed = {"arms": .25, "left_hand": 0.0, "right_hand": 0.0}
+        previous_speed, previous_dt = dict(speed), 2 * TICK / 1e9
+        motion.hold_teleop()
+        self.assertFalse(motion.teleop_stopped)
+        with self.assertRaisesRegex(SafetyFault, "stationary"):
+            motion.release_teleop_hold()
+        with self.assertRaisesRegex(SafetyFault, "stationary"):
+            motion.start_homing(frame(value=.8, stamp=now),
+                                feedback(enabled=True, stamp=now, values=command), now)
+        for index in range(300):
+            dt_ns = (2_000_000, 13_000_000, 5_000_000, 9_000_000)[index % 4]
+            dt = dt_ns / 1e9
+            now += dt_ns
+            previous = command
+            motion.hold_teleop()  # Repeated requests cannot restart braking/rest.
+            command = motion.step(frame(value=-.5, stamp=now),
+                                  feedback(enabled=True, stamp=now, values=previous), now)
+            self.assertEqual(command["left_hand"], start["left_hand"])
+            self.assertEqual(command["right_hand"], start["right_hand"])
+            for device in ALL:
+                velocity = (command[device][0] - previous[device][0]) / dt
+                self.assertGreaterEqual(velocity * speed[device], 0)
+                self.assertLessEqual(abs(velocity), abs(previous_speed[device]) + 1e-10)
+                self.assertLessEqual(abs(velocity - previous_speed[device]) /
+                                     ((dt + previous_dt) / 2), 2 + 1e-8)
+                previous_speed[device] = velocity
+            previous_dt = dt
+            self.assertEqual(motion.phase, "TELEOP")
+            if motion.teleop_stopped:
+                break
+        self.assertTrue(motion.teleop_stopped)
+        for device in ALL:
+            self.assertAlmostEqual(command[device][0],
+                                   start[device][0] + speed[device] * abs(speed[device]) / 4)
+        stopped = command
+        now += TICK
+        command = motion.step(frame(value=1.5, stamp=now),
+                              feedback(enabled=True, stamp=now, values=command), now)
+        self.assertEqual(command, stopped)
+        motion.release_teleop_hold()
+        now += TICK
+        command = motion.step(frame(value=-.5, stamp=now),
+                              feedback(enabled=True, stamp=now, values=command), now)
+        for device in ALL:
+            self.assertLess(command[device][0], stopped[device][0])
+
+    def test_teleop_hold_rejects_out_of_bounds_stopping_distance(self):
+        motion = gate(settle_time_s=.05)
+        motion.arm(frame(value=1.8), feedback(values=held(1.8)), NOW)
+        now, command = settle(motion, 1.8, held(1.8), NOW)
+        motion.start_teleop(frame(value=1.8, stamp=now),
+                            feedback(enabled=True, stamp=now, values=command), now)
+        now += TICK
+        command = motion.step(frame(value=1.9, stamp=now),
+                              feedback(enabled=True, stamp=now, values=command), now)
+        with self.assertRaisesRegex(SafetyFault, "braking stop"):
+            motion.hold_teleop()
+        self.assertIsNotNone(motion.fault)
+        now += TICK
+        with self.assertRaises(SafetyFault):
+            motion.step(frame(value=1.9, stamp=now),
+                        feedback(enabled=True, stamp=now, values=command), now)
+
+    def test_held_rest_requires_fresh_measurements_but_allows_hand_contact(self):
+        motion = gate(settle_time_s=.05)
+        motion.arm(frame(), feedback(), NOW)
+        now, command = settle(motion, 0.0, held(), NOW)
+        motion.start_teleop(frame(stamp=now), feedback(enabled=True, stamp=now, values=command), now)
+        motion.hold_teleop()
+        contact = dict(command)
+        contact["left_hand"] = (-.2,) * 20
+        contact["right_hand"] = (-.2,) * 20
+        cached = now
+        for _ in range(20):
+            now += TICK
+            command = motion.step(frame(value=.8, stamp=now),
+                                  feedback(enabled=True, stamp=cached, values=contact), now)
+            self.assertFalse(motion.teleop_stopped)
+        for _ in range(30):
+            now += TICK
+            command = motion.step(frame(value=.8, stamp=now),
+                                  feedback(enabled=True, stamp=now, values=contact), now)
+        self.assertTrue(motion.teleop_stopped)
+        self.assertEqual(command, held())
+        now += TICK
+        with self.assertRaisesRegex(SafetyFault, "epoch"):
+            motion.step(frame(value=.8, epoch=8, stamp=now),
+                        feedback(enabled=True, stamp=now, values=contact), now)
+
     def test_invalid_acceleration_is_rejected_before_enable(self):
         for acceleration in (0, -1, math.inf, math.nan, True):
             with self.subTest(acceleration=acceleration), self.assertRaises(ValueError):
