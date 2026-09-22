@@ -254,7 +254,7 @@ class CameraMonitor(Node):
                     if (_parse_profile(profile) != (IMAGE_WIDTH, IMAGE_HEIGHT, CAMERA_FPS)
                             or fmt.strip().upper() != "RGB8" or serial != f"_{state.serial}"):
                         raise RuntimeError(f"effective profile={profile!r}, format={fmt!r}, serial={serial!r}; "
-                                           f"expected 1280x720x30 RGB8 _{state.serial}")
+                                           f"expected {IMAGE_WIDTH}x{IMAGE_HEIGHT}x{CAMERA_FPS} RGB8 _{state.serial}")
                     state.profile, state.format = profile, fmt
                     state.parameter_time = time.monotonic()
                 self._request(state, "parameters", request, parameters)
@@ -331,7 +331,7 @@ async def _session(service, monitor, *, timeout, duration, should_stop):
         if task is not None:
             service.shutdown(force_sync=True)
             code = await task  # Wait for driver exit before releasing the session.
-            locks = service.context.locals.get("tianji_camera_locks")
+            locks = service.context.get_locals_as_dict().get("tianji_camera_locks")
             if locks is not None:
                 locks.close()  # Also release serials whose nodes never started.
             if code and not unexpected_exit:

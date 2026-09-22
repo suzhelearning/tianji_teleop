@@ -1,25 +1,42 @@
-"""Locate this package's Manus calibration directory.
-
-The ament install is authoritative: `share/manus_bridge/calibration` carries the
-per-user `<user>LeftMetaglovePro.mcal` / `<user>RightMetaglovePro.mcal` profiles.
-A source checkout that has not been built yet falls back to the `calibration/`
-directory next to this package so listing and pre-checks keep working.
-"""
+"""Locate and validate Manus calibration pairs in personnel storage."""
 
 from __future__ import annotations
 
 from pathlib import Path
+import re
 
-from tianji_runtime.resources import ResourceNotFound, package_share
+from tianji_runtime.resources import workspace
 
-SOURCE_CALIBRATION = Path(__file__).resolve().parent.parent / "calibration"
+_USER_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*")
 
 
-def calibration_dir() -> Path:
-    """Directory holding the per-user glove calibration profiles."""
+def profiles_root() -> Path:
+    """Workspace personnel storage, independent of package installation."""
+    return workspace() / "profiles"
+
+
+def calibration_dir(user: str) -> Path:
+    """Return a complete calibration pair's directory, contained in this person."""
+    if not isinstance(user, str) or _USER_NAME.fullmatch(user) is None:
+        raise ValueError("user must be a single name using letters, digits, '_' or '-'")
+    profiles = profiles_root()
+    person = profiles / user
+    directory = person / "manus"
     try:
-        return package_share("manus_bridge", "calibration")
-    except ResourceNotFound:
-        if not SOURCE_CALIBRATION.is_dir():
-            raise
-        return SOURCE_CALIBRATION
+        for path in (profiles, person, directory):
+            resolved = path.resolve(strict=True)
+            if not resolved.is_relative_to(path):
+                raise ValueError(f"path escapes selected Manus calibration: {path}")
+            if not resolved.is_dir():
+                raise ValueError(f"expected Manus calibration directory: {path}")
+        directory = directory.resolve(strict=True)
+        for side in ("Left", "Right"):
+            path = directory / f"{user}{side}MetaglovePro.mcal"
+            resolved = path.resolve(strict=True)
+            if not resolved.is_relative_to(directory):
+                raise ValueError(f"path escapes selected Manus calibration: {path}")
+            if not resolved.is_file():
+                raise ValueError(f"expected Manus calibration file: {path}")
+    except (OSError, RuntimeError) as error:
+        raise ValueError(f"missing or inaccessible Manus calibration for {user}: {directory}") from error
+    return directory

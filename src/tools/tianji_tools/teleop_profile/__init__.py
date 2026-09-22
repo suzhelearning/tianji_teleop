@@ -103,7 +103,9 @@ def resolve_profile(user: str, component: str, root: Path = ROOT) -> str:
         raise ValueError(f"profile {user!r} {component} must contain only {field!r}")
     selected = _name(selection[field], f"{component}.{field}")
     if component == "manus":
-        calibration_path = root / "src" / "teleop_inputs" / "manus" / "calibration"
+        selected_person = root / "profiles" / selected
+        _contained(selected_person, selected_person, directory=True)
+        calibration_path = selected_person / "manus"
         calibration = _contained(calibration_path, calibration_path, directory=True)
         for side in ("Left", "Right"):
             path = calibration / f"{selected}{side}MetaglovePro.mcal"

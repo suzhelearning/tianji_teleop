@@ -13,7 +13,7 @@ from tianji_cameras.pico_video_protocol import (
 
 def message(command, payload=b""):
     command = command.encode("utf-8")
-    return (struct.pack(">I", 12 + len(command) + len(payload))
+    return (struct.pack(">I", 8 + len(command) + len(payload))
             + struct.pack("<I", len(command)) + command
             + struct.pack("<I", len(payload)) + payload)
 
@@ -36,7 +36,7 @@ class ProtocolTest(unittest.TestCase):
         reader.settimeout(0.02)
         return reader, writer
 
-    def test_upstream_framing_keeps_consecutive_messages_separate(self):
+    def test_app_body_length_keeps_consecutive_messages_separate(self):
         reader, writer = self.sockets()
         payload = request()
         writer.sendall(message("OPEN_CAMERA", payload) + message("CLOSE_CAMERA"))
@@ -58,7 +58,7 @@ class ProtocolTest(unittest.TestCase):
 
     def test_malformed_or_oversized_framing_is_rejected(self):
         for wire in (struct.pack(">I", 65537),
-                     struct.pack(">I", 13) + struct.pack("<I", 100) + b"abcde",
+                     struct.pack(">I", 9) + struct.pack("<I", 100) + b"abcde",
                      message("X")[:-4] + struct.pack("<I", 1),
                      message("X")[:8] + b"\xff" + struct.pack("<I", 0)):
             with self.subTest(wire=wire):

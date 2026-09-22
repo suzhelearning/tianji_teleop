@@ -279,7 +279,7 @@ def main(argv=None) -> int:
     parser.add_argument("--session-id", required=True)
     parser.add_argument("--external-executor", action="store_true")
     parser.add_argument("--config", type=Path, default=config_path("collect_real.json"))
-    parser.add_argument("--profile", default="1280,720,30")
+    parser.add_argument("--profile", default=f"{IMAGE_WIDTH},{IMAGE_HEIGHT},30")
     parser.add_argument("--device-serial", default=None)
     parser.add_argument("--monitor-owner", default="")
     parser.add_argument("--duplicate-monitor", action="store_true")

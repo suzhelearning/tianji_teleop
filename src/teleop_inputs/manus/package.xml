@@ -4,9 +4,9 @@
   <name>manus_bridge</name>
   <version>0.3.0</version>
   <description>
-    Manus Metaglove Pro input: the Integrated SDK collector launcher, the
-    per-user .mcal calibration profiles and the /hand_input publisher that
-    feeds the Wuji Hand2 retargeter. Input only; it never commands hardware.
+    Manus Metaglove Pro input: the Integrated SDK collector launcher and the
+    /hand_input publisher that feeds the Wuji Hand2 retargeter. Per-user
+    calibration lives in workspace profiles. Input only; it never commands hardware.
   </description>
   <maintainer email="ops@example.com">Tianji operators</maintainer>
   <license>Apache-2.0</license>

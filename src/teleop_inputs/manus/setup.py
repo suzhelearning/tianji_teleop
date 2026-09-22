@@ -11,13 +11,10 @@ package_root = Path(__file__).resolve().parent
 executables = ["rawviz"] if (package_root / "rawviz").is_file() else []
 # Paths must stay relative to this file: colcon resolves data_files against the
 # package directory and rejects absolute sources.
-calibration = [f"calibration/{path.name}"
-               for path in sorted((package_root / "calibration").glob("*.mcal"))]
 
 data_files = [
     ("share/ament_index/resource_index/packages", ["resource/" + package_name]),
     ("share/" + package_name, ["package.xml"]),
-    ("share/" + package_name + "/calibration", calibration),
     ("share/" + package_name + "/udev", ["90-manus.rules"]),
 ]
 if executables:
@@ -32,7 +29,7 @@ setup(
     zip_safe=True,
     maintainer="Tianji operators",
     maintainer_email="ops@example.com",
-    description="Manus Metaglove Pro input collector, calibration profiles and /hand_input publisher",
+    description="Manus Metaglove Pro input collector and /hand_input publisher",
     license="Apache-2.0",
     entry_points={
         "console_scripts": [

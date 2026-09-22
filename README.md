@@ -65,6 +65,45 @@ pixi run build
 
 不要复制其他电脑的环境、构建产物或个人标定；安装后也不要随意移动工程目录。
 
+### PICO 头显应用（Git LFS）
+
+安装包统一保存在 `apps/pico/`，由 Git LFS 管理，不随 PC 端构建自动安装到头显：
+
+| 安装包 | 用途 |
+|---|---|
+| `pico_g1_teleop_wired_withcam.apk` | PICO 手柄遥操作、有线 PC 相机视频 |
+| `pico_hand_tracking_adb.apk` | PICO 裸手跟踪，经 ADB 接入裸手仿真路线 |
+
+克隆后先拉取实际 APK 文件，不能把 Git LFS 指针文件当作 APK 安装：
+
+```bash
+git lfs install --local
+git lfs pull --include="apps/pico/*.apk"
+```
+
+安装前停止遥操作执行端、旧 PICO 输入和视频桥，保持机器人未使能；USB 连接头显并允许调试。
+按实际路线选择一个安装包，`-r` 表示覆盖安装并保留兼容的应用数据：
+
+```bash
+adb devices -l
+# 手柄 + 视频路线
+adb install -r apps/pico/pico_g1_teleop_wired_withcam.apk
+# 或：裸手路线
+adb install -r apps/pico/pico_hand_tracking_adb.apk
+```
+
+多设备连接时使用 `adb -s SERIAL install -r ...`。签名不一致时不要直接卸载旧应用，
+先核对安装包来源；安装完成后在头显中打开对应路线的应用。
+
+后续更新用新版 APK 替换同名文件，再提交 APK 与必要说明；`.gitattributes` 的
+`apps/pico/*.apk` 规则会将二进制内容存入 LFS。正常 `git push` 通过 LFS hook 上传对象，
+远端必须支持 Git LFS 且有足够配额；不要只提交或复制指针而遗漏实际 LFS 对象。
+
+手柄版追踪连接由头显主动发起：`ADB reverse tcp:9999 tcp:9999` → PC
+`127.0.0.1:9999` 监听器。`run_pico.sh` 自动检查该映射；仅移除所选设备上精确匹配的
+旧 `forward tcp:9999 tcp:9999`，其他设备或端口冲突直接拒绝，不改视频和裸手映射。
+输入桥支持交付 APK 的逐关节、整包 float32 和半精度追踪帧，断线重连建立新 tracking epoch。
+
 ## 2. 新人员标定并显示骨架
 
 先退出旧遥操执行端，再停止旧 PICO 输入；真机保持未使能。
@@ -89,6 +128,34 @@ pixi run setup-pico --user NEW_USER --height-m 1.70
 采集失败或取消发布不会自动加载旧人员；发布成功但窗口启动失败需按报错排查。
 
 标定假设、手动分步入口和失败处理见[简化 PICO 标定](docs/pico-simple-calibration.md)。
+
+### 人员标定的唯一存放位置
+
+PICO 与 Manus 人员标定统一放在工程根目录的 `profiles/<人员名>/`：
+
+```text
+profiles/zjx/
+├── pico-simple/                 # PICO 标定版本与 active.json
+└── manus/
+    ├── zjxLeftMetaglovePro.mcal
+    └── zjxRightMetaglovePro.mcal
+```
+
+新增 Manus 标定时，将本人实际生成的左右手文件放到 `profiles/NAME/manus/`，
+文件名为 `NAMELeftMetaglovePro.mcal` 和 `NAMERightMetaglovePro.mcal`。不需要重新构建，
+也不再复制到源码包或 `install/`。缺少一侧就不能启动，不会回退到其他人员或旧安装目录。
+
+```bash
+bash bash/run_manus.sh --list-calibration-users
+bash bash/run_manus.sh --user zjx --check  # 只检查，不连接设备或发送数据
+bash bash/run_manus.sh --user zjx
+# 等价人员选择：bash bash/run_manus.sh --calibration-user zjx
+```
+
+两种人员参数均直接选择对应目录，不需要额外的 `profile.yaml` 映射；两种列表参数
+`--list-users` / `--list-calibration-users` 均列出完整的 Manus 双手标定。
+修改标定后须先安全停止执行端，再重启 Manus 输入；运行中的进程不会热切换人员。
+机器人硬件配置及外骨骼设备身份／零位配置不是人员标定，仍保留原设备配置目录。
 
 ## 3. 启动机械臂仿真
 
@@ -214,6 +281,10 @@ PICO 软件须启用支持 `OPEN_CAMERA` 的 PC 视频源，PC 地址填 **`127.
 `adb forward tcp:12345 tcp:12345`，仅清理本次新建的视频映射，不改裸手输入的 `10002`。
 已有 manager 管理视频映射时可加 `--no-adb`；多设备用 `ANDROID_SERIAL` 选择。
 此脚本只支持有线回环视频，不按请求中的任意 IP 向外推送。
+控制协议以自研 `PICO_2-PICO_G1_Teleop` 交付包的 `stream_to_pico.py` 为准：
+4 字节大端**正文长度（不含长度头自身）**，随后依次为小端 int32 命令字节数、
+UTF-8 命令、小端 int32 负载字节数和负载。`OPEN_CAMERA`／`CLOSE_CAMERA`
+均使用这一帧格式，不需要 XRoboToolkit PC Service。
 
 H.264 使用 PICO 的 4 字节大端长度头协议，按请求尺寸生成左右眼相同的 top 画面
 （SBS，不是真双目深度）。源图像超过 250 ms 或视频发送阻塞会断开并报错，

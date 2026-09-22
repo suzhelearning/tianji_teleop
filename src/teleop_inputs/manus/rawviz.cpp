@@ -25,7 +25,6 @@
 #include <map>
 #include <deque>
 #include <condition_variable>
-#include <unistd.h>
 #include <limits.h>
 
 #include "ManusSDK.h"
@@ -38,34 +37,14 @@ static const long kMaxCalibrationBytes = 4 * 1024 * 1024;
 // 持续过载时丢最旧帧保实时性,内存与延迟有界
 static const size_t kMaxQueuedFrames = 16;
 
-// Calibration remains per user, with an optional explicit directory.
+// The launcher explicitly selects a user and that user's profiles/<user>/manus directory.
 static std::string g_CalibrationUser;
 static std::string g_CalibrationDirectory;
 
-// Default: calibration/ next to the executable, i.e. share/manus_bridge/ in an install.
+// Preserve the per-user filenames inside the explicitly selected directory.
 static void BuildCalibrationPath(const char* t_Base, char* t_Out, size_t t_OutSize)
 {
-	if (!g_CalibrationDirectory.empty())
-	{
-		snprintf(t_Out, t_OutSize, "%s/%s%s", g_CalibrationDirectory.c_str(),
-		         g_CalibrationUser.c_str(), t_Base);
-		return;
-	}
-	char t_Exe[PATH_MAX];
-	ssize_t t_Len = readlink("/proc/self/exe", t_Exe, sizeof(t_Exe) - 1);
-	if (t_Len > 0)
-	{
-		t_Exe[t_Len] = '\0';
-		char* t_Slash = strrchr(t_Exe, '/');
-		if (t_Slash && t_Slash != t_Exe)
-		{
-			*t_Slash = '\0';
-			snprintf(t_Out, t_OutSize, "%s/calibration/%s%s",
-			         t_Exe, g_CalibrationUser.c_str(), t_Base);
-			return;
-		}
-	}
-	snprintf(t_Out, t_OutSize, "calibration/%s%s",
+	snprintf(t_Out, t_OutSize, "%s/%s%s", g_CalibrationDirectory.c_str(),
 	         g_CalibrationUser.c_str(), t_Base);
 }
 
@@ -126,13 +105,13 @@ static bool OrderFrameNodes(const GloveTopology& p_Topology, const GloveStream& 
 
 // ---------------------------------------------------------------------------
 // 校准文件加载（仿 wuji-hand-teleop：CoreSdk_SetGloveCalibration）
-// 校准显著改善骨架质量；文件随包安装（share/manus_bridge/calibration/*.mcal）
+// 校准显著改善骨架质量；个人文件位于工作区 profiles/<user>/manus。
 // ---------------------------------------------------------------------------
 static void LoadCalibration(uint32_t p_GloveId, uint32_t p_Side)
 {
 	const char* t_Base = (p_Side == Side_Left) ? "LeftMetaglovePro.mcal"
 	                                           : "RightMetaglovePro.mcal";
-	// Directory is explicitly configured or relative to the collector executable.
+	// Both the user and directory are required before starting the SDK.
 	char t_Path[PATH_MAX * 2];
 	BuildCalibrationPath(t_Base, t_Path, sizeof(t_Path));
 
@@ -386,12 +365,10 @@ static bool ConnectIntegrated()
 }
 
 // ---------------------------------------------------------------------------
-// 启动前校验:显式 --user 时校准文件必须存在,缺失报错退出
+// 启动前校验:所选用户的左右手校准文件必须存在,缺失报错退出
 // ---------------------------------------------------------------------------
 static bool CheckCalibrationFilesExist()
 {
-	if (g_CalibrationUser.empty())
-		return true;                    // 未指定用户:走旧路径,加载失败只警告
 	bool t_Ok = true;
 	for (const char* t_Name : {"LeftMetaglovePro.mcal", "RightMetaglovePro.mcal"})
 	{
@@ -421,10 +398,10 @@ int main(int argc, char* argv[])
 	{
 		if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0)
 		{
-			printf("Usage: %s [--user NAME] [--calibration-dir PATH]\n"
+			printf("Usage: %s --user NAME --calibration-dir PATH\n"
 			       "Stream Manus Integrated SDK HAND/NODE/EDGE/POSE records to stdout.\n"
-			       "Calibration defaults to calibration/ next to the executable.\n"
-			       "--user NAME selects NAMELeft/RightMetaglovePro.mcal.\n", argv[0]);
+			       "Both options are required; PATH selects profiles/NAME/manus.\n"
+			       "--user NAME selects NAMELeft/RightMetaglovePro.mcal in PATH.\n", argv[0]);
 			return 0;
 		}
 		else if (strcmp(argv[i], "--calibration-dir") == 0 && i + 1 < argc)
@@ -438,15 +415,21 @@ int main(int argc, char* argv[])
 		else
 		{
 			fprintf(stderr, "[rawviz] 未知参数: %s\n", argv[i]);
-			fprintf(stderr, "Usage: %s [--user NAME] [--calibration-dir PATH]\n", argv[0]);
+			fprintf(stderr, "Usage: %s --user NAME --calibration-dir PATH\n", argv[0]);
 			return 2;
 		}
 	}
+	if (g_CalibrationUser.empty() || g_CalibrationDirectory.empty())
+	{
+		fprintf(stderr, "[rawviz] --user and --calibration-dir are required.\n");
+		fprintf(stderr, "Usage: %s --user NAME --calibration-dir PATH\n", argv[0]);
+		return 2;
+	}
 	if (!CheckCalibrationFilesExist())
 	{
-		fprintf(stderr, "[rawviz] 校准文件缺失,退出。请先为用户 '%s' 准备 "
-		        "share/manus_bridge/calibration/%sLeftMetaglovePro.mcal 与 %sRightMetaglovePro.mcal\n",
-		        g_CalibrationUser.c_str(),
+		fprintf(stderr, "[rawviz] 校准文件缺失,退出。请先在 '%s' 为用户 '%s' 准备 "
+		        "%sLeftMetaglovePro.mcal 与 %sRightMetaglovePro.mcal\n",
+		        g_CalibrationDirectory.c_str(), g_CalibrationUser.c_str(),
 		        g_CalibrationUser.c_str(), g_CalibrationUser.c_str());
 		return 2;
 	}

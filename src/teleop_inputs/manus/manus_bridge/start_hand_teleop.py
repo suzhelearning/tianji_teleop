@@ -54,15 +54,16 @@ def main() -> int:
     parser.add_argument("--ros-domain-id", type=int, default=120)
     parser.add_argument("--topic", default="/hand_input")
     args = parser.parse_args()
-    calibrations = calibration_dir()
-    users = calibration_users()
     if args.list_users:
-        for user in users:
+        for user in calibration_users():
             print(user)
         return 0
-    if args.user not in users:
-        parser.error(f"choose an existing calibration user with --user; "
-                     f"searched {calibrations} (list them with --list-users)")
+    if args.user is None:
+        parser.error("choose a calibration user with --user (list them with --list-users)")
+    try:
+        calibrations = calibration_dir(args.user)
+    except ValueError as error:
+        parser.error(f"{error}; no Manus input started (list users with --list-users)")
     if not 1 <= args.port <= 65535:
         parser.error("--port must be in [1, 65535]")
     if not 0 <= args.ros_domain_id <= 232:

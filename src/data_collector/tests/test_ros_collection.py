@@ -343,7 +343,7 @@ def test_records_a_validated_episode(node, harness):
     assert episode["arms"].shape[1] == 14
     assert episode["hands"].shape[1] == 40
     for role, (timestamps, frames) in episode["images"].items():
-        assert frames.shape[1:] == (720, 1280, 3), role
+        assert frames.shape[1:] == (480, 640, 3), role
         assert timestamps.size > 0, role
         assert np.all(np.diff(timestamps) >= 0), role
     assert np.all(np.diff(episode["arms_ts"]) >= 0)

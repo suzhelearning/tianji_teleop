@@ -1,0 +1,63 @@
+schema_version: 2
+valid: true
+side: left
+pose_semantics: controller_pose
+transform_convention: T_controller_palm
+source_topic: /pico/pose/left_hand
+orientation_reference: gravity_leveled_hmd_heading
+translation_m:
+- -0.03164174622620983
+- -0.07885376857433117
+- 0.011273197931828766
+quaternion_xyzw:
+- 0.0884270276640134
+- 0.22275457414612326
+- -0.10680581349360292
+- 0.964962993424855
+covariance_upper_triangle_6x6:
+- 0.0001
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0001
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0001
+- 0.0
+- 0.0
+- 0.0
+- 2.2559973607093603e-06
+- -1.1014834376225067e-06
+- 1.6903514037389013e-06
+- 3.335276337893657e-06
+- -1.1961971433981627e-06
+- 2.6725914069424343e-06
+orientation_calibrated: true
+calibration_revision: 1
+translation_revision: 1
+orientation_revision: 1
+orientation_only_ancestor_sha256: []
+source_recording: interactive_tcp_calibration
+lineage:
+- /pico/pose/left_hand
+- /pico/pose/head
+- gravity_leveled_hmd_heading
+quality:
+  sample_count: 4
+  position_sample_count: 4
+  orientation_sample_count: 127
+  orientation_capture_separate: true
+  position_rms_m: 0.0029107129818053026
+  sample_matrix_rank: 6
+  sample_matrix_condition: 4.6890145570327055
+orientation_calibration:
+  method: gravity_leveled_hmd_heading_bilateral_forward_palms_facing
+  tracking_epoch: 362
+  sample_count: 127
+  orientation_rms_rad: 0.0028628340719664526
+  correction_angle_rad: 0.5309880497329682
+translation_fingerprint_sha256: c1b4d46f90de1bf6702284db5058888c3a19e57a49fded8ef152f71136e94881

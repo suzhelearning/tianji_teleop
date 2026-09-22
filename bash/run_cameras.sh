@@ -15,7 +15,8 @@ export LD_LIBRARY_PATH="$CONDA_PREFIX/lib"
 source "$root/bash/environment.sh" --build
 export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-120}"
-export ROS_AUTOMATIC_DISCOVERY_RANGE="${ROS_AUTOMATIC_DISCOVERY_RANGE:-LOCALHOST}"
+# The isolated SDK activates SUBNET by default; this workspace is same-host only.
+export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
 # These three roots contain only the camera app and shared pure-Python contracts.
 # data_collector.config is stdlib-only; no dataset/model module is imported here.
 export PYTHONPATH="$root/src/cameras/tianji_cameras:$root/src/interfaces/tianji_interfaces:$root/src/data_collector"

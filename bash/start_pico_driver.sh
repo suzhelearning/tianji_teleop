@@ -14,8 +14,7 @@ export ROS2CLI_DISABLE_DAEMON="${ROS2CLI_DISABLE_DAEMON:-1}"
 source "$repo_root/bash/environment.sh"
 
 
-command -v adb >/dev/null || { echo "adb not found" >&2; exit 2; }
-adb forward tcp:9999 tcp:9999
+python3 "$pico_scripts/ensure_pico_tracking_adb.py"
 
 echo "PICO driver starting (domain=$ROS_DOMAIN_ID)"
 exec ros2 launch pico_bridge start_pico_bridge.launch.py "$@"

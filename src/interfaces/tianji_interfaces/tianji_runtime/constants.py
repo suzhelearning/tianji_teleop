@@ -16,8 +16,8 @@ STATE_DIM = ARMS_COUNT + 2 * HAND_COUNT  # 54
 DEVICES = ("arms", "left_hand", "right_hand")
 
 # RGB geometry of every schema-v1 camera stream.
-IMAGE_WIDTH = 1280
-IMAGE_HEIGHT = 720
+IMAGE_WIDTH = 640
+IMAGE_HEIGHT = 480
 RGB_SHAPE = (IMAGE_HEIGHT, IMAGE_WIDTH, 3)
 CAMERA_FPS = 30
 CAMERA_ROLES = ("top", "left_wrist", "right_wrist")

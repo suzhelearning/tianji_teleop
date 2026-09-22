@@ -1,7 +1,7 @@
 """Launch exclusively owned official RGB drivers after exact-mode preflight."""
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, EmitEvent, OpaqueFunction, RegisterEventHandler
-from launch.event_handlers import OnProcessExit
+from launch.event_handlers import OnProcessExit, OnProcessIO
 from launch.events import Shutdown
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
@@ -18,6 +18,7 @@ def _camera_nodes(context):
     locks = CameraLocks(selection.values())
     context.extend_globals({"tianji_camera_locks": locks})
     actions = []
+    nodes = []
     try:
         profiles = validate_devices(selection)
         for role, profile in profiles.items():
@@ -46,10 +47,38 @@ def _camera_nodes(context):
                 return [EmitEvent(event=Shutdown(
                     reason=f"camera {name} driver exited with code {event.returncode}"))]
 
-            actions.extend([
-                RegisterEventHandler(OnProcessExit(target_action=node, on_exit=on_exit)),
-                node,
-            ])
+            actions.append(
+                RegisterEventHandler(OnProcessExit(target_action=node, on_exit=on_exit)))
+            nodes.append(node)
+
+        # RealSense enumerates all USB devices before selecting its serial.
+        # Overlapping enumeration can leave another driver with a partial
+        # device and no color sensor. Serialize initialization, not streaming.
+        # This log is only an initialization barrier: CameraMonitor still
+        # certifies the effective profile and fresh Image/Metadata pairs.
+        def start_after_initialization(next_node):
+            pending = bytearray()
+            started = False
+
+            def on_output(event):
+                nonlocal started
+                if started:
+                    return []
+                pending.extend(event.text)
+                if b"RealSense Node Is Up!" in pending:
+                    started = True
+                    return [next_node]
+                del pending[:-4096]
+                return []
+
+            return on_output
+
+        for previous, following in zip(nodes, nodes[1:]):
+            callback = start_after_initialization(following)
+            actions.append(RegisterEventHandler(OnProcessIO(
+                target_action=previous, on_stdout=callback, on_stderr=callback)))
+        if nodes:
+            actions.append(nodes[0])
 
         return actions
     except BaseException:

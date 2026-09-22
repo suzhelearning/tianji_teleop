@@ -29,7 +29,7 @@ class CameraRequest:
 
 
 def read_message(sock: socket.socket) -> tuple[str | None, bytes | None]:
-    """Read one XRoboToolkit message; its big-endian total includes the header.
+    """Read a PICO G1 control frame; its big-endian length excludes the header.
 
     An idle timeout leaves the socket usable. A timeout after any bytes were
     consumed closes it and raises ValueError: callers must never retry a partly
@@ -62,17 +62,17 @@ def read_message(sock: socket.socket) -> tuple[str | None, bytes | None]:
         header = receive(4)
         if header is None:
             return None, None
-        total, = struct.unpack(">I", header)
-        if not 12 <= total <= _MAX_MESSAGE_BYTES:
-            raise ValueError(f"Invalid PICO control message length: {total}")
-        body = receive(total - 4)
+        body_size, = struct.unpack(">I", header)
+        if not 9 <= body_size <= _MAX_MESSAGE_BYTES - 4:
+            raise ValueError(f"Invalid PICO control body length: {body_size}")
+        body = receive(body_size)
         if body is None:
             return None, None
         command_size, = struct.unpack_from("<I", body)
-        if not 1 <= command_size <= min(_MAX_COMMAND_BYTES, total - 12):
+        if not 1 <= command_size <= min(_MAX_COMMAND_BYTES, body_size - 8):
             raise ValueError("Invalid PICO control command length")
         payload_size, = struct.unpack_from("<I", body, 4 + command_size)
-        if payload_size != total - 12 - command_size:
+        if payload_size != body_size - 8 - command_size:
             raise ValueError("PICO control payload length does not match framing")
         try:
             command = body[4:4 + command_size].decode("utf-8")

@@ -3,6 +3,7 @@
 #include <array>
 #include <cstdint>
 #include <cstring>
+#include <cmath>
 
 namespace pico_bridge {
 
@@ -29,6 +30,10 @@ constexpr uint8_t TYPE_BLE_RIGHT   = 0x11;
 constexpr uint8_t TYPE_BODY_BASE = 0x20;
 constexpr uint8_t TYPE_BODY_LAST = 0x37;
 constexpr size_t BODY_JOINT_COUNT = 24;
+constexpr uint8_t TYPE_BODY_ALL = 0x38;
+constexpr uint8_t TYPE_CTRL_ALL = 0x39;
+constexpr uint8_t TYPE_TRACKING_ALL = 0x3A;
+constexpr uint8_t TYPE_TRACKING_ALL_HALF = 0x3B;
 constexpr std::array<const char*, BODY_JOINT_COUNT> BODY_JOINT_NAMES = {
     "Pelvis",
     "LEFT_HIP", "RIGHT_HIP", "SPINE1",
@@ -74,6 +79,27 @@ inline bool parse_pose_payload(const uint8_t* payload, size_t len,
     if (len < 28) return false;
     std::memcpy(pos,        payload,      12);
     std::memcpy(quat_xyzw,  payload + 12, 16);
+    return true;
+}
+
+// Wired APK packed poses use IEEE-754 binary16, little-endian.
+inline bool decode_packed_pose(const uint8_t* payload, bool half, float (&pose)[7]) {
+    for (size_t i = 0; i < 7; ++i) {
+        if (half) {
+            const uint16_t bits = static_cast<uint16_t>(payload[2 * i]) |
+                (static_cast<uint16_t>(payload[2 * i + 1]) << 8);
+            const unsigned exponent = (bits >> 10) & 31;
+            const unsigned fraction = bits & 1023;
+            if (exponent == 31) return false;
+            const float magnitude = exponent == 0
+                ? std::ldexp(static_cast<float>(fraction), -24)
+                : std::ldexp(static_cast<float>(1024 + fraction), static_cast<int>(exponent) - 25);
+            pose[i] = (bits & 0x8000) ? -magnitude : magnitude;
+        } else {
+            std::memcpy(&pose[i], payload + i * sizeof(float), sizeof(float));
+            if (!std::isfinite(pose[i])) return false;
+        }
+    }
     return true;
 }
 

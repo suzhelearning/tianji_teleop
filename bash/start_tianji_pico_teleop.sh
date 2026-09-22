@@ -175,12 +175,6 @@ bridge_inner="cd $repo_quoted && $ros_environment && source bash/environment.sh 
 if [[ -n "$pico_world_x_offset" ]]; then
   bridge_inner+=" pico_world_x_offset_m:=$pico_world_x_offset"
 fi
-printf -v driver_inner_quoted '%q' "$driver_inner"
-printf -v m0_inner_quoted '%q' "$m0_inner"
-printf -v bridge_inner_quoted '%q' "$bridge_inner"
-driver_command="exec bash --noprofile --norc -c $driver_inner_quoted"
-m0_command="exec bash --noprofile --norc -c $m0_inner_quoted"
-bridge_command="exec bash --noprofile --norc -c $bridge_inner_quoted"
 
 window_name="driver"
 if [[ -n "${TIANJI_PICO_SIM_OWNER:-}" ]]; then
@@ -195,17 +189,18 @@ tmux set-option -t "$session_name" @tianji_checkout "$repo_root"
 tmux set-option -t "$session_name" @tianji_calibration_dir "$calibration_dir"
 tmux set-option -t "$session_name" @tianji_calibration_sha256 "$calibration_sha256"
 tmux set-option -w -t "$session_name:$window_name" remain-on-exit on >/dev/null
-tmux send-keys -t "$session_name:$window_name" "$driver_command" C-m
+# Execute argv directly: typing long environments through the PTY can truncate them.
+tmux respawn-pane -k -t "$session_name:$window_name" bash --noprofile --norc -c "$driver_inner"
 
 window_name="m0"
 tmux new-window -t "$session_name" -n "$window_name"
 tmux set-option -w -t "$session_name:$window_name" remain-on-exit on >/dev/null
-tmux send-keys -t "$session_name:$window_name" "$m0_command" C-m
+tmux respawn-pane -k -t "$session_name:$window_name" bash --noprofile --norc -c "$m0_inner"
 
 window_name="bridge"
 tmux new-window -t "$session_name" -n "$window_name"
 tmux set-option -w -t "$session_name:$window_name" remain-on-exit on >/dev/null
-tmux send-keys -t "$session_name:$window_name" "$bridge_command" C-m
+tmux respawn-pane -k -t "$session_name:$window_name" bash --noprofile --norc -c "$bridge_inner"
 tmux select-window -t "$session_name:driver"
 
 if ! "$TIANJI_PYTHON" "$pico_scripts/check_pico_session_ready.py" \

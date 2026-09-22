@@ -222,7 +222,7 @@ C 本身不使能、不驱动真机。TELEOP 中第三次 Enter 慢速回 Home�
 | `src/interfaces/` | ROS 接口与轻量 `tianji_runtime` 契约、资源定位 |
 | `src/simulation/`、`src/inference/` | 仿真与 Mocap／Regrind 执行 |
 | `src/tools/tianji_tools/` | `tianji` CLI、`teleop_profile` 及数据路径策略 |
-| `profiles/` | 实际人员档案与 PICO 标定版本；不包含机器人硬件配置 |
+| `profiles/` | 实际人员档案、PICO 标定版本及 `profiles/<user>/manus/` 双手标定；不包含机器人硬件配置 |
 | `vendor/` | 厂商 SDK／第三方资源；许可证和私有凭证边界保留 |
 | `src/teleop_outputs/tianji/tianji_controller/native/third_party/ruckig/` | 固定版本离线轨迹生成源码及许可证 |
 
@@ -588,8 +588,9 @@ manus:
 上述示例会从 `profiles/syz/pico/20260908-01/` 加载左右各 3 个文件：
 `pico_{left,right}_{palm_tcp,wrist_pivot,arm_geometry}.yaml`。
 迁移保留已有人员制品，不生成个人标定，也不改写原 `~/.config/pico_tracker/`。
-Manus 复用 `src/teleop_inputs/manus/calibration/` 下对应用户的左右 `.mcal`，不复制第二套；
-`manus.user` 可以与人员 ID 不同。
+Manus 唯一读取 `profiles/<user>/manus/` 下对应用户的左右 `.mcal`，不复制到源码包或安装目录。
+`run_manus.sh --user NAME` 与 `--calibration-user NAME` 均直接选择同名人员，不需要 `profile.yaml`；
+历史 `tianji profile --component manus` 映射仍解析到所选用户的上述目录。
 
 按人启动 PICO 时，两侧 TCP、手腕和骨长依赖链都必须通过现有 artifact 校验。
 缺失、损坏、身份不符、路径越界或哈希不匹配时，在停止旧会话前退出；
@@ -632,8 +633,8 @@ bash bash/start_tianji_pico_teleop.sh --calibration-dir "$PICO_PROFILE_DIR"
 
 `status --user` 只检查已发布版本，不会创建草稿；首次仅完成一侧时会报告尚无已发布档案。
 新档案默认将 `manus.user` 设为相同人员 ID，但不会生成 Manus 标定。
-仍需准备 `src/teleop_inputs/manus/calibration/zjxLeftMetaglovePro.mcal` 和对应的 Right 文件后，
-才能执行 `bash bash/run_manus.sh --user zjx`。已有人员的 Manus 映射在发布时保持不变。
+仍需准备 `profiles/zjx/manus/zjxLeftMetaglovePro.mcal` 和对应的 Right 文件后，
+才能执行 `bash bash/run_manus.sh --user zjx`。添加标定文件无需重新构建。
 
 不传 `--user` 的旧标定入口仍写入 `~/.config/pico_tracker/`；
 多人适配必须显式指定人员，不能把旧全局结果当作新人员的草稿。

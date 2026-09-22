@@ -205,9 +205,10 @@ collector 是独立 ROS 进程，不持有 SDK 或相机 pipeline。真实设备
 ```
 
 - 同一 serial 由会话锁保证只有一个官方 `realsense2_camera` 4.58.3 pipeline 所有者；驱动运行在隔离的 `cameras` 环境。
+- 驱动按 top、left_wrist、right_wrist 逐路初始化：前一节点报告初始化完成后才启动下一节点，避免并发枚举 USB 导致不完整设备。该日志仅控制启动顺序，不替代 monitor 的参数与新鲜图像验收；不自动重启失败节点。
 - collector、monitor、preview 都是 DDS 消费者，可以同时订阅；没有另一套正式 SDK 取流路径。
 - `pyrealsense2` 2.58.3 仅用于设备枚举与支持 profile 预检，不打开第二条 pipeline。
-- 启动使用 `rgb_camera.color_profile/color_format`，D405 使用 `depth_module.color_profile/color_format`；目标固定 `1280,720,30`／`RGB8`，monitor 读取实际参数并校验 Image＋Metadata 后才 ready。
+- 启动使用 `rgb_camera.color_profile/color_format`，D405 使用 `depth_module.color_profile/color_format`；目标固定 `640,480,30`／`RGB8`，monitor 读取实际参数并校验 Image＋Metadata 后才 ready。
 - Image／Metadata 按 frame_id＋stamp 配对，各 topic 分别固定 publisher 身份；源帧号、时间回退、参数改变、换 publisher 或断流撤销健康，不补帧、不自动重启继续拼段。
 - 区分请求 FPS、实际 profile FPS、DDS 有效接收率、源序号间隙、HDF5 记录率和 UI 更新率。不能静默降分辨率或改曝光伪造达标。
 
@@ -366,7 +367,7 @@ DLS/Ceres 的 `--user` 仅支持 PICO 端口 `15000`；本次新建的输入会�
 当前 schema-v1 只记录实际双臂/双手关节状态、RGB、各流时间戳和必要元数据：
 
 - 双臂实际关节为 14 维，双手实际关节为 40 维。
-- 当前 RGB 契约为 1280×720、RGB8，每路目标 30 FPS。
+- 当前 RGB 契约为 640×480、RGB8，每路目标 30 FPS。
 - 各流独立时间戳、独立样本数量，不要求每次组成同一长度的同步帧。
 - 不把控制目标当实测反馈，不把重复缓存作为新观测。
 - 不在目录迁移中新增 actions、深度、目标关节或其他 schema 字段。
