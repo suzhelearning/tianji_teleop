@@ -15,6 +15,89 @@ class DlsWorkerTest(unittest.TestCase):
         config = yaml.safe_load(controller_profile("qp_ik_pico_shared_root_dls.yaml").read_text())["controller"]
         return np.array([config["initial_left_q_rad"], config["initial_right_q_rad"]])
 
+    def settled_tracking(self, worker):
+        joints = self.seeds()
+        fk = worker.reset(joints)
+        target = np.array([fk[s]["achieved_pose"] for s in ("left", "right")])
+        stamp = 1.
+        self.assertTrue(worker.command(4, joints, stamp)["left"]["accepted"])
+        # Finish the original approach at its target, including the limit ramp.
+        for _ in range(180):
+            stamp += .005
+            result = worker.solve(joints, target, source_time=stamp, received_time=stamp, now=stamp)
+            self.assertTrue(all(result[s]["accepted"] for s in ("left", "right")))
+            joints = np.array([result[s]["joints"] for s in ("left", "right")])
+        return joints, target, stamp
+
+    def stop_at_hold(self, worker, joints, stamp):
+        worker.command(6, joints, stamp)
+        for _ in range(200):
+            stamp += .005
+            result = worker.command(7, joints, stamp)
+            joints = np.array([result[s]["joints"] for s in ("left", "right")])
+            if result["left"]["status"] == "HOLD":
+                return joints, stamp
+        self.fail("native worker did not finish bounded braking")
+
+    def test_short_resume_preserves_tracking_response_within_ruckig_limits(self):
+        displacement = {}
+        config = yaml.safe_load(controller_profile("qp_ik_pico_shared_root_dls.yaml").read_text())
+        limits = config["pico_ee_franka_dls"]["post_smoothing"]
+        for operation in (4, 8):
+            with self.subTest(operation=operation), DlsWorker(continuous_follow=True) as worker:
+                joints, target, stamp = self.settled_tracking(worker)
+                joints, stamp = self.stop_at_hold(worker, joints, stamp)
+                initial = joints.copy()
+                self.assertTrue(worker.command(operation, joints, stamp)["left"]["accepted"])
+                # Starting/resuming must not jump the reference pose.
+                target[:, 0] += .03
+                positions = [joints.copy()] * 3
+                for _ in range(20):
+                    stamp += .005
+                    result = worker.solve(joints, target, source_time=stamp, received_time=stamp, now=stamp)
+                    self.assertTrue(all(result[s]["accepted"] for s in ("left", "right")))
+                    joints = np.array([result[s]["joints"] for s in ("left", "right")])
+                    positions.append(joints.copy())
+                trajectory = np.asarray(positions)
+                # Finite differences of exact position samples average native
+                # derivatives; they must remain within the nominal envelope.
+                velocity = np.diff(trajectory, axis=0) / .005
+                acceleration = np.diff(velocity, axis=0) / .005
+                jerk = np.diff(acceleration, axis=0) / .005
+                self.assertTrue(np.isfinite(trajectory).all())
+                self.assertTrue(np.all(np.abs(velocity) <= np.array(limits["max_velocity_rad_s"]) + 1e-4))
+                self.assertTrue(np.all(np.abs(acceleration) <= np.array(limits["max_acceleration_rad_s2"]) + 1e-3))
+                self.assertTrue(np.all(np.abs(jerk) <= np.array(limits["max_jerk_rad_s3"]) + 1e-2))
+                displacement[operation] = np.max(np.abs(joints-initial))
+        self.assertGreater(displacement[8], 2 * displacement[4])
+
+    def test_resume_requires_recent_live_session_and_does_not_refresh_its_age(self):
+        with DlsWorker(continuous_follow=True) as worker:
+            joints = self.seeds()
+            worker.reset(joints)
+            self.assertFalse(worker.command(8, joints, 1.)["left"]["accepted"])
+            joints, target, stamp = self.settled_tracking(worker)
+            last_live = stamp
+            joints, stamp = self.stop_at_hold(worker, joints, stamp)
+            stale = worker._exchange(8, joints, np.zeros((2, 7)), 0., stamp-.05, stamp)
+            self.assertFalse(stale["left"]["accepted"])
+            self.assertTrue(worker.command(8, joints, stamp)["left"]["accepted"])
+            joints, stamp = self.stop_at_hold(worker, joints, stamp)
+            self.assertFalse(worker.command(8, joints, last_live+1.01)["left"]["accepted"])
+            self.assertTrue(worker.command(4, joints, last_live+1.01)["left"]["accepted"])
+
+    def test_resume_cannot_bypass_reset_or_manual_mode(self):
+        for continuous in (False, True):
+            with self.subTest(continuous=continuous), DlsWorker(continuous_follow=continuous) as worker:
+                joints, _, stamp = self.settled_tracking(worker)
+                joints, stamp = self.stop_at_hold(worker, joints, stamp)
+                if continuous:
+                    worker.reset(joints)  # A new numerical epoch revokes resume.
+                result = worker.command(8, joints, stamp)
+                self.assertFalse(result["left"]["accepted"])
+                self.assertEqual(result["left"]["status"], "HOLD")
+                np.testing.assert_array_equal(result["left"]["joints"], joints[0])
+
     def test_unexpected_worker_exit_is_not_hidden_by_close(self):
         worker = DlsWorker()
         worker.process.terminate()

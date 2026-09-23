@@ -60,9 +60,7 @@ env -u PYTHONPATH -u PYTHONHOME -u LD_LIBRARY_PATH -u LD_PRELOAD \
   src/teleop_outputs/wuji/wuji_retargeting/build_runtime.py "$project_root"
 pixi run --locked build
 pixi run --locked -e policy build
-pico2_root="$project_root/src/teleop_inputs/pico_hand"
-pixi install --locked --manifest-path "$pico2_root/tools/wuji_hand_native/pixi.toml"
-bash "$pico2_root/build_native.sh"
+pixi run --locked -e spd build
 
 printf '%s\n' \
   'Installation and compilation completed. No hardware was contacted.' \

@@ -30,7 +30,8 @@ RESPONSE_SIZE = HEADER.size + 2 * SIDE.size
 class DlsWorker:
     ready_kind = "pico2_dls_ready"
 
-    def __init__(self, *, timeout_s=1.0):
+    def __init__(self, *, timeout_s=1.0, continuous_follow=False):
+        self.continuous_follow = continuous_follow
         source = controller_profile("qp_ik_pico_shared_root_dls.yaml")
         config = yaml.safe_load(source.read_text())
         key = "pico_ee_dls_kinematics_urdf_path"
@@ -45,8 +46,11 @@ class DlsWorker:
             self._start(timeout_s=timeout_s)
 
     def _command(self):
-        return [str(native_executable("pico2_dls_worker")), str(self._profile),
-                str(display_model_path("marvin_m6_wuji2_shared_root_ceres.xml"))]
+        command = [str(native_executable("pico2_dls_worker")), str(self._profile),
+                   str(display_model_path("marvin_m6_wuji2_shared_root_ceres.xml"))]
+        if self.continuous_follow:
+            command.append("--continuous-follow")
+        return command
 
     def command(self, operation, joints, now):
         return self._exchange(operation, joints, np.zeros((2, 7)), 0., now, now)

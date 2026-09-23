@@ -8,8 +8,6 @@ import sys
 
 import numpy as np
 
-ROOT = Path(__file__).resolve().parents[1]
-
 REQUEST = struct.Struct("<4sBBHQQII126d")
 RESPONSE = struct.Struct("<4sBBHQQ40d")
 
@@ -17,12 +15,13 @@ RESPONSE = struct.Struct("<4sBBHQQ40d")
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--official-root", type=Path, required=True)
+    parser.add_argument("--native-worker", type=Path, required=True)
     args = parser.parse_args()
     official = args.official_root.resolve(strict=True)
     sys.path.insert(0, str(official / "example"))
     from tj_wuji2_hand_bridge import OfficialWujiHand2Bridge
 
-    worker = ROOT / "native/build/pico2-hand/tianji_hand_native_worker"
+    worker = args.native_worker.resolve(strict=True)
     maximum = 0.0
     for side, flag in (("left", 1), ("right", 2)):
         bridge = OfficialWujiHand2Bridge(

@@ -1,6 +1,7 @@
 #include "tianji_qp_ik/simulation_recovery.hpp"
 #include "tianji_qp_ik/joint_kinematics_plot.hpp"
 #include <gtest/gtest.h>
+#include <limits>
 
 namespace tianji_qp_ik {
 namespace {
@@ -32,6 +33,66 @@ TEST_F(RecoveryTest, RequiresFreshExplicitStart) {
   EXPECT_FALSE(gate.start(true,moving));
   EXPECT_TRUE(gate.start(true,home));
   EXPECT_FALSE(gate.start(true,home));
+}
+
+TEST_F(RecoveryTest, ShortDwellReachesHoldSoonerWithoutChangingDefault) {
+  SimulationRecovery fast(config,limits,home,dt,.05);
+  SimulationRecovery normal(config,limits,home,dt);
+  ASSERT_TRUE(fast.stop(home));
+  ASSERT_TRUE(normal.stop(home));
+  auto fast_state=home;
+  auto normal_state=home;
+  for(int tick=1;tick<=61;++tick) {
+    fast_state=fast.update(fast_state);
+    normal_state=normal.update(normal_state);
+    if(tick<=9) {EXPECT_EQ(fast.phase(),SimulationRecovery::Phase::kBraking);}
+    if(tick>=11) {EXPECT_EQ(fast.phase(),SimulationRecovery::Phase::kHold);}
+    if(tick<=59) {EXPECT_EQ(normal.phase(),SimulationRecovery::Phase::kBraking);}
+  }
+  EXPECT_EQ(normal.phase(),SimulationRecovery::Phase::kHold);
+}
+
+TEST_F(RecoveryTest, ShortDwellStillBrakesWithinLimitsAndRejectsMovingRestart) {
+  SimulationRecovery gate(config,limits,home,dt,.05);
+  auto state=home;
+  state[0].qdot[0]=.2;
+  state[1].qdot[1]=-.15;
+  ASSERT_TRUE(gate.stop(state));
+  int ticks=0;
+  for(;ticks<2000&&gate.phase()!=SimulationRecovery::Phase::kHold;++ticks) {
+    EXPECT_FALSE(gate.start(true,state));
+    const auto previous=state;
+    state=gate.update(state);
+    ASSERT_NE(gate.phase(),SimulationRecovery::Phase::kFault);
+    for(int arm=0;arm<2;++arm) {
+      EXPECT_LE((state[arm].q-previous[arm].q).cwiseAbs().maxCoeff(),.00501);
+      EXPECT_LE(state[arm].qdot.cwiseAbs().maxCoeff(),1.00001);
+      EXPECT_LE(state[arm].qddot.cwiseAbs().maxCoeff(),2.00001);
+      EXPECT_LE((state[arm].qddot-previous[arm].qddot).cwiseAbs().maxCoeff()/dt,10.0001);
+    }
+    if(!SimulationRecovery::atRest(state)) {
+      EXPECT_EQ(gate.phase(),SimulationRecovery::Phase::kBraking);
+    }
+  }
+  EXPECT_GT(ticks,11); // The dwell cannot replace physically stopping.
+  ASSERT_EQ(gate.phase(),SimulationRecovery::Phase::kHold);
+  auto moving=state;
+  moving[1].qdot[0]=2e-6;
+  EXPECT_FALSE(gate.start(true,moving));
+  moving=state;
+  moving[0].qddot[0]=2e-5;
+  EXPECT_FALSE(gate.start(true,moving));
+  EXPECT_FALSE(gate.start(false,state));
+  EXPECT_TRUE(gate.start(true,state));
+}
+
+TEST_F(RecoveryTest, RejectsNonPositiveOrNonFiniteSettledDuration) {
+  for(double duration:{0.,-.05,std::numeric_limits<double>::infinity(),
+                       -std::numeric_limits<double>::infinity(),
+                       std::numeric_limits<double>::quiet_NaN()}) {
+    SCOPED_TRACE(duration);
+    EXPECT_THROW(SimulationRecovery(config,limits,home,dt,duration),std::invalid_argument);
+  }
 }
 
 TEST_F(RecoveryTest, HandsOnlyFollowDuringExplicitTeleop) {

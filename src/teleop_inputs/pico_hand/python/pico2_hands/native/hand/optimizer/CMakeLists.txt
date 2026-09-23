@@ -20,14 +20,14 @@ target_compile_options(tianji_hand_native_worker PRIVATE -O3 -ffp-contract=off -
 target_link_directories(tianji_hand_native_worker PRIVATE ${HAND_DEPENDENCY_LIB_DIR})
 target_link_libraries(tianji_hand_native_worker PRIVATE tianji_hand_optimizer Eigen3::Eigen)
 set_target_properties(tianji_hand_native_worker PROPERTIES
-  BUILD_RPATH "$ORIGIN" INSTALL_RPATH "$ORIGIN")
+  BUILD_RPATH "$ORIGIN" INSTALL_RPATH "$ORIGIN/../lib;${HAND_DEPENDENCY_LIB_DIR}")
 add_executable(tianji_hand_native_scheduler ../scheduler_main.cpp ../lowpass.cpp ../geometry.cpp)
 target_compile_features(tianji_hand_native_scheduler PRIVATE cxx_std_17)
 target_compile_options(tianji_hand_native_scheduler PRIVATE -O3 -ffp-contract=off -Wall -Wextra -Wpedantic)
 target_link_directories(tianji_hand_native_scheduler PRIVATE ${HAND_DEPENDENCY_LIB_DIR})
 target_link_libraries(tianji_hand_native_scheduler PRIVATE tianji_hand_optimizer Eigen3::Eigen)
 set_target_properties(tianji_hand_native_scheduler PROPERTIES
-  BUILD_RPATH "$ORIGIN" INSTALL_RPATH "$ORIGIN")
+  BUILD_RPATH "$ORIGIN" INSTALL_RPATH "$ORIGIN/../lib;${HAND_DEPENDENCY_LIB_DIR}")
 option(TIANJI_HAND_OPTIMIZER_TESTS "Build offline optimizer ABI fixture" OFF)
 if(TIANJI_HAND_OPTIMIZER_TESTS)
   add_executable(test_hand_optimizer ../../../tests/cpp/test_hand_optimizer.cpp)
@@ -44,3 +44,7 @@ if(TIANJI_HAND_SCHEDULER_TESTS)
   target_compile_options(test_hand_scheduler PRIVATE -UNDEBUG -Wall -Wextra -Wpedantic -Werror)
   add_test(NAME hand_scheduler_core COMMAND test_hand_scheduler)
 endif()
+
+install(TARGETS tianji_hand_optimizer tianji_hand_native_worker tianji_hand_native_scheduler
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION bin)

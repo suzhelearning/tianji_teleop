@@ -22,10 +22,11 @@
 
 | 目的 | 命令 |
 |---|---|
-| 裸 shell 完整安装（不接触硬件） | `bash bash/install.sh`：全部锁定环境、外骨骼／PICO2、default／policy overlay、control 原生目标与 Manus 扩展 |
+| 裸 shell 完整安装（不接触硬件） | `bash bash/install.sh`：全部锁定环境、外骨骼／Hand2、default／policy／spd overlay、control 原生目标与 Manus 扩展 |
 | 只校验前置条件（不下载、不构建） | `bash bash/install.sh --check` |
 | 只安装外骨骼环境 | `bash bash/install.sh --exoskeleton` |
 | 重建 control 原生目标与当前环境的 ROS 包 | `pixi run build`（default）；`pixi run -e policy build`（policy 独立 overlay） |
+| 独立 SPD 控制端安装与构建 | `pixi install --locked -e spd`；`pixi run --locked -e spd build` |
 | 校验环境（Python 3.12 / Jazzy / Fast DDS） | `pixi run check-env`（等价 `python bash/check_env.py`） |
 | 原生 CTest（唯一 DLS/Ruckig 核心） | `pixi run test-native` |
 | 独立重建双臂 ROS 核心 | `pixi run build-arm-ros`／`bash bash/build_arm_ros.sh`（不连接设备） |
@@ -37,6 +38,8 @@
 环境保持隔离：default 为 Jazzy／Python 3.12／Fast DDS，新 Manus 链在此使用锁定 `wuji-sdk==2026.8.31` 的纯求解 `RetargetSession`，不连接 Wuji 硬件；control 为无 ROS 的原生工具链，cameras 为官方 RealSense 4.58.3。保留的 manus/Python 3.12/Pinocchio 3.8 环境只服务历史离线重定向工具，不再属于新 Manus 生产链。policy 使用同一 Jazzy／Python ABI，但拥有自己的 overlay，锁定 CPU torch 2.10.0＋Zenoh；模型权重、CUDA wheel／驱动需要显式准备，CPU 验证不等于 GPU 验收。
 
 双臂 ROS 核心使用独立 `arm-ros` 环境：与 control 相同的 Eigen 3.4／Pinocchio／MuJoCo 数值 ABI，加 Jazzy rclcpp/Fast DDS。`tianji_arm_ros` 直接复用 `run_qp_ik_viewer.cpp` 的原控制循环，双臂源码不复制、不新增后端；消息库在 `install/arm-ros` 编译，二进制仍由 `native_executable("tianji_arm_ros")` 定位。RPATH 与 AMENT discovery 只指向 arm-ros，不注入 default 的共享库。输入 `/pico/arm_input` 为原子 `PicoArmInput`，输出 `/tianji/controller/joint_targets` 为提交后的 `ControllerJointTargets`，不是实测反馈。ROS 输入撤销代际跨 latest-only 保留；输出失效 ready 锁存到核心重启。Python 执行器及 Home 使用本机互斥租约，不能通过换 ROS domain/topic 绕过。
+
+`spd` 是 PICO 裸手专用、`no-default-feature` 的独立环境，只服务 `/home/current/syz/spd-syz` 的 SPD 仿真控制端。入口固定进入该环境，构建输出为 `build/spd`、`install/spd`、`log/spd`，不借用 default／policy 或外部 SPD 的 overlay。原生构建复用 control 和独立 Hand2 锁定工具链，但 DLS／Viewer／Hand2 二进制安装到 `install/spd`；default／policy 的 ROS 构建排除 `pico2_hands`、`tianji_spd_interfaces`。外部 SPD 服务独立安装和启动。
 
 ## 外骨骼 + PICO → Tianji + Wuji
 
@@ -107,9 +110,13 @@ pixi run bash -c 'source bash/environment.sh; python -m tianji_controller.run_te
 
 **同一时刻只运行一套 PICO、一种手部输入和一个执行模式。**外骨骼与 Manus 不可同时向手部控制端发送，仿真与真机也不可同时占用相同输入端口。切换路径时先停止执行端，再停止旧手部输入，切换并检查后重新启动执行端。
 
-回 Home 只操作双臂：`bash bash/run_home.sh`（默认附加 `--confirm-real`，`--dry-run` 只做无硬件检查）。PICO 裸手入口为 `bash bash/run_pico_hand_sim.sh --height-m HEIGHT`，只保留身高模板＋C 标定＋共享根 DLS/Ruckig，必须显式给出实际身高（米，1.0～2.4）；旧 V131、旧入口和 `--mapping-mode` 已删除，不保留别名或回退。先 C 后 S，H 只回双臂、手指保持，P／空格可取消 H 回程，Q 回 Home 后退出；不驱动真机，也不在遥操作端口上发布。`--self-test` 走实际 DLS/Hand2 的 C/S/H/S/Q 离线流程，仍须传身高。Hand2 原生依赖由 `bash src/teleop_inputs/pico_hand/build_native.sh` 构建，双臂 DLS worker 由 `pixi run build` 安装。Python/ROS 包和 `pico2_sim_session_v1` 录制 schema 不改名。
+回 Home 只操作双臂：`bash bash/run_home.sh`（默认附加 `--confirm-real`，`--dry-run` 只做无硬件检查）。PICO 裸手入口 `bash bash/run_pico_hand_sim.sh --height-m HEIGHT` 使用身高模板＋共享根 DLS/Ruckig，须显式给实际身高（米，1.0～2.4）。普通本地模式 R 标定／重新标定，成功后保持 ready，必须再按 S 才跟随；运动中 R 先受控制动后采样，重新标定不自动续控。P／空格保持，H 双臂 Home；Q／Esc／关闭窗口／Ctrl+C 退出，不自动 Home。同连接短时断流的原有恢复门控保留；断开／重连须 R 再 S。SPD 独立订阅目标，其暂停／回退不控制上游。两项目间只保留 JointCommand 话题，不提供远程控制 Service、控制状态 Topic、租约或控制 socket。--self-test 使用真实 DLS/Hand2 验证 R 后保持、显式 S 和重新标定，强制隔离域121。由 pixi run --locked -e spd build 构建，入口自动进入 spd；不驱动真机，不改 Python/ROS 包名或原有录制 schema。
 
-裸手入口的主职责是给 SPD 仿真提供 ROS command，普通启动默认发布 `/spd/tianji_wuji2/v1/joint_command`（`tianji_spd_interfaces/msg/JointCommand`，54 维 rad，Fast DDS、domain 120、LOCALHOST、BEST_EFFORT/KEEP_LAST1/VOLATILE，最多 60 Hz）。原生 Viewer 只辅助观察同一份目标，`--headless` 不关闭发布。消息来自 `core.tick()` 控制目标，不从 Viewer／qpos 反取；ready 按有效目标、保持意图和源时间生成，不能沿用显示用固定 flags=7。C／源身份／epoch 变化建立新会话，SPD 仍需本地显式授权；P/H/Q 的受控制动／回程继续发布，最后一帧本地 publish 不代表 SPD 物理 Home 确认。`--self-test` 强制使用隔离域 121。消息包在本工作区按同一固定 schema 编译，不注入 SPD 的 Python overlay。此链不连接机器人、不接入 TJRC 真机输出，也不改 Manus／外骨骼＋PICO 手柄的真机路线。
+裸手普通模式的原生静止确认等待为 50 ms（其他原生调用者默认仍为 300 ms）。同标定、同连接的短时断流恢复保留已有软启动进度，不重复慢速接近；首次／重新标定、重连仍要求显式 S 后完整软启动。保留原有静止阈值、100 ms／5 帧稳定恢复门控、200 Hz 固定步长及全部 Ruckig 约束。
+
+裸手控制端按接受的输入帧复用有效性、观察与映射几何，映射目标缓存还绑定标定解；源时间不因缓存使用而更新。双手独立 worker 先双侧提交再统一收取，每侧最多一个在途请求、超时从提交开始计时，全部已请求结果通过后才提交手部目标。默认 `--stats-interval-s 5` 每 5 秒打印一条固定内存直方图汇总（退出补最后非空窗口），`0` 关闭汇总；统计本机输入间隔／接收年龄、实际控制频率、阶段耗时分位数和 BRAKING 原因，不能宣称测到了头显传输延迟或获得实时性验收。
+
+裸手入口默认发布 /spd/tianji_wuji2/v1/joint_command（tianji_spd_interfaces/msg/JointCommand，54 维 rad，Fast DDS、domain120、LOCALHOST、BEST_EFFORT/KEEP_LAST1/VOLATILE，最多60Hz）。原生 Viewer 只辅助观察，--headless 不关闭发布。消息来自 core.tick() 的控制目标，ready 依据有效目标、保持意图和源时间；标定／源身份／epoch 改变建立新会话。SPD 使用本地 r 开段、s 暂停／恢复、暂停 d 回退后自动一秒接入，上游持续发布而不被 SPD 暂停。两端独立构建消息绑定，不互相注入 overlay；本链不接入实机 TJRC 输出，不改 Manus／外骨骼＋PICO 手柄的实机路线。
 
 裸手普通启动在默认 `127.0.0.1:10002`／`localhost:10002` 上自动检查 ADB 设备与转发，缺失时以 `--no-rebind` 补建，匹配时复用；离线／未授权、多设备未选择或转发冲突在启动发布器／Viewer 前拒绝。多设备可用 `ANDROID_SERIAL` 指定。自测及自定义 host／port 不操作 ADB；转发不在退出时删除，不自动覆盖其他设备的映射。
 

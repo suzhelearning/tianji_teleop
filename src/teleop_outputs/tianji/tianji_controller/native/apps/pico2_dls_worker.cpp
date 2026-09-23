@@ -16,7 +16,7 @@ template<class T> T get(const unsigned char* p) {T v;std::memcpy(&v,p,sizeof v);
 template<class T> void put(unsigned char* p,T v) {std::memcpy(p,&v,sizeof v);}
 void check(bool ok,const char* why) {if(!ok)throw std::runtime_error(why);}
 constexpr std::array<ArmSide,2> sides{ArmSide::kLeft,ArmSide::kRight};
-int run(const char* profile,const char* model) {
+int run(const char* profile,const char* model,bool continuous_follow) {
   const std::uint32_t endian=1;
   check(*reinterpret_cast<const unsigned char*>(&endian)==1&&sizeof(double)==8,"unsupported binary host");
   auto cfg=loadConfig(profile);
@@ -29,11 +29,12 @@ int run(const char* profile,const char* model) {
   }
   robot.forward();
   DualArmController controller(robot,cfg);
-  SimulationRecovery recovery(cfg,{robot.mapping(sides[0]).limits,robot.mapping(sides[1]).limits},home,.005);
+  SimulationRecovery recovery(cfg,{robot.mapping(sides[0]).limits,robot.mapping(sides[1]).limits},home,.005,
+                              continuous_follow?.05:.3);
   auto state=[&]() {return SimulationRecovery::Pair{controller.referenceState(sides[0]),controller.referenceState(sides[1])};};
   std::cout<<"{\"schema_version\":1,\"kind\":\"pico2_dls_ready\",\"simulation_only\":true}\n"<<std::flush;
   std::uint64_t sequence=0,epoch=0;
-  double last_now=-1,last_source=-1;
+  double last_now=-1,last_source=-1,last_live_received=-1;
   for(;;) {
     std::array<unsigned char,272> request{};
     std::cin.read(reinterpret_cast<char*>(request.data()),request.size());
@@ -42,7 +43,7 @@ int run(const char* profile,const char* model) {
     check(std::memcmp(request.data(),"P2IQ",4)==0&&request[4]==1&&get<std::uint16_t>(&request[6])==272,"bad request header");
     const auto op=request[5];
     const auto seq=get<std::uint64_t>(&request[8]),ep=get<std::uint64_t>(&request[16]);
-    check(op>=1&&op<=7&&seq>sequence,"bad operation/sequence");
+    check(op>=1&&op<=8&&seq>sequence,"bad operation/sequence");
     check(op==1?ep==epoch+1:ep==epoch,"bad epoch");
     const auto source=get<double>(&request[24]),received=get<double>(&request[32]),now=get<double>(&request[40]);
     check(std::isfinite(source)&&std::isfinite(received)&&std::isfinite(now)&&source>=0&&received>=0&&now>=received,"bad clock");
@@ -70,13 +71,22 @@ int run(const char* profile,const char* model) {
              recovery.phase()==SimulationRecovery::Phase::kHold||
              recovery.phase()==SimulationRecovery::Phase::kHomeReached)&&
             SimulationRecovery::atRest(state()),"reset while moving");
-      controller.resetSolvers();epoch=ep;last_source=-1;
+      controller.resetSolvers();epoch=ep;last_source=-1;last_live_received=-1;
     } else if(op==4) {
+      last_live_received=-1;
       accepted=recovery.start(now-received<=.045,state());
       // PICO2 simulation-only faster approach. All other callers retain the
       // original default caps; nominal limits and the 0.5 s ramp are unchanged.
       if(accepted) {controller.resetSolvers();check(controller.beginSimulationSoftStart({1.4,3.,12.}),"soft start rejected");}
+    } else if(op==8) {
+      accepted=continuous_follow&&recovery.phase()==SimulationRecovery::Phase::kHold&&
+          last_live_received>=0&&now-last_live_received<=1.&&
+          recovery.start(now-received<=.045,state());
+      // Reset the IK seed at rest, but retain the existing limiter's soft-start
+      // caps and ramp progress. Only an accepted live solve refreshes eligibility.
+      if(accepted)controller.resetSolvers();
     } else if(op==5||op==6) {
+      if(op==5)last_live_received=-1;
       accepted=recovery.stop(state(),op==5);
     } else if(op==2) {
       check(recovery.teleop(),"solve outside TELEOP");
@@ -84,7 +94,11 @@ int run(const char* profile,const char* model) {
       const auto result=controller.step(targets,.005);
       accepted=result.accepted;
       // Preserve the accepted controller's bounded braking output on rejection.
-      if(!accepted)check(recovery.stop(state(),false),"failed to enter hold");
+      if(accepted)last_live_received=received;
+      else {
+        last_live_received=-1;
+        check(recovery.stop(state(),false),"failed to enter hold");
+      }
       last_source=source;
     } else if(op==7) {
       const auto next=recovery.update(state());
@@ -118,6 +132,11 @@ int run(const char* profile,const char* model) {
 }
 }
 int main(int argc,char** argv) {
-  try {if(argc!=3)return 2;return run(argv[1],argv[2]);}
+  try {
+    if(argc!=3&&argc!=4)return 2;
+    const bool continuous_follow=argc==4;
+    if(continuous_follow&&std::strcmp(argv[3],"--continuous-follow")!=0)return 2;
+    return run(argv[1],argv[2],continuous_follow);
+  }
   catch(const std::exception& e) {std::cerr<<e.what()<<'\n';return 1;}
 }

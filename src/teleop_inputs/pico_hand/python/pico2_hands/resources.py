@@ -2,9 +2,9 @@
 
 Resource ownership determines resolution:
 
-* native Hand2 artifacts and its launcher are package resources, addressed
-  through ``PACKAGE`` (this file's own directory);
-* the DLS worker and controller profile belong to ``tianji_controller``;
+* native Hand2 artifacts and the DLS worker use the SPD native install prefix;
+* the Hand2 launcher is package data addressed through ``PACKAGE``;
+* controller profiles belong to ``tianji_controller`` in the SPD prefix;
 * the shared MuJoCo display models belong to ``tianji_description``;
 * the pinned Hand2 interpreter and vendored bridge belong to this package's
   source checkout, addressed through :func:`tianji_runtime.resources.workspace`.
@@ -55,8 +55,8 @@ def hand_runtime_python() -> Path:
     """Interpreter of the pinned Hand2 retargeting environment.
 
     ``scripts/wuji_hand_native_launcher.py`` prepares the C++ worker's startup
-    manifest under this interpreter because the workspace's own Python carries a
-    different Pinocchio pin.
+    manifest under this interpreter to keep Pinocchio 4 and its Eigen ABI
+    isolated from the ROS runtime and the arm's native control ABI.
     """
     return workspace() / SOURCE_PACKAGE / HAND_ENV / "bin/python"
 

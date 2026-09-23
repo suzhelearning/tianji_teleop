@@ -1,4 +1,5 @@
 import os
+import tempfile
 import threading
 import time
 from types import SimpleNamespace
@@ -69,6 +70,16 @@ class _Transport:
 class SpdPublisherTest(unittest.TestCase):
     def setUp(self):
         self.transport = _Transport()
+        # Test the real flock, without contending with a live self-test process.
+        directory = tempfile.TemporaryDirectory(prefix="pico-publisher-test-")
+        self.addCleanup(directory.cleanup)
+        path_type = spd_publisher.Path
+        paths = patch.object(
+            spd_publisher, "Path",
+            side_effect=lambda path: path_type(directory.name) if str(path) == "/tmp" else path_type(path),
+        )
+        paths.start()
+        self.addCleanup(paths.stop)
         environment = patch.dict(os.environ, {"ROS_DOMAIN_ID": "121"})
         modules = patch.dict("sys.modules", self.transport.modules())
         environment.start()

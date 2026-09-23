@@ -1,8 +1,8 @@
 """Height-template root calibration and bilateral shared-root palm mapping.
 
-No measured shoulders/elbows are claimed. C establishes a gravity-level heading
-and a root offset relative to head POSITION. Subsequent head ROTATION does not
-rotate the root. Body turns require another idle C calibration.
+No measured shoulders/elbows are claimed. Calibration establishes a gravity-level
+heading and a root offset relative to head POSITION. Subsequent head ROTATION does
+not rotate the root. Body turns require another stationary calibration.
 """
 from pathlib import Path
 import math
@@ -17,10 +17,11 @@ from .resources import display_model_path
 
 
 class SharedRootMapping:
-    def __init__(self, height_m, forward):
+    def __init__(self, height_m, forward, *, calibration_key="C"):
         if isinstance(height_m, bool) or not isinstance(height_m, (int, float)) or not math.isfinite(height_m) or not 1 <= height_m <= 2.4:
             raise ValueError("shared-root requires height in metres within [1.0, 2.4]")
         self.height = float(height_m)
+        self.calibration_key = calibration_key
         self.width = self.height * .1828
         self.upper = self.height * .155882
         self.forearm = self.height * .152941
@@ -42,6 +43,12 @@ class SharedRootMapping:
         self.solution = None
         self.samples = []
         self.frame = None
+        self._invalidate_cache()
+
+    def _invalidate_cache(self):
+        self._extract_frame = self._extracted = None
+        self._extract_error = None
+        self._target_frame = self._target_solution = self._targets = None
 
     @property
     def calibration_allows_start(self):
@@ -49,10 +56,12 @@ class SharedRootMapping:
 
     def fail(self, error):
         self.state, self.error = "failed", str(error)
+        self._invalidate_cache()
 
     def request_calibration(self, now, *, idle):
         if not idle or self.state == "collecting":
             return False
+        self._invalidate_cache()
         self.samples = []
         self.started = now
         self.state, self.error = "collecting", None
@@ -66,6 +75,22 @@ class SharedRootMapping:
         return p, Rotation.from_quat(p[3:])
 
     def extract(self, frame):
+        # Frames are immutable snapshots; association IDs alone are insufficient
+        # for distinct snapshots (including invalid replacements).
+        if frame is self._extract_frame:
+            if self._extract_error is not None:
+                raise ValueError(self._extract_error)
+            return self._extracted
+        self._invalidate_cache()
+        self._extract_frame = frame
+        try:
+            self._extracted = self._extract_geometry(frame)
+        except ValueError as error:
+            self._extract_error = str(error)
+            raise
+        return self._extracted
+
+    def _extract_geometry(self, frame):
         if not frame.head_valid:
             raise ValueError("head tracking invalid")
         head, head_rotation = self._pose(frame.head_pose)
@@ -83,9 +108,14 @@ class SharedRootMapping:
                 raise ValueError("invalid wrist-to-middle longitudinal axis")
             palms.append(wrist[:3]+direction/length*self.palm_distance)
             rotations.append(rotation)
-        return head[:3].copy(), head_rotation, np.array(palms), rotations
+        head_position, palm_positions = head[:3].copy(), np.array(palms)
+        head_position.setflags(write=False)
+        palm_positions.setflags(write=False)
+        return head_position, head_rotation, palm_positions, rotations
 
     def offer_frame(self, frame, now):
+        if frame is not self.frame:
+            self._invalidate_cache()
         self.frame = frame
         if self.state != "collecting":
             return
@@ -140,7 +170,7 @@ class SharedRootMapping:
             offset = root-heads.mean(axis=0)
             if np.linalg.norm(offset) > self.height*.6:
                 raise ValueError("implausible calibrated head-to-root offset")
-            # Orientation calibration is explicit: palms face each other in C.
+            # Orientation calibration is explicit: palms face each other.
             # Only FK is queried; this posture is never commanded.
             q = np.zeros((2,7)); q[:,1] = -np.pi/2
             reference = self.forward(q)
@@ -153,6 +183,7 @@ class SharedRootMapping:
                 desired = Rotation.from_quat(reference[side]["achieved_pose"][3:]).as_matrix()
                 corrections.append((self.robot_rotation @ basis.T @ mean.as_matrix()).T @ desired)
             self.solution = (basis,offset,np.array(corrections))
+            self._invalidate_cache()
             self.state,self.error = "calibrated",None
             return True
         except (ValueError, KeyError) as e:
@@ -161,7 +192,9 @@ class SharedRootMapping:
 
     def targets(self, frame):
         if not self.calibration_allows_start:
-            raise ValueError("C calibration required")
+            raise ValueError(f"{self.calibration_key} calibration required")
+        if frame is self._target_frame and self.solution is self._target_solution:
+            return self._targets
         head, _, palms, rotations = self.extract(frame)
         basis, offset, corrections = self.solution
         root = head+offset
@@ -171,13 +204,16 @@ class SharedRootMapping:
         quats = [Rotation.from_matrix(self.robot_rotation @ basis.T @ rotations[i].as_matrix() @ corrections[i]).as_quat() for i in range(2)]
         if not np.isfinite(positions).all() or np.max(np.linalg.norm(positions-self.origin,axis=1)) > 2:
             raise ValueError("mapped palm exceeds target gate")
-        return np.column_stack((positions,quats))
+        targets = np.column_stack((positions,quats))
+        targets.setflags(write=False)
+        self._target_frame, self._target_solution, self._targets = frame, self.solution, targets
+        return targets
 
     def status(self):
         solution = self.solution
         return dict(state=self.state,error=self.error,mapping="pico2_shared_root_height_v1",
                     ik_backend="franka_dls_ruckig",root_position_policy="head_translation_with_calibrated_offset",
-                    root_rotation_policy="C_locked_gravity_level_heading",
+                    root_rotation_policy=f"{self.calibration_key}_locked_gravity_level_heading",
                     robot_geometry_sha256=self.geometry_sha256,
                     calibration_required=True,calibration_allows_start=self.calibration_allows_start,
                     height_m=self.height, shoulder_width_m=self.width,

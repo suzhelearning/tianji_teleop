@@ -17,9 +17,9 @@ from pico2_hands.tests.test_shared_root import dls_available
 class SimLauncherTest(unittest.TestCase):
     @unittest.skipUnless(dls_available(), "build DLS worker")
     def test_shared_root_fake_tcp_recording_no_automatic_start(self):
-        self._fake_tcp_raw_recording_and_timed_home_exit(["--height-m", "1.62"])
+        self._fake_tcp_raw_recording_and_timed_exit(["--height-m", "1.62"])
 
-    def _fake_tcp_raw_recording_and_timed_home_exit(self, extra_args):
+    def _fake_tcp_raw_recording_and_timed_exit(self, extra_args):
         stop = threading.Event()
         with socket.socket() as server, tempfile.TemporaryDirectory() as folder:
             server.bind(("127.0.0.1", 0))
@@ -62,15 +62,13 @@ class SimLauncherTest(unittest.TestCase):
                 stop.set(); thread.join(timeout=2)
             self.assertFalse(thread.is_alive())
             self.assertEqual(child.returncode, 0, child.stdout + child.stderr)
-            completion = next(json.loads(line) for line in child.stdout.splitlines()
-                              if line.startswith("{") and json.loads(line).get("kind") == "pico2_sim_complete")
-            self.assertTrue(completion["home"])
             with h5py.File(output) as file:
                 self.assertTrue(file.attrs["complete"])
                 self.assertGreater(len(file["raw/pico_hand_tracking/packet"]), 5)
                 self.assertGreater(len(file["simulation/position_rad"]), 5)
                 self.assertEqual(file.attrs["accepted"], file.attrs["processed"])
                 self.assertNotIn(b"teleop", file["simulation/state"][:])
+                self.assertNotIn(b"homing", file["simulation/state"][:])
                 events = [json.loads(v) for v in file["events/json"][:]]
                 calibration = next(e["calibration"] for e in events if "calibration" in e)
                 self.assertEqual(calibration["height_m"], 1.62)

@@ -131,7 +131,7 @@ test-collection = "bash bash/test_python.sh collection"
 test-controller = "bash bash/test_python.sh controller"
 test-interfaces = "bash bash/test_python.sh interfaces"
 test-pico = "bash bash/test_python.sh pico"
-test-pico2 = "bash bash/test_python.sh pico2"
+test-pico2 = "pixi run --locked -e spd test-pico2"
 test-pico-simple = "bash bash/test_python.sh pico -k 'setup_pico or pico_simple or pico_startup_safety'"
 test-sim-user = "bash bash/test_python.sh pico -k sim_user"
 test-ros = "bash bash/test_python.sh ros"
@@ -250,6 +250,43 @@ test-mocap = "bash bash/test_python.sh mocap"
 torch = { version = "==2.10.0", index = "https://download.pytorch.org/whl/cpu" }
 eclipse-zenoh = ">=1.10,<2"
 
+# PICO bare-hand control client for the separate SPD simulator. No default
+# feature: camera, robot executor, Manus SDK and policy dependencies stay out.
+[feature.spd.dependencies]
+python = "3.12.*"
+pip = "*"
+setuptools = ">=68,<80"
+wheel = "*"
+numpy = "*"
+scipy = ">=1.11,<2"
+h5py = "*"
+pyyaml = ">=6,<7"
+pytest = ">=8,<9"
+cmake = ">=3.24,<4"
+ninja = ">=1.11"
+cxx-compiler = ">=1.9"
+make = "*"
+pkg-config = "*"
+empy = ">=3.3.4,<4"
+libmujoco = "==3.10.0"
+mujoco-python = "==3.10.0"
+ros-jazzy-rclpy = "*"
+ros-jazzy-ros2run = "*"
+ros-jazzy-ros2topic = "*"
+
+[feature.spd.activation.env]
+TIANJI_ENVIRONMENT = "spd"
+
+ROS_VERSION = "2"
+RMW_IMPLEMENTATION = "rmw_fastrtps_cpp"
+ROS_DOMAIN_ID = "120"
+ROS_AUTOMATIC_DISCOVERY_RANGE = "LOCALHOST"
+ROS_USE_SIM_TIME = "false"
+TIANJI_WORKSPACE = "$PIXI_PROJECT_ROOT"
+[feature.spd.tasks]
+build = "bash bash/build_spd.sh"
+test-pico2 = "bash bash/test_python.sh pico2"
+
 [environments]
 # Policy has its own overlay; no other environment's site-packages are injected.
 default = { features = [], solve-group = "default" }
@@ -258,6 +295,7 @@ control = { features = ["control"], no-default-feature = true, solve-group = "co
 arm-ros = { features = ["control", "arm-ros"], no-default-feature = true, solve-group = "arm-ros" }
 manus = { features = ["manus"], no-default-feature = true, solve-group = "manus" }
 policy = { features = ["policy"], solve-group = "default" }
+spd = { features = ["arm-ros", "spd"], no-default-feature = true, solve-group = "spd" }
 
 [pypi-dependencies]
 wuji-sdk = "==2026.8.31"

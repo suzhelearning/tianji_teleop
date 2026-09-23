@@ -1,8 +1,8 @@
 """PICO bare-hand simulator output only; no hardware command transport.
 
 The advisory lock excludes other instances of this publisher in this host/domain,
-not arbitrary external DDS writers. ROS initialization and publication belong to
-one worker; the simulation only replaces an immutable, single-slot snapshot.
+not arbitrary external DDS writers. The worker privately owns its ROS node and
+context and publishes only JointCommand messages.
 """
 from dataclasses import dataclass
 import fcntl

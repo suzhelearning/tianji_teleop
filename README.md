@@ -48,12 +48,13 @@ bash bash/install.sh --check
 bash bash/install.sh
 ```
 
-`bash/install.sh` 按锁文件安装 default、control、cameras、manus、policy 及独立外骨骼／PICO2
-环境，构建 default/policy ROS 工作空间、原生控制器和 Manus；不会启动设备。
+`bash/install.sh` 按锁文件安装 default、control、arm-ros、cameras、manus、policy、spd 及独立外骨骼／Hand2
+环境，分别构建 ROS 工作空间、原生控制器和 Manus；不会启动设备。
 默认运行环境为 **ROS 2 Jazzy＋Python 3.12＋Fast DDS**。控制工具链和官方 RealSense
 4.58.3 驱动保持隔离；新 Manus ROS 链在 default 中使用 `wuji-sdk==2026.8.31` 的
 `RetargetSession`，只发布目标，不连接 Wuji。旧 manus/Pinocchio 环境不再用于该入口。
-构建输出为 `build/<环境>`、`install/<环境>`、`log/<环境>`，原生程序在 `install/control/bin/`。
+构建输出为 `build/<环境>`、`install/<环境>`、`log/<环境>`；公共原生程序在 `install/control/bin/`，
+SPD 专用构建产物在 `install/spd/`，不借用 default 或外部 SPD 工作空间的 overlay。
 不要 source 旧 tracking/Humble 或其他环境的 overlay。
 
 已有环境、更新相关代码后重新编译：
@@ -251,35 +252,40 @@ bash bash/run_teleop.sh --sim --user NEW_USER
 本路线不运行 `setup-pico`、`bash/run_pico.sh` 或 Manus，不使用上面的手柄 TCP 标定。
 
 ```bash
-# 首次／原生代码更新后构建
-pixi run build
-pixi install --locked --manifest-path src/teleop_inputs/pico_hand/tools/wuji_hand_native/pixi.toml
-bash src/teleop_inputs/pico_hand/build_native.sh
+# 首次安装独立 SPD 控制端环境；不会安装外部 SPD 仿真服务
+pixi install --locked -e spd
+# 首次／原生代码更新后构建（包括 DLS、Hand2 和 ROS 接口）
+pixi run --locked -e spd build
 
 # 连接头显并授权 USB 调试后；入口自动检查／补建默认 ADB 转发
 bash bash/run_pico_hand_sim.sh --height-m 1.75
 ```
+入口固定使用独立 `spd` 环境。本分区只向 `/home/current/syz/spd-syz` 的 SPD 仿真发送 ROS
+目标；SPD 服务由该项目独立安装和启动，原生 Viewer 仅辅助观察，不是第二个执行目标。
 默认 `127.0.0.1:10002` 的 ADB 转发自动复用或补建，无需手动执行 `adb forward`；
 多设备须设置 `ANDROID_SERIAL`，冲突转发不会被覆盖。自测和自定义输入地址／端口不操作 ADB。
+默认每 5 秒输出一条 `pico2_runtime_stats` 周期汇总，含输入／控制频率、P95/P99、
+双臂／双手耗时和 BRAKING 原因计数；`--stats-interval-s 0` 关闭汇总，不逐帧刷屏。
 
-裸手只保留 **身高模板＋C 共享根映射＋Franka DLS/Ruckig**；旧 V131、旧启动脚本和
+裸手只保留 **身高模板＋共享根标定映射＋Franka DLS/Ruckig**；旧 V131、旧启动脚本和
 `--mapping-mode` 已删除。`1.75` 必须替换为实际身高，不再有隐含人员或身高默认值。
 默认向 SPD 仿真发布 `/spd/tianji_wuji2/v1/joint_command`
 （`tianji_spd_interfaces/msg/JointCommand`，54 维 rad 目标），并由原生 Viewer 辅助显示。
 `--headless` 只关闭显示、不停止 ROS 发布；`--disable-hands` 清除双手 ready 位。
 此出口仅用于 SPD 仿真，不接入 Manus／外骨骼＋PICO 手柄的真机执行链。
 
-双臂前伸、双手间距约肩宽、掌心相对，面向前方按 **C** 保持约 1 秒，
-标定成功且有新帧后按 **S**。**H** 只回双臂、手指保持；
-**P／空格**可取消 H 回程并制动保持，**Q／Ctrl+C** 回双臂 Home 后退出。
-短时丢帧需满足同连接稳定恢复条件才软恢复；长时断流需 S，断连／重连必须重新 C。
-SPD 必须先完成模型／初始目标对齐，并在 C 后、S 前本地显式启用；ROS 发布本身不是授权。
-正常制动与 Home 期间继续发送目标，退出前尝试发布最后一帧；这不等于接收端物理回程已完成。
+普通启动：双臂前伸、双手间距约肩宽、掌心相对，面向前方按 **R** 保持约 1 秒，
+标定成功后保持当前目标、显示 ready；再按 **S** 才开始持续跟随。运动中再次 R 会先制动，
+再重新标定，成功后仍须 S。窗口和终端均支持 R/S；P／空格保持，H 双臂 Home；
+**Q／Esc／关闭窗口／Ctrl+C** 直接退出，不发起 Home。C 不用于普通本地模式。
+同连接失鲜时制动保持，恢复稳定有效输入后按原策略自动跟随；断连／重连必须重新 R 再 S。
+SPD 的执行授权与采集独立管理，SPD 暂停、保存、回退均不暂停上游，也不请求上游 Home。
+ROS 发布本身不是 SPD 授权，最后一次本地 publish 也不是接收端执行确认。
 
 窗口／终端显示张手、握拳、捏合等观察标签，**手势识别不自动使能或停止**。
 身高模板不是实测肩肘，不等于完整 VR 人体骨架；仅支持仿真，真实输入精度与实时性
 仍需现场验收。离线可执行 `bash bash/run_pico_hand_sim.sh --height-m 1.75 --self-test`，
-它使用真实 DLS/Hand2 worker 和 C 标定流程，不连接设备，ROS 发布强制隔离到测试域 121。
+它使用真实 DLS/Hand2 worker，验证 R 后静止就绪、S 开始跟随及运动中重新标定后再次等待 S；不连接设备，ROS 强制隔离到测试域 121。
 完整构建、录制和故障行为见[PICO 裸手说明](src/teleop_inputs/pico_hand/README.md)。
 
 ## top 相机画面传到 PICO

@@ -1,6 +1,7 @@
 #pragma once
 #include "tianji_qp_ik/ruckig_trajectory_limiter.hpp"
 #include <array>
+#include <cmath>
 #include <optional>
 #include <stdexcept>
 
@@ -14,9 +15,11 @@ class SimulationRecovery {
   enum class Phase { kWaiting, kTeleop, kBraking, kHoming, kHomeReached, kHold, kFault };
   using Pair = std::array<ArmMotionState, 2>;
   SimulationRecovery(const QpIkConfig& config, std::array<ArmLimits,2> limits,
-                     Pair home, double dt)
-      : limits_(limits), home_(home), dt_(dt), stop_config_(
+                     Pair home, double dt, double settled_seconds=.3)
+      : limits_(limits), home_(home), dt_(dt), settled_seconds_(settled_seconds), stop_config_(
             config.pico_ee_franka_dls.post_smoothing) {
+    if(!std::isfinite(settled_seconds_)||settled_seconds_<=0.)
+      throw std::invalid_argument("Invalid simulation settled duration");
     for(auto& l:limits_) {
       l.lower_position.array()+=config.joint_limits.margin_rad;
       l.upper_position.array()-=config.joint_limits.margin_rad;
@@ -80,7 +83,7 @@ class SimulationRecovery {
     if(phase_==Phase::kHoming)
       for(int i=0;i<2;++i)settled=settled&&(next[i].q-home_[i].q).cwiseAbs().maxCoeff()<1e-6;
     settled_=settled?settled_+dt_:0;
-    if(settled_>=.3) {
+    if(settled_>=settled_seconds_) {
       if(phase_==Phase::kBraking&&pending_home_) {
         if(!resetLimiters(home_config_,next))phase_=Phase::kFault;
         else {phase_=Phase::kHoming;settled_=0;elapsed_=0;}
@@ -100,7 +103,7 @@ class SimulationRecovery {
   }
   std::array<ArmLimits,2> limits_;
   Pair home_;
-  double dt_,settled_{0},elapsed_{0};
+  double dt_,settled_seconds_,settled_{0},elapsed_{0};
   DlsPostureRuckigConfig stop_config_,home_config_;
   std::array<std::optional<RuckigTrajectoryLimiter7>,2> limiters_;
   Phase phase_{Phase::kWaiting};

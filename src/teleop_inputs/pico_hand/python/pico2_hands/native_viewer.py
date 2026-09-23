@@ -1,6 +1,6 @@
 """Private, display-only pipe to the installed native simulation viewer.
 
-The parent owns all state transitions and continues Home after window closure.
+The parent owns all state transitions and exit handling.
 Frames are atomic nonblocking writes: a busy renderer never delays control.
 """
 import math
@@ -13,17 +13,21 @@ from tianji_runtime.resources import native_executable
 
 
 class NativeViewer:
-    def __init__(self, model, profile, events, *, startup_timeout_s=15.0):
+    def __init__(self, model, profile, events, *, startup_timeout_s=15.0,
+                 continuous_follow=False):
         self._events = events
+        self._control_keys = (32, 82, 83, 80, 72, 81) if continuous_follow else (32, 67, 83, 80, 72, 81)
         self._output = bytearray()
         self._ready = False
         self._disconnected = False
         self._exit_sent = False
         self._closed = False
+        command = [str(native_executable("tianji_qp_ik_viewer")), "--external-display",
+                   "--model", str(model), "--config", str(profile)]
+        if continuous_follow:
+            command.append("--continuous-follow")
         self._process = subprocess.Popen(
-            [str(native_executable("tianji_qp_ik_viewer")), "--external-display",
-             "--model", str(model), "--config", str(profile)],
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE, bufsize=0)
+            command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, bufsize=0)
         try:
             os.set_blocking(self._process.stdin.fileno(), False)
             os.set_blocking(self._process.stdout.fileno(), False)
@@ -69,7 +73,7 @@ class NativeViewer:
                         code = int(line[len(b"DISPLAY_KEY "):])
                     except ValueError:
                         continue
-                    if code in (32, 67, 83, 80, 72, 81):
+                    if code in self._control_keys:
                         key = chr(code).lower()
                         if key == "q":
                             self._request_exit()

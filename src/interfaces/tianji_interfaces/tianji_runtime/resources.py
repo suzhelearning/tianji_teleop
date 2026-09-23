@@ -58,6 +58,11 @@ def control_prefix() -> Path:
     return workspace() / "install" / "control"
 
 
+def _native_prefix() -> Path:
+    """SPD owns its native artifacts; other routes keep the control prefix."""
+    return install_prefix() if environment_name() == "spd" else control_prefix()
+
+
 def ampp_prefixes() -> list[Path]:
     """Every prefix ament should search, nearest (workspace overlay) first."""
     prefixes = [install_prefix()]
@@ -123,7 +128,7 @@ def vendor_path(*relative: str) -> Path:
 
 
 def native_executable(name: str) -> Path:
-    """Locate a native executable built by the control environment.
+    """Locate a native executable in the active route's native install prefix.
 
     ``name`` must be a bare basename: this intentionally cannot address files
     through path separators, so a caller cannot escape the install tree.
@@ -132,7 +137,7 @@ def native_executable(name: str) -> Path:
         raise ValueError("native_executable expects a non-empty basename")
     if os.sep in name or (os.altsep and os.altsep in name):
         raise ValueError(f"native_executable expects a basename, got {name!r}")
-    install = workspace() / "install" / "control"
+    install = _native_prefix()
     candidates = (
         install / "bin" / name,
         install / "lib" / name,
@@ -140,8 +145,9 @@ def native_executable(name: str) -> Path:
     for candidate in candidates:
         if candidate.is_file() and os.access(candidate, os.X_OK):
             return candidate
+    build = "pixi run -e spd build" if environment_name() == "spd" else "pixi run build"
     raise ResourceNotFound(
-        f"native executable {name!r} is not built; run 'pixi run build' "
+        f"native executable {name!r} is not built; run '{build}' "
         f"(looked in {install})"
     )
 
@@ -160,7 +166,7 @@ def controller_profile(name: str) -> Path:
     """
     if not name or os.sep in name or (os.altsep and os.altsep in name):
         raise ValueError(f"controller_profile expects a basename, got {name!r}")
-    installed = control_prefix() / "share" / "tianji_controller" / "config" / name
+    installed = _native_prefix() / "share" / "tianji_controller" / "config" / name
     if installed.is_file():
         return installed
     source = (workspace() / "src" / "teleop_outputs" / "tianji" / "tianji_controller"

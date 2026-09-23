@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Build the whole workspace: the control native targets and then every ament
-# package in src/. Run from a Pixi environment ('pixi run build').
+# Build shared control native targets and the non-SPD ament workspace.
+# The PICO bare-hand route has its own `pixi run -e spd build` entry point.
 set -euo pipefail
 
 root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
@@ -38,6 +38,7 @@ exec colcon --log-base "$root/log/$environment" build \
   --build-base "$root/build/$environment" \
   --install-base "$root/install/$environment" \
   --symlink-install \
+  --packages-ignore pico2_hands tianji_spd_interfaces \
   --cmake-args \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_INSTALL_PREFIX="$root/install/$environment" \

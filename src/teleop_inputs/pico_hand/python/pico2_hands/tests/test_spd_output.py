@@ -1,6 +1,7 @@
 """Producer readiness policy; synthetic frames and no ROS/hardware workers."""
 from dataclasses import replace
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 
@@ -26,7 +27,18 @@ class MetadataDls(FakeDls):
 
 
 class SyntheticHand:
-    def retarget(self, points, sequence, timestamp_ns):
+    def __init__(self):
+        self.pending = False
+
+    def submit(self, points, sequence, timestamp_ns):
+        if self.pending:
+            raise RuntimeError("hand request already pending")
+        self.pending = True
+
+    def receive(self):
+        if not self.pending:
+            raise RuntimeError("no pending hand request")
+        self.pending = False
         return np.full(20, .1)
 
 
@@ -91,6 +103,18 @@ class SpdOutputTests(unittest.TestCase):
         self.core.tick(self.now)
         self.assertEqual(self.core.mapping.state, "failed")
         self.assertEqual(self.core.spd_output(self.now), (0, current))
+
+    def test_failed_peer_never_commits_half_a_hand_frame(self):
+        self.start()
+        previous = self.core.q[14:].copy()
+        self.now += 5_000_000
+        self.sample()
+        with patch.object(self.core.hands["left"], "receive", return_value=np.full(20, .25)), \
+                patch.object(self.core.hands["right"], "receive", side_effect=TimeoutError("peer stalled")):
+            with self.assertRaises(TimeoutError):
+                self.core.tick(self.now)
+        np.testing.assert_array_equal(self.core.q[14:], previous)
+        self.assertEqual(self.core.spd_output(self.now)[0] & 6, 0)
 
     def test_invalid_hand_does_not_revalidate_from_other_side_or_offer_only(self):
         self.start()
