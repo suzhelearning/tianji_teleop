@@ -82,10 +82,14 @@ PicoTeleopClassification PicoTeleopSession::classify(
   if (!enabled_) {
     return {PicoTeleopAction::kIgnoreDisabled, age_seconds};
   }
-  if (frame.receive_monotonic_ns <= 0 || age_seconds >= timeout_seconds_) {
+  if (!frame.valid || frame.receive_monotonic_ns <= 0 || age_seconds >= timeout_seconds_) {
     return {PicoTeleopAction::kIgnoreStale, age_seconds};
   }
-  if (has_applied_frame_ &&
+  const bool resynchronized =
+      frame.stream_discontinuity ||
+      frame.resynchronization_generation >
+          applied_resynchronization_generation_;
+  if (has_applied_frame_ && !resynchronized &&
       (frame.tracking_epoch < applied_epoch_ ||
        (frame.tracking_epoch == applied_epoch_ &&
         frame.sequence <= applied_sequence_))) {
@@ -94,10 +98,6 @@ PicoTeleopClassification PicoTeleopSession::classify(
 
   const bool epoch_changed =
       !has_applied_frame_ || frame.tracking_epoch != applied_epoch_;
-  const bool resynchronized =
-      frame.stream_discontinuity ||
-      frame.resynchronization_generation >
-          applied_resynchronization_generation_;
   return {(epoch_changed || resynchronized)
               ? PicoTeleopAction::kResetEpochAndApply
               : PicoTeleopAction::kApply,
@@ -114,6 +114,13 @@ void PicoTeleopSession::commitApplied(
       frame.resynchronization_generation);
   applied_receive_monotonic_ns_ = frame.receive_monotonic_ns;
   awaiting_frame_after_enable_ = false;
+}
+
+void PicoTeleopSession::invalidate() noexcept {
+  // Keep ordering watermarks, but never let a cached applied pose remain live.
+  // A receiver generation change allows the next stream to reset its sequence.
+  awaiting_frame_after_enable_ = true;
+  applied_receive_monotonic_ns_ = 0;
 }
 
 PicoTeleopFreshness PicoTeleopSession::freshness(

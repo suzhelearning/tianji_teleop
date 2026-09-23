@@ -16,12 +16,12 @@ from pathlib import Path
 import select
 import signal
 import shutil
-import socket
 import subprocess
 import sys
 import tempfile
 import time
 import unicodedata
+import uuid
 
 import yaml
 
@@ -30,7 +30,8 @@ from tianji_runtime.resources import ResourceNotFound, controller_resource
 from tianji_runtime.resources import config_path as workspace_config
 
 from tianji_description.home_config import load_controller_posture, load_home
-from .protocol import DEVICE_READY_FLAGS, decode_packet
+from .protocol import DEVICE_READY_FLAGS
+from .ros_commands import CommandReceiver
 from .run_log import SessionLog
 from .safety import MotionGate, SafetyFault
 from .staged_motion import StagedMotionGate
@@ -97,7 +98,7 @@ class StatusLine:
 
 
 def poll_enter():
-    """Poll the operator terminal without buffering input or blocking UDP reception."""
+    """Poll the operator terminal without buffering input or blocking command reception."""
     fd = sys.stdin.fileno()
     for _ in range(256):
         if not select.select([fd], [], [], 0)[0]:
@@ -110,43 +111,6 @@ def poll_enter():
     return False
 
 
-class CommandReceiver:
-    def __init__(self, port):
-        self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        try:
-            # Do not reuse ports: a second executor must fail, not split commands.
-            self.socket.bind(("127.0.0.1", port))
-            self.socket.setblocking(False)
-        except BaseException:
-            self.socket.close()
-            raise
-        self.latest = None
-        self.count = 0
-
-    @property
-    def port(self):
-        return self.socket.getsockname()[1]
-
-    def drain(self, validate=None):
-        for _ in range(512):
-            try:
-                data, sender = self.socket.recvfrom(4096)
-            except BlockingIOError:
-                break
-            if sender[0] != "127.0.0.1":
-                raise SafetyFault("non-loopback command source")
-            frame = decode_packet(data)
-            if self.latest and (frame.sequence <= self.latest.sequence or
-                                frame.timestamp_ns < self.latest.timestamp_ns):
-                raise SafetyFault("controller command sequence or timestamp regressed")
-            if validate is not None:
-                validate(frame)
-            self.latest = frame
-            self.count += 1
-        return self.latest
-
-    def close(self):
-        self.socket.close()
 
 
 def resolve(base, value):
@@ -184,12 +148,13 @@ def executor_profile(config, base):
         raise ValueError(f"invalid controller configuration: {original}: {error}") from error
     required = {
         "controller": {"model_state_only": True},
-        "control": {"level": "velocity"},
         "ik": {"algorithm": "pico_ee_franka_dls"},
         "pico_ee_franka_dls": {"enabled": True},
     }
     if not isinstance(data, dict):
         raise ValueError("controller configuration must be a YAML mapping")
+    if "control" in data:
+        raise ValueError("retired control-level selection is not supported by the DLS-only core")
     for section, fields in required.items():
         values = data.get(section)
         if not isinstance(values, dict):
@@ -198,7 +163,7 @@ def executor_profile(config, base):
             actual = values.get(field)
             if type(actual) is not type(expected) or actual != expected:
                 raise ValueError(f"franka-dls executor requires {section}.{field}={expected}")
-    shared = data.get("spark_shared_root")
+    shared = data.get("shared_root")
     if not isinstance(shared, dict) or type(shared.get("enabled")) is not bool:
         raise ValueError("franka-dls executor requires shared-root settings")
     smoothing = data["pico_ee_franka_dls"].get("post_smoothing")
@@ -273,11 +238,14 @@ def load_configuration(path, device_selection=None):
         StagedMotionGate(config["safety"], devices, config["staged_motion"])
     else:
         MotionGate(config["safety"], devices)
-    for field in ("command_port", "pico_port", "hand_port"):
-        if type(config[field]) is not int or not 1 <= config[field] <= 65535:
-            raise ValueError(f"{field} must be an integer in [1, 65535]")
-    if len({config[key] for key in ("command_port", "pico_port", "hand_port")}) != 3:
-        raise ValueError("command/PICO/hand ports must be distinct")
+    if type(config["hand_port"]) is not int or not 1 <= config["hand_port"] <= 65535:
+        raise ValueError("hand_port must be an integer in [1, 65535]")
+    for field in ("pico_input_topic", "joint_command_topic"):
+        topic = config[field]
+        if not isinstance(topic, str) or not topic.startswith("/") or not topic.strip("/"):
+            raise ValueError(f"{field} must be an absolute nonempty ROS topic")
+    if config["pico_input_topic"] == config["joint_command_topic"]:
+        raise ValueError("PICO input and joint command topics must be distinct")
     if not math.isfinite(config["startup_timeout_s"]) or config["startup_timeout_s"] <= 0:
         raise ValueError("startup_timeout_s must be positive and finite")
     if not 0 < config["controller_velocity_scale"] <= 1:
@@ -477,12 +445,12 @@ def main(argv=None):
             # The native controller is addressed through the single resource
             # authority, so a missing build fails here with an explicit hint.
             try:
-                viewer = native_executable("tianji_qp_ik_viewer")
+                viewer = native_executable("tianji_arm_ros")
             except ResourceNotFound as error:
                 raise RuntimeError(
                     f"build the current arm controller before starting the real executor: {error}"
                 ) from error
-            receiver = CommandReceiver(config["command_port"])
+            receiver = CommandReceiver(config["joint_command_topic"], config["safety"], devices)
         # Rendering failures also precede sensor workers and device sessions.
         if staged:
             # Fail before connecting devices if the required monitor cannot open.
@@ -608,21 +576,20 @@ def main(argv=None):
             if session_log is not None:
                 session_log.persist_controller_configuration(
                     controller_config, source=str(resolve(base, config["controller_config"])))
-            pico_port = config["pico_port"]
+            pico_topic = config["pico_input_topic"]
             if "arms" not in devices:
-                # The native shared-root executor requires a PICO input, but a
-                # hand-only session must not consume the operator's arm port
-                # or authorize any arm output.
-                with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as reserved:
-                    reserved.bind(("127.0.0.1", 0))
-                    pico_port = reserved.getsockname()[1]
+                # A hand-only session has no subscription to the operator's arm input.
+                pico_topic = f"/tianji/unused_pico/session_{uuid.uuid4().hex}"
             command = [str(viewer), "--franka-dls-executor",
                        "--config", str(controller_config), "--model", str(resolve(base, config["controller_model"])),
-                       "--headless", "--continuous", "--hand-teleop", "--hand-bind", "127.0.0.1",
-                       "--hand-port", str(config["hand_port"]), "--pico-bind", "127.0.0.1",
-                       "--pico-port", str(pico_port), "--joint-command-host", "127.0.0.1",
-                       "--joint-command-port", str(receiver.port)]
-            command.append("--pico-teleop")
+                       "--headless", "--continuous", "--pico-teleop",
+                       "--pico-topic", pico_topic,
+                       "--joint-target-topic", config["joint_command_topic"]]
+            if any(device != "arms" for device in devices):
+                command += ["--hand-teleop", "--hand-bind", "127.0.0.1",
+                            "--hand-port", str(config["hand_port"])]
+            else:
+                command.append("--no-hand-teleop")
             controller = subprocess.Popen(command, cwd=str(workspace()), start_new_session=True,
                                           stdin=subprocess.DEVNULL)
             started = time.monotonic()

@@ -2,8 +2,6 @@
 
 #include <Eigen/Core>
 
-#include <limits>
-#include <string_view>
 
 namespace tianji_qp_ik {
 
@@ -45,51 +43,12 @@ struct ScalarJointTask {
   double weight_scale{1.0};
 };
 
-struct JointPositionGuard {
-  bool active{false};
-  Vec7 position{Vec7::Zero()};
-  Vec7 lower{Vec7::Zero()};
-  Vec7 upper{Vec7::Zero()};
-  double soft_margin_rad{0.0};
-  // Null-space recovery speed toward the center of the safe joint range.
-  // This does not alter the Cartesian primary or any hard joint bound.
-  double recovery_gain_rad_s_per_rad{0.0};
-};
-
-struct LinearJointConstraint {
-  bool active{false};
-  Vec7 jacobian{Vec7::Zero()};
-  double lower{-std::numeric_limits<double>::infinity()};
-  double upper{std::numeric_limits<double>::infinity()};
-  double requested_lower{-std::numeric_limits<double>::infinity()};
-  double requested_upper{std::numeric_limits<double>::infinity()};
-  bool feasibility_clipped{false};
-  bool viability_clipped{false};
-};
-
-struct QpProblem7 {
-  Mat77 H{Mat77::Identity()};
-  Vec7 g{Vec7::Zero()};
-  Vec7 lower{Vec7::Zero()};
-  Vec7 upper{Vec7::Zero()};
-};
-
 enum class SolverStatus {
   kSolved,
   kMaxIterations,
   kInfeasible,
   kNumericalError,
   kInvalidInput,
-};
-
-struct SolverResult7 {
-  SolverStatus status{SolverStatus::kInvalidInput};
-  Vec7 qdot{Vec7::Zero()};
-  int iterations{0};
-  int native_status_code{0};
-  double update_time_us{0.0};
-  double solve_time_us{0.0};
-  std::string_view detail{"not_initialized"};
 };
 
 }  // namespace tianji_qp_ik

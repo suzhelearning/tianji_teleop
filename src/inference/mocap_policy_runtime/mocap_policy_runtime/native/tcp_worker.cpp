@@ -1,5 +1,4 @@
 // Computation only: no sockets, device SDKs, actuator enable, or background clock.
-#include "tianji_qp_ik/cartesian_otg.hpp"
 #include "tianji_qp_ik/controller.hpp"
 
 #include <Eigen/Geometry>
@@ -184,10 +183,10 @@ int main(int argc, char** argv) {
   try {
     if (argc != 3) throw std::runtime_error("usage: mocap_tcp_worker CONFIG MODEL");
     auto config = loadConfig(argv[1]);
-    if (config.control_level != ControlLevel::kVelocity ||
-        config.ik_algorithm != IkAlgorithm::kHierarchicalQp ||
+    if (config.ik_algorithm != IkAlgorithm::kPicoEeFrankaDls ||
+        !config.pico_ee_franka_dls.post_smoothing.enabled ||
         std::abs(config.controller.rate_hz - 200.0) > 1e-9) {
-      throw std::runtime_error("requires standalone hierarchical_qp velocity config at 200 Hz");
+      throw std::runtime_error("requires Franka DLS/Ruckig config at 200 Hz");
     }
     config.controller.model_state_only = true;
     MujocoRobot robot(argv[2]);
@@ -199,15 +198,7 @@ int main(int argc, char** argv) {
     if (command != "INIT") throw std::runtime_error("expected INIT q14");
     readState(initial, robot);
     DualArmController controller(robot, config);
-    controller.setArmAngleReferenceMode(ArmAngleReferenceMode::kDefaultDown);
     if (!controller.synchronizeReferencesToActual()) throw std::runtime_error("initial state rejected");
-    CartesianReferenceGenerator left_otg(config.cartesian_otg, kDt);
-    CartesianReferenceGenerator right_otg(config.cartesian_otg, kDt);
-    auto resetOtg = [&]() {
-      left_otg.reset(robot.tcpPose(ArmSide::kLeft));
-      right_otg.reset(robot.tcpPose(ArmSide::kRight));
-    };
-    resetOtg();
     auto holdArm = [&](ArmSide side, const Vec7& q) {
       if (!controller.setReferenceState(side, {q, Vec7::Zero(), Vec7::Zero()})) {
         throw std::runtime_error("held reference state rejected");
@@ -250,7 +241,6 @@ int main(int argc, char** argv) {
         }
         controller.resetSolvers();
         if (!controller.synchronizeReferencesToActual()) throw std::runtime_error("state synchronization rejected");
-        resetOtg();
         response << ",\"kind\":\"sync\"";
       } else if (command == "STEP") {
         int mask = 0;
@@ -261,40 +251,31 @@ int main(int argc, char** argv) {
         targets.left_stale = !(mask & 1);
         targets.right_stale = !(mask & 2);
         end(in);
-        // Staleness alone does not freeze the dual-arm controller or Cartesian
-        // OTG. Seed only omitted sides at their held q/FK with zero derivatives.
+        // Omitted sides are held at their current FK with zero derivatives.
+        // They participate as stationary targets in the bilateral DLS transaction.
         Vec7 left_held_q, right_held_q;
         if (targets.left_stale) {
           left_held_q = controller.reference(ArmSide::kLeft);
           holdArm(ArmSide::kLeft, left_held_q);
-          left_otg.reset(targets.left);
         }
         if (targets.right_stale) {
           right_held_q = controller.reference(ArmSide::kRight);
           holdArm(ArmSide::kRight, right_held_q);
-          right_otg.reset(targets.right);
         }
-        DualArmReferences references;
-        references.left = targets.left_stale ? left_otg.state()
-            : left_otg.update(targets.left, Vec6::Zero(), false, kDt);
-        references.right = targets.right_stale ? right_otg.state()
-            : right_otg.update(targets.right, Vec6::Zero(), false, kDt);
-        references.left.stale = targets.left_stale;
-        references.right.stale = targets.right_stale;
         ControllerDiagnostics result;
         if (mask != 0) {
-          result = config.cartesian_otg.enabled ? controller.step(references, kDt) : controller.step(targets, kDt);
+          targets.left_stale = targets.right_stale = false;
+          result = controller.step(targets, kDt);
         }
-        // step() advances both sides, including fallback/history on stale ones.
-        // Restore omitted sides through the per-side API, which also resets the
-        // solver history, without disturbing the present side's ongoing motion.
-        if (targets.left_stale) {
+        // Restore omitted sides through the per-side reference API without
+        // disturbing the requested side's ongoing DLS/Ruckig motion.
+        if (!(mask & 1)) {
           holdArm(ArmSide::kLeft, left_held_q);
           result.left = {};
           result.left.q_ref = left_held_q;
           result.left.hold_reason = HoldReason::kNone;
         }
-        if (targets.right_stale) {
+        if (!(mask & 2)) {
           holdArm(ArmSide::kRight, right_held_q);
           result.right = {};
           result.right.q_ref = right_held_q;

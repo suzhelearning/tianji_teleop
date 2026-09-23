@@ -6,7 +6,7 @@
 
 namespace tianji_qp_ik {
 namespace {
-bool validTargets(const SparkUpperTargets& t) {
+bool validTargets(const SharedRootTargets& t) {
   if(!t.valid) return false;
   for(const auto* s:{&t.left,&t.right})
     if(!s->palm.position.allFinite()||!isProperRotation(s->palm.rotation)||
@@ -58,7 +58,7 @@ void SharedRootContinuity::observe(const SharedRootBuiltTargets& f,std::int64_t 
   pending_={}; // old IK acknowledgements cannot complete a newer candidate
 }
 SharedRootContinuityOutput SharedRootContinuity::step(std::int64_t now,bool authorized,
-                                                     const SparkUpperTargets& model) {
+                                                     const SharedRootTargets& model) {
   SharedRootContinuityOutput out;
   if(!authorized) {resetSession();return out;}
   if(now<=0||(last_now_ns_&&now<last_now_ns_)) {interrupt();out.state=state_;return out;}

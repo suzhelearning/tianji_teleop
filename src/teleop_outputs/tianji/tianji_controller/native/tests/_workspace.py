@@ -30,8 +30,7 @@ def workspace() -> Path:
 
 def native_binary(name: str) -> Path:
     """The built controller executable, wherever its build tree lives."""
-    install = workspace() / "install" / "control"
-    for candidate in (install / "bin" / name, install / "lib" / "mapped_palm" / name):
-        if candidate.is_file():
-            return candidate
+    candidate = workspace() / "install" / "control" / "bin" / name
+    if candidate.is_file():
+        return candidate
     raise RuntimeError(f"{name} is not built; run 'pixi run build-workspace'")

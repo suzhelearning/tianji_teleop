@@ -7,9 +7,34 @@ import argparse
 import math
 from pathlib import Path
 import socket
+import struct
 import time
 
-from run_pico_trace_algorithm_benchmark import _read_trace
+TRACE_HEADER = struct.Struct("<4sHHQ")
+RECORD_TIME = struct.Struct("<q")
+
+
+def read_trace(path: Path) -> tuple[int, list[tuple[int, bytes, int]]]:
+    with path.open("rb") as stream:
+        header = stream.read(TRACE_HEADER.size)
+        if len(header) != TRACE_HEADER.size:
+            raise ValueError("truncated TJVR trace header")
+        magic, version, packet_size, count = TRACE_HEADER.unpack(header)
+        if magic != b"TJVT" or version != 1 or packet_size <= 0:
+            raise ValueError("invalid TJVR trace header")
+        records: list[tuple[int, bytes, int]] = []
+        for _ in range(count):
+            relative = stream.read(RECORD_TIME.size)
+            packet = stream.read(packet_size)
+            if len(relative) != RECORD_TIME.size or len(packet) != packet_size:
+                raise ValueError("truncated TJVR trace record")
+            if packet[:4] != b"TJVR":
+                raise ValueError("invalid TJVR packet magic")
+            source_ns = struct.unpack_from("<q", packet, 24)[0]
+            records.append((RECORD_TIME.unpack(relative)[0], packet, source_ns))
+        if stream.read(1):
+            raise ValueError("trailing bytes in TJVR trace")
+    return packet_size, records
 
 
 def replay_trace(path: Path, host: str, port: int, lead: float) -> int:
@@ -17,7 +42,7 @@ def replay_trace(path: Path, host: str, port: int, lead: float) -> int:
         raise ValueError("lead must be finite and nonnegative")
     if not 1 <= port <= 65535:
         raise ValueError("port must be in [1, 65535]")
-    _, records = _read_trace(path)
+    _, records = read_trace(path)
     if not records:
         raise ValueError("empty TJVR trace")
     previous_ns = 0

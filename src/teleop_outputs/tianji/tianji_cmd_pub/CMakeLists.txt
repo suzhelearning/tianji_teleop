@@ -10,6 +10,7 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(tianji_interfaces REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(yaml-cpp REQUIRED)
 find_package(Threads REQUIRED)
@@ -35,14 +36,12 @@ target_link_libraries(tianji_teleop_protocol PUBLIC
   Eigen3::Eigen yaml-cpp tianji_teleop_geometry
 )
 
-# Node name and executable name must stay `tianji_mujoco_teleop_bridge`: the
-# launch file and the process-cleanup helper both address it by that name.
-add_executable(tianji_mujoco_teleop_bridge src/tianji_mujoco_teleop_bridge_node.cpp)
-target_include_directories(tianji_mujoco_teleop_bridge PRIVATE include)
-ament_target_dependencies(tianji_mujoco_teleop_bridge rclcpp std_msgs geometry_msgs)
-target_link_libraries(tianji_mujoco_teleop_bridge tianji_teleop_protocol)
+add_executable(pico_arm_input src/pico_arm_input_node.cpp)
+target_include_directories(pico_arm_input PRIVATE include)
+ament_target_dependencies(pico_arm_input rclcpp std_msgs geometry_msgs tianji_interfaces)
+target_link_libraries(pico_arm_input tianji_teleop_protocol)
 
-install(TARGETS tianji_mujoco_teleop_bridge
+install(TARGETS pico_arm_input
   DESTINATION lib/${PROJECT_NAME}
 )
 install(TARGETS tianji_teleop_geometry tianji_teleop_protocol
@@ -74,8 +73,8 @@ if(BUILD_TESTING)
   )
 
   find_package(ament_cmake_pytest REQUIRED)
-  ament_add_pytest_test(tianji_mujoco_teleop_bridge_runtime
-    "test/test_tianji_mujoco_teleop_bridge_runtime.py"
+  ament_add_pytest_test(pico_arm_input_runtime
+    "test/test_pico_arm_input_runtime.py"
     TIMEOUT 300
   )
 endif()

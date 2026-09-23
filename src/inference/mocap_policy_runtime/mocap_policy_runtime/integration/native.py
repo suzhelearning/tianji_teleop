@@ -1,4 +1,4 @@
-"""Bounded, synchronous IPC to the repository's native 200 Hz QP controller."""
+"""Bounded, synchronous IPC to the repository's native 200 Hz DLS/Ruckig controller."""
 from __future__ import annotations
 
 import json
@@ -88,8 +88,8 @@ class NativeIK:
         self.timeout = float(timeout)
         if not np.isfinite([self.timeout, startup_timeout]).all() or min(self.timeout, startup_timeout) <= 0:
             raise ValueError("worker timeouts must be finite and positive")
-        self.model_path = (Path(model) if model is not None else model_asset("marvin_m6_wuji2.xml")).resolve()
-        self.config_path = (Path(config) if config is not None else controller_profile("qp_ik_cartesian_otg_velocity.yaml")).resolve()
+        self.model_path = (Path(model) if model is not None else model_asset("marvin_m6_wuji2_shared_root_ceres.xml")).resolve()
+        self.config_path = (Path(config) if config is not None else controller_profile("qp_ik_pico_shared_root_dls.yaml")).resolve()
         executable = Path(binary) if binary is not None else native_executable("mocap_tcp_worker")
         for path in (self.model_path, self.config_path, executable):
             if not path.is_file():

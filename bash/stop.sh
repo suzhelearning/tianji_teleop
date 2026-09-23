@@ -30,7 +30,7 @@ TARGETS = {
 # Native viewers are matched by executable name inside the workspace install tree.
 TARGET_NAMES = {
     "tianji_qp_ik_viewer": "install/control/bin/tianji_qp_ik_viewer",
-    "mapped_palm_native_worker": "install/control/lib/mapped_palm/mapped_palm_native_worker",
+    "tianji_arm_ros": "install/control/bin/tianji_arm_ros",
     "manus_data_publisher": "install/default/manus_bridge/lib/manus_bridge/manus_data_publisher",
 }
 

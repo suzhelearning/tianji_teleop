@@ -1,36 +1,21 @@
 #pragma once
-
-#include "tianji_qp_ik/arm_angle.hpp"
 #include "tianji_qp_ik/config.hpp"
-#include "tianji_qp_ik/iterative_pose_dls.hpp"
-#include "tianji_qp_ik/joint_trajectory_limiter.hpp"
 #include "tianji_qp_ik/mujoco_robot.hpp"
-#include "tianji_qp_ik/qp_solver.hpp"
 #include "tianji_qp_ik/safety.hpp"
 #include "tianji_qp_ik/target_manager.hpp"
-#include "tianji_qp_ik/upper_arm_outward.hpp"
 #include "tianji_qp_ik/velocity_ik.hpp"
-#include "tianji_qp_ik/pico_ee_franka_ceres_lm.hpp"
 #include "tianji_qp_ik/pico_ee_franka_dls.hpp"
-#include "tianji_qp_ik/ceres_trajectory_limiter.hpp"
-#include "tianji_qp_ik/ceres_pinocchio_arm_kinematics.hpp"
-
+#include "tianji_qp_ik/ruckig_trajectory_limiter.hpp"
+#include "tianji_qp_ik/dls_pinocchio_arm_kinematics.hpp"
 #include <memory>
-
 namespace tianji_qp_ik {
-
 struct ArmReferenceState {
   Vec7 q_ref{Vec7::Zero()};
   Vec7 qdot_prev{Vec7::Zero()};
   Vec7 qddot_prev{Vec7::Zero()};
-  Vec6 slack_prev{Vec6::Zero()};
-  Vec7 dls_posture_goal{Vec7::Zero()};
-  bool dls_posture_initialized{false};
 };
-
 struct ArmControllerDiagnostics {
   bool accepted{false};
-  bool fallback_applied{false};
   HoldReason hold_reason{HoldReason::kNonFiniteProblem};
   // Command-model TCP pose used by the nominal Cartesian controller.
   Pose current;
@@ -43,17 +28,7 @@ struct ArmControllerDiagnostics {
   ArmIkResult ik;
   Vec7 q_ref{Vec7::Zero()};
   Vec7 q_actual{Vec7::Zero()};
-  JointVelocityBounds bounds;
-  double reference_error_max_abs{0.0};
-  double reference_scale{1.0};
-  bool reference_frozen{false};
   SafetyDecision safety;
-  ArmAngleTask arm_angle;
-  // True only when the selected IK backend actually consumes this task.
-  bool arm_angle_task_active{false};
-  double arm_angle_requested_rate{0.0};
-  double arm_angle_current_rate{0.0};
-  UpperArmOutwardDiagnostics upper_arm_outward;
   bool dls_posture_reference_active{false};
   Vec7 dls_posture_goal{Vec7::Zero()};
   Vec7 dls_posture_reference{Vec7::Zero()};
@@ -88,102 +63,35 @@ struct ControllerDiagnostics {
 class DualArmController {
  public:
   DualArmController(MujocoRobot& robot, QpIkConfig config);
-
-  DualArmController(MujocoRobot& robot, QpIkConfig config,
-                    IkAlgorithm algorithm,
-                    std::unique_ptr<IArmVelocityIk> left,
-                    std::unique_ptr<IArmVelocityIk> right);
-
-  // Transitional constructor for the legacy Viewer and solver benchmark.
-  DualArmController(MujocoRobot& robot, QpIkConfig config,
-                    std::unique_ptr<IQpSolver7> left_solver,
-                    std::unique_ptr<IQpSolver7> right_solver);
-
   ControllerDiagnostics step(const DualArmTargets& targets, double dt);
-  ControllerDiagnostics step(
-      const DualArmTargets& targets,
-      const DualArmDirectionReferences& arm_directions, double dt);
   ControllerDiagnostics step(const DualArmReferences& references, double dt);
-  ControllerDiagnostics step(
-      const DualArmReferences& references,
-      const DualArmDirectionReferences& arm_directions, double dt);
-  ControllerDiagnostics step(
-      const DualArmReferences& references,
-      const DualArmDirectionReferences& arm_directions,
-      const DualArmJointVelocityPostureTasks& posture_tasks, double dt);
   void resetSolvers();
   bool beginSimulationSoftStart(SimulationSoftStartLimits limits = {});
   DlsPostureRuckigConfig trajectorySampleLimits(ArmSide side) const;
   bool synchronizeReferencesToActual();
-  void setAlgorithm(IkAlgorithm algorithm);
-  void setArmAngleReferenceMode(ArmAngleReferenceMode mode) noexcept;
-  IkAlgorithm algorithm() const noexcept { return algorithm_; }
   const Vec7& reference(ArmSide side) const noexcept;
   const Vec7& previousVelocity(ArmSide side) const noexcept;
   const Vec7& previousAcceleration(ArmSide side) const noexcept;
   ArmMotionState referenceState(ArmSide side) const noexcept;
   bool setReferenceState(ArmSide side, const ArmMotionState& motion);
-
  private:
-  struct CeresState {
-    Vec7 goal{Vec7::Zero()}, velocity{Vec7::Zero()}, acceleration{Vec7::Zero()};
-    bool valid{false};
-  };
-  void initializeCeres(IkAlgorithm algorithm);
-  ControllerDiagnostics stepCeres(const DualArmTargets&, const DualArmReferences*, double);
-  std::unique_ptr<PicoEeFrankaCeresLmIk7> ceres_;
-  std::unique_ptr<PicoEeFrankaDlsIk7> left_franka_dls_, right_franka_dls_;
-  std::unique_ptr<CeresPinocchioArmKinematics> ceres_kinematics_;
-  std::unique_ptr<CeresTrajectoryLimiter7> left_ceres_smoother_, right_ceres_smoother_;
-  CeresState left_ceres_, right_ceres_;
-  bool simulation_soft_start_pending_{false};
-  SimulationSoftStartLimits simulation_soft_start_limits_;
-  ControllerDiagnostics stepImpl(const DualArmTargets& targets,
-                                 const DualArmReferences* references,
-                                 const DualArmDirectionReferences& arm_directions,
-                                 const DualArmJointVelocityPostureTasks*
-                                     posture_tasks,
-                                 double dt);
-  ArmIkInput buildArmInput(
-      ArmSide side, const ArmKinematicSample& model, bool reference_valid,
-      const CartesianReference* reference,
-      const JointVelocityPostureTask* posture_task, double dt,
-      ArmControllerDiagnostics& diagnostics);
+  struct DlsState { bool valid{false}; };
+  void initializeDls();
+  ControllerDiagnostics stepDls(const DualArmTargets&, const DualArmReferences*, double);
   bool targetsAreFinite(const DualArmTargets& targets) const;
   bool referenceIsFinite(const CartesianReference& reference) const;
   ArmReferenceState& state(ArmSide side) noexcept;
   const ArmReferenceState& state(ArmSide side) const noexcept;
-  SafetyDecision validateArmResult(const ArmIkInput& input,
-                                   const ArmIkResult& result,
-                                   const Vec7& candidate) const;
-  bool applyBoundedFallback(ArmSide side, const ArmIkInput& input,
-                            double dt,
-                            ArmControllerDiagnostics& diagnostics);
-  void configureDlsPostureTask(
-      ArmSide side, const Pose& target, bool stale,
-      const ArmAngleTask& arm_angle, double dt, ArmIkInput& input,
-      ArmControllerDiagnostics& diagnostics);
-  void resetDlsPosture(ArmSide side);
   void clearHistory();
   void clearHistory(ArmSide side);
-
   MujocoRobot& robot_;
   QpIkConfig config_;
-  IkAlgorithm algorithm_{IkAlgorithm::kHierarchicalQp};
-  std::unique_ptr<IArmVelocityIk> left_ik_;
-  std::unique_ptr<IArmVelocityIk> right_ik_;
-  ArmReferenceState left_state_;
-  ArmReferenceState right_state_;
-  ArmAngleTaskBuilder left_arm_angle_;
-  ArmAngleTaskBuilder right_arm_angle_;
-  IterativePoseDlsIk7 left_dls_posture_;
-  IterativePoseDlsIk7 right_dls_posture_;
-  JointTrajectoryLimiter7 left_dls_posture_ruckig_;
-  JointTrajectoryLimiter7 right_dls_posture_ruckig_;
-  ArmAngleReferenceMode arm_angle_reference_mode_{
-      ArmAngleReferenceMode::kPico};
+  ArmReferenceState left_state_, right_state_;
+  std::unique_ptr<PicoEeFrankaDlsIk7> left_franka_dls_, right_franka_dls_;
+  std::unique_ptr<DlsPinocchioArmKinematics> dls_kinematics_;
+  std::unique_ptr<RuckigTrajectoryLimiter7> left_smoother_, right_smoother_;
+  DlsState left_dls_, right_dls_;
+  bool simulation_soft_start_pending_{false};
+  SimulationSoftStartLimits simulation_soft_start_limits_;
 };
-
-std::unique_ptr<IQpSolver7> makeSolver(SolverBackend backend, const QpIkConfig& config);
-
 }  // namespace tianji_qp_ik

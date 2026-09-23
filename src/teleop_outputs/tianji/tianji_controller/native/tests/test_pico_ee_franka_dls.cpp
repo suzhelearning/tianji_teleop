@@ -34,7 +34,6 @@ ArmKinematicSample evaluate(const Vec7& q) {
 
 IterativeDlsConfig dlsConfig() {
   IterativeDlsConfig result;
-  result.posture_reference_enabled = true;
   result.max_iterations = 8;
   result.position_tolerance_m = 1.0e-6;
   result.orientation_tolerance_rad = 1.0e-6;
@@ -48,21 +47,13 @@ IterativeDlsConfig dlsConfig() {
   result.minimum_merit_improvement = 1.0e-12;
   result.nominal_posture_gain = 0.5;
   result.arm_angle_gain = 0.0;
-  result.maximum_goal_step_rad = 0.20;
-  result.posture_reference_margin_rad = 0.05;
   return result;
 }
 
-PicoEeFrankaDlsConfig plannerConfig() {
+PicoEeFrankaDlsConfig solverConfig() {
   PicoEeFrankaDlsConfig result;
   result.enabled = true;
-  result.bandwidth_rad_s = Vec7::Constant(15.0);
   result.max_velocity_rad_s = Vec7::Constant(4.0);
-  result.max_acceleration_rad_s2 = Vec7::Constant(60.0);
-  result.max_jerk_rad_s3 = Vec7::Constant(3000.0);
-  result.maximum_target_joint_step_rad = 0.20;
-  result.maximum_target_step_norm_rad = 0.35;
-  result.planner_validation_tolerance = 1.0e-8;
   result.home_left_rad[6] = 0.6;
   return result;
 }
@@ -77,7 +68,7 @@ PicoEeFrankaDlsInput inputFor(const Pose& target) {
   result.seed_acceleration.setZero();
   result.limits = limits();
   result.velocity_bounds = velocityBounds();
-  result.home_reference = plannerConfig().home_left_rad;
+  result.home_reference = solverConfig().home_left_rad;
   result.evaluate = evaluate;
   result.dt = 0.005;
   return result;
@@ -85,8 +76,8 @@ PicoEeFrankaDlsInput inputFor(const Pose& target) {
 
 }  // namespace
 
-TEST(PicoEeFrankaDls, UsesHomeInDlsNullspaceAndPublishesSafePlannerState) {
-  PicoEeFrankaDlsIk7 solver(dlsConfig(), plannerConfig(), 0.05);
+TEST(PicoEeFrankaDls, UsesHomeInDlsNullspaceAndKeepsGoalInsideLimits) {
+  PicoEeFrankaDlsIk7 solver(dlsConfig(), solverConfig(), 0.05);
   Pose target;
   target.position << 0.10, -0.05, 0.02;
   target.rotation.setIdentity();
@@ -94,18 +85,15 @@ TEST(PicoEeFrankaDls, UsesHomeInDlsNullspaceAndPublishesSafePlannerState) {
   const PicoEeFrankaDlsResult result = solver.solve(inputFor(target));
 
   EXPECT_TRUE(result.accepted);
-  EXPECT_TRUE(result.planner_accepted);
   EXPECT_GT(result.goal[6], 0.0);
   EXPECT_LT(result.dls.position_error_m,
             result.dls.initial_position_error_m);
-  EXPECT_TRUE((result.planner_state.q.array() >= -2.95).all());
-  EXPECT_TRUE((result.planner_state.q.array() <= 2.95).all());
-  EXPECT_TRUE((result.planner_state.qdot.cwiseAbs().array() <= 4.0 + 1.0e-8)
-                  .all());
+  EXPECT_TRUE((result.state.q.array() >= -2.95).all());
+  EXPECT_TRUE((result.state.q.array() <= 2.95).all());
 }
 
-TEST(PicoEeFrankaDls, UsesPreviousBestGoalAsIkSeedInsteadOfPlannerState) {
-  PicoEeFrankaDlsIk7 solver(dlsConfig(), plannerConfig(), 0.05);
+TEST(PicoEeFrankaDls, UsesPreviousBestGoalAsIkSeedInsteadOfCurrentReference) {
+  PicoEeFrankaDlsIk7 solver(dlsConfig(), solverConfig(), 0.05);
   Pose first_target;
   first_target.position << 0.10, -0.05, 0.02;
   first_target.rotation.setIdentity();
@@ -118,7 +106,7 @@ TEST(PicoEeFrankaDls, UsesPreviousBestGoalAsIkSeedInsteadOfPlannerState) {
   second_target.rotation.setIdentity();
   auto second_input = inputFor(second_target);
   // Deliberately move the model reference far from the previous DLS goal.
-  // The planner still owns this state, but it must not become the next IK
+  // Ruckig owns this state, but it must not become the next IK
   // seed.
   second_input.seed = Vec7::Constant(1.5);
   second_input.seed_velocity = Vec7::Zero();
@@ -136,83 +124,8 @@ TEST(PicoEeFrankaDls, UsesPreviousBestGoalAsIkSeedInsteadOfPlannerState) {
               1.0e-12);
 }
 
-TEST(PicoEeFrankaDls, HoldsTargetAndKeepsSevenIndependentStatesClamped) {
-  PicoEeFrankaDlsIk7 solver(dlsConfig(), plannerConfig(), 0.05);
-  Pose target;
-  target.position << 2.8, 0.0, 0.0;
-  target.rotation.setIdentity();
-  PicoEeFrankaDlsInput input = inputFor(target);
-
-  for (int cycle = 0; cycle < 5000; ++cycle) {
-    const PicoEeFrankaDlsResult result = solver.solve(input);
-    ASSERT_TRUE(result.accepted) << result.detail;
-    ASSERT_TRUE(result.planner_state.q.allFinite());
-    ASSERT_TRUE(result.planner_state.qdot.allFinite());
-    ASSERT_TRUE(result.planner_state.qddot.allFinite());
-    ASSERT_TRUE(result.planner_jerk.allFinite());
-    EXPECT_TRUE((result.planner_state.q.array() >= -2.95 - 1.0e-8).all());
-    EXPECT_TRUE((result.planner_state.q.array() <= 2.95 + 1.0e-8).all());
-    EXPECT_TRUE((result.planner_state.qdot.cwiseAbs().array() <= 4.0 + 1.0e-8)
-                    .all());
-    EXPECT_TRUE(
-        (result.planner_state.qddot.cwiseAbs().array() <= 60.0 + 1.0e-8)
-            .all());
-    EXPECT_TRUE((result.planner_jerk.cwiseAbs().array() <= 3000.0 + 1.0e-8)
-                    .all());
-  }
-
-  input.target_valid = false;
-  input.target_stale = true;
-  const PicoEeFrankaDlsResult held = solver.solve(input);
-  EXPECT_TRUE(held.accepted);
-  EXPECT_TRUE(held.target_held);
-  EXPECT_EQ(held.detail, "pico_ee_franka_dls_target_held");
-}
-
-TEST(PicoEeFrankaDls, PlannerPositionClampIsIndependentOfTargetMagnitude) {
-  RealTimeConstrainedPlanner planner(15.0, 0.005, 4.0, 60.0, 3000.0,
-                                     -2.95, 2.95);
-  ASSERT_TRUE(planner.reset(0.0));
-  planner.setTarget(100.0);
-  for (int cycle = 0; cycle < 5000; ++cycle) {
-    ASSERT_TRUE(planner.update(0.005));
-    EXPECT_LE(planner.position(), 2.95);
-    EXPECT_GE(planner.position(), -2.95);
-    EXPECT_LE(std::abs(planner.velocity()), 4.0 + 1.0e-10);
-    EXPECT_LE(std::abs(planner.acceleration()), 60.0 + 1.0e-10);
-    EXPECT_LE(std::abs(planner.jerk()), 3000.0 + 1.0e-10);
-  }
-}
-
-TEST(PicoEeFrankaDls, VelocityEnvelopeKeepsPublishedJerkBounded) {
-  constexpr double kDt = 0.005;
-  constexpr double kMaxJerk = 3000.0;
-  RealTimeConstrainedPlanner planner(15.0, kDt, 4.0, 60.0, kMaxJerk,
-                                     -2.95, 2.95);
-  ASSERT_TRUE(planner.reset(0.0));
-  planner.setTarget(2.5);
-
-  double previous_velocity = planner.velocity();
-  double previous_acceleration = planner.acceleration();
-  for (int cycle = 0; cycle < 1800; ++cycle) {
-    ASSERT_TRUE(planner.update(kDt));
-    const double finite_difference_acceleration =
-        (planner.velocity() - previous_velocity) / kDt;
-    const double finite_difference_jerk =
-        (planner.acceleration() - previous_acceleration) / kDt;
-    EXPECT_NEAR(finite_difference_acceleration, planner.acceleration(),
-                1.0e-8);
-    EXPECT_LE(std::abs(finite_difference_jerk), kMaxJerk + 1.0e-8);
-    EXPECT_LE(std::abs(planner.velocity()), 4.0 + 1.0e-10);
-    previous_velocity = planner.velocity();
-    previous_acceleration = planner.acceleration();
-  }
-}
-
-TEST(PicoEeFrankaDls, DirectModePublishesDlsWithoutTargetOrVelocitySmoothing) {
-  auto config = plannerConfig();
-  config.planner_enabled = false;
-  config.maximum_target_joint_step_rad = 0.001;
+TEST(PicoEeFrankaDls, PublishesRawDlsWithoutTargetOrVelocitySmoothing) {
+  auto config = solverConfig();
   PicoEeFrankaDlsIk7 solver(dlsConfig(), config, 0.05);
   Pose target;
   target.position << 0.10, -0.05, 0.02;
@@ -220,28 +133,25 @@ TEST(PicoEeFrankaDls, DirectModePublishesDlsWithoutTargetOrVelocitySmoothing) {
   auto input = inputFor(target);
   const auto result = solver.solve(input);
   ASSERT_TRUE(result.accepted) << result.detail;
-  EXPECT_FALSE(result.planner_accepted);
-  EXPECT_TRUE(result.planner_state.q.isApprox(result.dls.q));
-  EXPECT_TRUE(result.planner_target.isApprox(result.goal));
+  EXPECT_TRUE(result.state.q.isApprox(result.dls.q));
   EXPECT_GT(result.qdot.cwiseAbs().maxCoeff(), 4.0);
   EXPECT_GT(result.goal[6], 0.0);
   EXPECT_TRUE((result.goal.array() >= -2.95).all());
   EXPECT_TRUE((result.goal.array() <= 2.95).all());
 
-  input.seed = result.planner_state.q;
+  input.seed = result.state.q;
   input.seed_velocity = result.qdot;
-  input.seed_acceleration = result.planner_state.qddot;
+  input.seed_acceleration = result.state.qddot;
   input.target_stale = true;
   const auto held = solver.solve(input);
   ASSERT_TRUE(held.accepted);
   EXPECT_TRUE(held.target_held);
-  EXPECT_TRUE(held.planner_state.q.isApprox(result.goal));
+  EXPECT_TRUE(held.state.q.isApprox(result.goal));
   EXPECT_TRUE(held.qdot.isZero());
 }
 
-TEST(PicoEeFrankaDls, DirectModeRejectsNonFiniteSeed) {
-  auto config = plannerConfig();
-  config.planner_enabled = false;
+TEST(PicoEeFrankaDls, RejectsNonFiniteSeed) {
+  auto config = solverConfig();
   PicoEeFrankaDlsIk7 solver(dlsConfig(), config, 0.05);
   Pose target;
   target.position.setZero();
@@ -252,8 +162,7 @@ TEST(PicoEeFrankaDls, DirectModeRejectsNonFiniteSeed) {
 }
 
 TEST(PicoEeFrankaDls, RejectsInvalidTargetInsteadOfPublishingPreviousGoal) {
-  auto config = plannerConfig();
-  config.planner_enabled = false;
+  auto config = solverConfig();
   PicoEeFrankaDlsIk7 solver(dlsConfig(), config, 0.05);
   Pose target;
   target.position << 0.10, -0.05, 0.02;
@@ -265,7 +174,6 @@ TEST(PicoEeFrankaDls, RejectsInvalidTargetInsteadOfPublishingPreviousGoal) {
 
   EXPECT_FALSE(result.accepted);
   EXPECT_TRUE(result.target_held);
-  EXPECT_EQ(result.detail, "pico_ee_franka_dls_rejected_candidate");
   EXPECT_EQ(result.dls.status, PoseDlsStatus::kRejected);
 }
 
@@ -301,29 +209,20 @@ TEST(PicoEeFrankaDls, PublishesBestCandidateEvenWithoutImprovement) {
   EXPECT_LT(final.q[0], -0.2);
   EXPECT_GT(final.position_error_m, final.initial_position_error_m);
 
-  for (bool planner_enabled : {false, true}) {
-    auto config = plannerConfig();
-    config.planner_enabled = planner_enabled;
-    PicoEeFrankaDlsIk7 solver(dls, config, 0.05);
-    const auto result = solver.solve(input);
-    ASSERT_TRUE(result.accepted) << result.detail;
-    EXPECT_FALSE(result.target_held);
-    EXPECT_EQ(result.dls.status, PoseDlsStatus::kNotConverged);
-    EXPECT_TRUE(result.goal.isApprox(best.q));
-    EXPECT_FALSE(result.goal.isApprox(final.q));
-    EXPECT_EQ(result.planner_accepted, planner_enabled);
-    if (!planner_enabled) {
-      EXPECT_TRUE(result.planner_state.q.isApprox(best.q));
-    }
-  }
+  PicoEeFrankaDlsIk7 solver(dls, solverConfig(), 0.05);
+  const auto result = solver.solve(input);
+  ASSERT_TRUE(result.accepted) << result.detail;
+  EXPECT_FALSE(result.target_held);
+  EXPECT_EQ(result.dls.status, PoseDlsStatus::kNotConverged);
+  EXPECT_TRUE(result.goal.isApprox(best.q));
+  EXPECT_FALSE(result.goal.isApprox(final.q));
 }
 
 TEST(PicoEeFrankaDls, PublishesImprovedFinalIterateAtIterationLimit) {
   auto dls = dlsConfig();
   dls.max_iterations = 1;
   dls.nominal_posture_gain = 0.0;
-  auto config = plannerConfig();
-  config.planner_enabled = false;
+  auto config = solverConfig();
   PicoEeFrankaDlsIk7 solver(dls, config, 0.05);
   Pose target;
   target.position << 1.0, 0.0, 0.0;
@@ -338,8 +237,7 @@ TEST(PicoEeFrankaDls, PublishesImprovedFinalIterateAtIterationLimit) {
 }
 
 TEST(PicoEeFrankaDls, ArmPlaneBudgetIsSharedAcrossIterationsAndCycles) {
-  auto config = plannerConfig();
-  config.planner_enabled = false;
+  auto config = solverConfig();
   config.max_arm_plane_rate_rad_s = 2.0;
   auto dls = dlsConfig();
   dls.nominal_posture_gain = 0.0;
@@ -367,14 +265,13 @@ TEST(PicoEeFrankaDls, ArmPlaneBudgetIsSharedAcrossIterationsAndCycles) {
       EXPECT_TRUE(result.goal.isApprox(result.dls.q));
       input.seed = result.goal;
       input.seed_velocity = result.qdot;
-      input.seed_acceleration = result.planner_state.qddot;
+      input.seed_acceleration = result.state.qddot;
     }
   }
 }
 
 TEST(PicoEeFrankaDls, ArmPlaneGuardRejectsDegenerateGeometry) {
-  auto config = plannerConfig();
-  config.planner_enabled = false;
+  auto config = solverConfig();
   config.max_arm_plane_rate_rad_s = 2.0;
   PicoEeFrankaDlsIk7 solver(dlsConfig(), config, 0.05);
   Pose target;
@@ -383,8 +280,7 @@ TEST(PicoEeFrankaDls, ArmPlaneGuardRejectsDegenerateGeometry) {
 }
 
 TEST(PicoEeFrankaDls, GuidedDirectionUsesRedundancyToTrackAlongPlaneBoundary) {
-  auto config = plannerConfig();
-  config.planner_enabled = false;
+  auto config = solverConfig();
   config.max_arm_plane_rate_rad_s = 2.0;
   auto dls = dlsConfig();
   dls.nominal_posture_gain = 0.0;
@@ -409,40 +305,4 @@ TEST(PicoEeFrankaDls, GuidedDirectionUsesRedundancyToTrackAlongPlaneBoundary) {
   EXPECT_LE(std::abs(guided.goal[0] + guided.goal[6]), 0.01 + 1e-9);
   EXPECT_FALSE(guided.target_held);
 }
-
-TEST(PicoEeFrankaDls, OptionalDirectVelocityCapPreservesDirection) {
-  auto config = plannerConfig();
-  config.planner_enabled = false;
-  config.direct_velocity_limit_enabled = true;
-  for (double dt : {0.0025, 0.005, 0.01}) {
-    PicoEeFrankaDlsIk7 solver(dlsConfig(), config, 0.05);
-    Pose target;
-    target.position << 0.3, -0.1, 0.02;
-    auto in = inputFor(target);
-    in.dt = dt;
-    in.limits.velocity[0] = 2.0;
-    in.velocity_bounds.lower[0] = -0.5;
-    in.velocity_bounds.upper[0] = 0.5;
-    const auto result = solver.solve(in);
-    ASSERT_TRUE(result.accepted);
-    EXPECT_FALSE(result.planner_accepted);
-    EXPECT_FALSE(result.target_held);
-    EXPECT_LE(result.qdot.cwiseAbs().maxCoeff(), 4.0 + 1e-9);
-    EXPECT_LE(std::abs(result.qdot[0]), 0.5 + 1e-9);
-    const Vec7 delta = result.dls.q - in.seed;
-    const Vec7 step = result.goal - in.seed;
-    const double scale = step.dot(delta) / delta.squaredNorm();
-    EXPECT_GT(scale, 0.0);
-    EXPECT_LT(scale, 1.0);
-    EXPECT_TRUE(step.isApprox(scale * delta, 1e-9));
-    in.seed = result.goal;
-    in.seed_velocity = result.qdot;
-    in.seed_acceleration = result.planner_state.qddot;
-    in.target_stale = true;
-    const auto held = solver.solve(in);
-    ASSERT_TRUE(held.accepted);
-    EXPECT_TRUE(held.qdot.isZero());
-  }
-}
-
 }  // namespace tianji_qp_ik

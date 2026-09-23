@@ -3,17 +3,14 @@
 
 namespace tianji_qp_ik {
 // Single control-thread owner. Pure post-receiver processing: no I/O, clock,
-// executor authority, or internal thread. Disabled dispatch belongs to guidance.
+// executor authority, or internal thread.
 class SharedRootPipeline {
  public:
   explicit SharedRootPipeline(const SharedRootOptions&);
   void resetSession() noexcept;
-  // Ordinary settled-hold release needs the shared recovery blend, never the
-  // legacy palm=shape blend. Preserve scale identity and the unique-frame fence.
-  void restartRecovery() noexcept;
   bool observe(const PicoTeleopFrame&, std::int64_t now_ns);
   SharedRootContinuityOutput step(std::int64_t now_ns, bool authorized,
-                                  const SparkUpperTargets& recovery_model);
+                                  const SharedRootTargets& recovery_model);
   bool accept(std::uint64_t sequence, std::uint64_t epoch,
               std::uint64_t generation) noexcept;
   const SharedRootBuiltTargets& candidate() const noexcept { return candidate_; }

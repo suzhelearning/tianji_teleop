@@ -19,6 +19,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/ManusGlove.msg"
   "msg/HandLandmarks.msg"
   "msg/HandJointCommand.msg"
+  "msg/PicoArmInput.msg"
+  "msg/ControllerJointTargets.msg"
   "srv/StartCollect.srv"
   "srv/StopCollect.srv"
   DEPENDENCIES builtin_interfaces std_msgs geometry_msgs

@@ -55,8 +55,7 @@ TEST(SharedRootGeometry, FixedShoulderRootAndCrossModelFrames) {
 }
 
 TEST(SharedRootGeometry, R3ClosureExtrinsicsAcrossModelsAndJointPoses) {
-  for(const auto profile:{"/config/qp_ik_pico_shared_root.yaml", "/config/qp_ik_pico_shared_root_ceres.yaml"}) {
-  SCOPED_TRACE(profile);
+  constexpr auto profile="/config/qp_ik_pico_shared_root_dls.yaml";
   const auto o=loadSharedRootOptions(std::string(TIANJI_PROJECT_SOURCE_DIR)+profile);
   MujocoRobot robot(o.mujoco_path);
   PinocchioArmKinematics kin(o.urdf_path,{robot.tcpRelativeToLink7(ArmSide::kLeft),robot.tcpRelativeToLink7(ArmSide::kRight)});
@@ -100,7 +99,6 @@ TEST(SharedRootGeometry, R3ClosureExtrinsicsAcrossModelsAndJointPoses) {
     std::cout<<std::setprecision(17)<<"R3_geometry profile="<<profile<<" side="<<side<<" samples=100 wrist_vector="<<max_vector
       <<" origin="<<max_origin<<" cross_position="<<max_position<<" cross_rotation="<<max_rotation
       <<" length="<<max_length<<'\n';
-  }
   }
 }
 

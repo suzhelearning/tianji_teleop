@@ -116,26 +116,26 @@ pixi run -e tracking calibrate-pico \
 先在终端一 Ctrl-C 退出原始 driver，避免重复采集，再执行：
 
 ```bash
-pixi run -e tracking pico-simple --user NEW_USER
+bash bash/run_pico.sh --user NEW_USER
 ```
 
-此入口只启动 driver/M0/TJVR，采用与 mapped-palm 输入入口相同的 X 偏移 +0.20 m。
+此入口只启动 driver/M0/ROS 输入适配，PICO 世界 X 偏移保持 +0.20 m。
 不启动仿真或真机执行器。确认双侧骨架长度、掌心位置及转腕轴向后，再按原有仿真流程测试。
 共享根实验功能不会因此启用。
 
 另开终端执行 `pixi run build`、`pixi run sim`，启动默认 DLS＋Ruckig 机械臂仿真；
-它读取该输入入口发送的 TJVR，不自行选择或重写人员标定。按 S 接入前先检查骨架。
+它读取 `/pico/arm_input` 的原子 ROS 输入，不自行选择或重写人员标定。按 S 接入前先检查骨架。
 tmux 各输入窗口显式继承本次选择的 Python/ROS SDK，避免已存在的 tmux 服务残留旧环境。
 启动会拒绝已有会话或残留 PICO 输入进程，不再按进程名自动杀进程或重启旧会话。
-新会话最多等待 30 秒：三个输入窗口必须存活，且唯一的桥接状态发布者连续报告
-递增的发送包数和源时间戳（同一 tracking epoch、无新增发送错误），才报告启动成功。
-这只证明输入桥接在发送，不代表机械臂收到数据或获得运动授权。
+新会话最多等待 30 秒：输入窗口必须存活，且收到唯一、同机、递增而新鲜的 ROS 输入，
+tracking epoch／撤销代际一致，才报告启动成功。
+这只证明输入发布就绪，不代表机械臂已经执行或获得运动授权。
 超时、窗口退出或重复状态发布者会返回非零状态，保留窗口供查看日志，不自动清理。
 
 停止该入口管理的会话：
 
 ```bash
-pixi run -e tracking stop-pico
+bash bash/run_stop_pico.sh
 ```
 
 停止命令只接受带有当前工程所有权标记的会话；旧版本未标记或其他工程的会话会被拒绝，
@@ -151,12 +151,11 @@ profiles/NEW_USER/recordings/simple-cal-<id>/ # 采集记录
 ```
 
 `profile.yaml`、原 `pico/` 和 `symmetric_max` 快照均不修改。
-因此旧的 `pico.sh --user`、`start_mapped_palm_pico.sh --user` 不会自动切换到新模式。
-仅有简化标定的新用户须用 `start_simple_pico.sh`，不会出现在仅枚举旧 profile.yaml 的列表中。
+当前入口 `bash bash/run_pico.sh --user NAME` 显式选择该简化标定指针，不自动改写人员数据。
 只读查询使用：
 
 ```bash
-pixi run -e tracking calibrate-pico --user NEW_USER --resolve
+pixi run python src/teleop_inputs/pico_controller/scripts/calibrate_pico_simple.py --user NEW_USER --resolve
 ```
 
 运行时对新 schema 验证完整 bundle、左侧源哈希、模板长度和镜像推导结果；不接受混合版本、

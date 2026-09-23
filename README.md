@@ -62,6 +62,10 @@ bash bash/install.sh
 pixi run build
 ```
 
+只重建双臂 ROS 核心可用 `pixi run build-arm-ros`。它在独立 `arm-ros` 环境构建同一
+DLS/Ruckig 控制循环，安装 `install/control/bin/tianji_arm_ros`；不混用 default 的 Eigen
+或 Pinocchio ABI。正常 `pixi run build` 已包含此步骤。
+
 不要复制其他电脑的环境、构建产物或个人标定；安装后也不要随意移动工程目录。
 
 ### PICO 头显应用（Git LFS）
@@ -168,6 +172,27 @@ bash bash/run_teleop.sh --sim --user NEW_USER
 启动器校验该人员已发布的标定和输入新鲜度；匹配的输入会话可复用，
 没有输入会话则启动，人员或版本冲突时拒绝，不静默换人。
 
+当前双臂生产通信为：
+
+```text
+PICO TCP/ADB → ROS 采集与校正 → pico_arm_input
+  → /pico/arm_input (PicoArmInput)
+  → tianji_arm_ros：原共享根映射 + Franka DLS + Ruckig
+  → /tianji/controller/joint_targets (ControllerJointTargets)
+  → Python 执行器的原安全门控 → SDK
+```
+
+普通仿真禁用最后的目标导出；真机／dry-run 执行入口才显式启用受限导出。
+配置只读 `config/robot.json` 的 `pico_input_topic`、`joint_command_topic`；
+默认 DLS 不再使用或接受 `pico_port`／`command_port`，不打开业务 UDP 15000／17000。
+消息包含本机 boot/session、序号、epoch、源时钟及撤销代际，求解时间不能刷新已应用输入的年龄。
+DDS 回调／发布在控制循环之外，latest-only 交接保留撤销与重置事件。原生失效后的输出
+ready 撤销锁存至核心重启；执行器及 Home 使用跨域／跨话题的本机互斥锁，订阅不授予运动权限。
+输入的配对、坐标／尺度映射和双臂算法未替换，也没有 ROS↔UDP 旁路进程。
+
+更新后须先安全停止执行端，再停止并重启旧 PICO 输入；旧运行会话不会自动切换到新发布者。
+历史 trace／benchmark 和显式历史对照工具仍可用 UDP，不是标准 DLS 的回退路径。
+
 此时分别有 **人体骨架窗口** 和 **机械臂仿真窗口**。
 点击机械臂窗口使其获得键盘焦点：
 
@@ -180,11 +205,10 @@ bash bash/run_teleop.sh --sim --user NEW_USER
 回 Home 未结束时 S 可能被拒绝；等待 `HOME_REACHED` 后再按 S。
 不要把骨架窗口当作机械臂按键窗口。
 
-默认 DLS/Ceres direct 仿真已开启手部接收，可接入独立启动的 Manus 双手。
-无需再写 `--hand-teleop`；仅双臂使用 `--no-hand-teleop`，不占用手部端口。
-没有 Manus 数据时手指保持，不妨碍双臂接入；Manus 不会自动启动。
-两种模式均不导出硬件指令，不等于动力学或真机验收。
-故障处理与详细状态说明见[DLS/Ceres 交互仿真](src/teleop_outputs/tianji/tianji_controller/native/docs/verification/ceres_interactive_sim.md)。
+默认 DLS direct 仿真保留外骨骼 TJH2 手部输入；仅双臂使用 `--no-hand-teleop`，不占用手部端口。
+新 Manus 发布的是独立 ROS Hand2 目标，尚未接入该执行分支，不能按旧 Manus UDP 接线使用。
+没有有效手部输入时模型手指保持，不妨碍双臂仿真接入。仿真不导出硬件指令，不等于真机验收。
+故障处理和详细状态说明见[原生 DLS 控制器](src/teleop_outputs/tianji/tianji_controller/native/README.md)。
 
 ## 4. 结束与下次启动
 
@@ -365,11 +389,11 @@ bash bash/run_exoskeleton.sh
 
 `--real` 和 `--data` 现与默认仿真统一为 **共享根掌心映射＋Franka DLS＋Ruckig**：
 后端 `franka-dls`，算法 `pico_ee_franka_dls`，配置 `qp_ik_pico_shared_root_dls.yaml`，
-`post_smoothing.mode=ruckig`。执行器仅接受这个后端，旧 real 的 SPARK／mapped-palm
-选项不再可用；双手仍独立接收 TJH2，不改成双臂 DLS／Ruckig 求解。
+`post_smoothing.mode=ruckig`。仿真和执行器只接受这个后端，其他双臂后端的实现、入口、
+配置和构建依赖已删除。手部重定向仍独立，不套用双臂 DLS／Ruckig。
 
 真机仍是独立的安全执行路线，**不是将仿真窗口直接连到硬件**。原生控制器只导出
-本机 TJRC 参考，Python 执行器保留身份、反馈、限位、失鲜和分阶段人工授权。
+本机 `ControllerJointTargets` ROS 参考，Python 执行器保留身份、反馈、限位、失鲜和分阶段人工授权。
 原生受限输出开关不授予运动权限，普通仿真仍不导出硬件指令。
 PICO2 裸手不支持真机。先退出仿真执行端，核对设备 IP、左右 SN、限位、急停及运动空间，
 按[真机完整流程](README-reference.md#二真机遥操作)完成设备配置。
@@ -389,8 +413,7 @@ bash bash/run_teleop.sh --real
 默认联合流程在**启动终端**等待提示后依次按 Enter：慢速对齐 → 遥操 → 回 Home 后失能；
 不要提前连续按键，也不要套用仿真窗口 S/H。
 仅双臂可用 `pixi run -e default bash -c 'source bash/environment.sh; exec python -m tianji real --devices arms --confirm-real'`，
-仍需先对 `arms` 做只读预检和干跑。旧 mapped-palm 的 C 标定／断流宽限参数已移除，
-相关[历史说明](docs/mapped-palm-real-readiness.md)不能作为当前真机启动命令。
+仍需先对 `arms` 做只读预检和干跑。不再提供旧后端标定、断流宽限或恢复选项。
 
 输入失鲜、身份／反馈异常时不要绕过门控；先停止并排查。
 运动使能期间不要按 PICO A 键、重新标定或重启输入。
@@ -443,9 +466,6 @@ policy 锁定 CPU PyTorch 2.10 与 Zenoh；GPU 运行库及模型权重仍须显
 
 | 需求 | 入口／说明 |
 |---|---|
-| Ceres LM＋Ruckig 仿真 | `pixi run sim --user NEW_USER --ik-backend ceres` |
-| 旧 SPARK、双臂＋双手仿真 | [完整仿真参考](README-reference.md#一仿真遥操作)；显式选 `--ik-backend spark` |
-| mapped-palm 后端 | [移植与启动说明](docs/mapped-palm-port.md) |
 | PICO2 裸手仿真 | [独立入口](src/teleop_inputs/pico_hand/README.md)，不支持真机 |
 | 双侧实测标定、完整人员档案 | [人员档案参考](README-reference.md#人员档案与标定版本) |
 | Manus／外骨骼输入 | [输入链路参考](README-reference.md#2-启动-manus-灵巧手输入)，一次只选一种 |
@@ -472,8 +492,8 @@ start 的可选 `task` 必须与采集器启动配置一致，空值沿用配置
 | 控制器与原生测试 | [原生控制器 README](src/teleop_outputs/tianji/tianji_controller/native/README.md) |
 | 安装细节、目录与历史说明 | [完整参考页](README-reference.md) |
 
-真机默认不随仿真 DLS 后端改变。`--user` 的上述自动启动方式仅适用于 DLS/Ceres
-固定 PICO 端口 15000 的仿真，不能直接套用于 SPARK、mapped-palm 或真机。
+仿真、真机和原生 worker 统一为 DLS/Ruckig，没有旧算法回退。`--user` 的自动输入管理
+使用配置中的 ROS 话题；未通过输入、资源和安全检查时拒绝启动。
 
 软件回归命令（不等于现场验收）：
 
@@ -487,6 +507,5 @@ pixi run test-ros        # 真实 DDS 回环，独立测试域 121；不是硬�
 pixi run -e policy test-mocap
 ```
 
-本轮实际安装窗口已完成 DLS/Ceres 的合成输入 S→TELEOP→P/HOLD→H/Home，
-裸 shell 完整安装已通过；这不覆盖真实 PICO／Manus、相机、机器人或 GPU。
-DDS／推理最终回归与证据以[迁移验证状态](docs/migration-verification-status.md)为准，不将历史测试数字当作本轮结果。
+当前软件、DDS 和原生验证以[迁移验证状态](docs/migration-verification-status.md)为准；
+不将历史分支的测试数字或动作记录当作当前真实输入、机器人或 GPU 验收。

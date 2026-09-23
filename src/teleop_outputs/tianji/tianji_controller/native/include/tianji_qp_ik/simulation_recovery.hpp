@@ -1,5 +1,5 @@
 #pragma once
-#include "tianji_qp_ik/ceres_trajectory_limiter.hpp"
+#include "tianji_qp_ik/ruckig_trajectory_limiter.hpp"
 #include <array>
 #include <optional>
 #include <stdexcept>
@@ -16,9 +16,7 @@ class SimulationRecovery {
   SimulationRecovery(const QpIkConfig& config, std::array<ArmLimits,2> limits,
                      Pair home, double dt)
       : limits_(limits), home_(home), dt_(dt), stop_config_(
-            config.ik_algorithm == IkAlgorithm::kPicoEeFrankaDls
-                ? config.pico_ee_franka_dls.post_smoothing
-                : config.pico_ee_franka_ceres_lm.post_smoothing) {
+            config.pico_ee_franka_dls.post_smoothing) {
     for(auto& l:limits_) {
       l.lower_position.array()+=config.joint_limits.margin_rad;
       l.upper_position.array()-=config.joint_limits.margin_rad;
@@ -28,7 +26,7 @@ class SimulationRecovery {
     home_config_.max_acceleration_rad_s2=stop_config_.max_acceleration_rad_s2.cwiseMin(Vec7::Constant(kHomeAcceleration));
     home_config_.max_jerk_rad_s3=stop_config_.max_jerk_rad_s3.cwiseMin(Vec7::Constant(kHomeJerk));
     for(int i=0;i<2;++i) {
-      CeresTrajectoryLimiter7 check(home_config_,limits_[i],dt_);
+      RuckigTrajectoryLimiter7 check(home_config_,limits_[i],dt_);
       if(!check.canReset(home_[i]))throw std::invalid_argument("Invalid simulation Home");
     }
   }
@@ -92,7 +90,7 @@ class SimulationRecovery {
   }
  private:
   bool resetLimiters(const DlsPostureRuckigConfig& cfg,const Pair& current) {
-    std::array<std::optional<CeresTrajectoryLimiter7>,2> next;
+    std::array<std::optional<RuckigTrajectoryLimiter7>,2> next;
     for(int i=0;i<2;++i) {
       next[i].emplace(cfg,limits_[i],dt_);
       if(!next[i]->reset(current[i]))return false;
@@ -104,7 +102,7 @@ class SimulationRecovery {
   Pair home_;
   double dt_,settled_{0},elapsed_{0};
   DlsPostureRuckigConfig stop_config_,home_config_;
-  std::array<std::optional<CeresTrajectoryLimiter7>,2> limiters_;
+  std::array<std::optional<RuckigTrajectoryLimiter7>,2> limiters_;
   Phase phase_{Phase::kWaiting};
   bool pending_home_{false};
 };

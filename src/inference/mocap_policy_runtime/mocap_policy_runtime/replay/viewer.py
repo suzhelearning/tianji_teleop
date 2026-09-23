@@ -23,8 +23,8 @@ EDGES = tuple((0 if joint == 0 else 4 * finger + joint, 4 * finger + joint + 1)
 class ReferenceScene:
     def __init__(self, model_path: Path | None = None, config_path: Path | None = None,
                  object_mesh: Path | None = None, *, live_overlay: bool = False):
-        model_path = (Path(model_path) if model_path is not None else model_asset("marvin_m6_wuji2.xml")).resolve()
-        config_path = config_path if config_path is not None else controller_profile("qp_ik_pico_teleop.yaml")
+        model_path = (Path(model_path) if model_path is not None else model_asset("marvin_m6_wuji2_shared_root_ceres.xml")).resolve()
+        config_path = config_path if config_path is not None else controller_profile("qp_ik_pico_shared_root_dls.yaml")
         root = ET.parse(model_path).getroot()
         compiler = root.find("compiler")
         if compiler is not None:

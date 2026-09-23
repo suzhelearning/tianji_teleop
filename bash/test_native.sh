@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Native test suites for both control CMake projects. No hardware is contacted.
+# Native DLS/Ruckig test suite. No hardware is contacted.
 set -euo pipefail
 
 root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
@@ -11,6 +11,8 @@ if [[ -z "${TIANJI_NATIVE_ENV_ACTIVE:-}" ]] && command -v pixi >/dev/null 2>&1; 
     -e control bash "${BASH_SOURCE[0]}" "$@"
 fi
 
+export TIANJI_WORKSPACE="$root"
+
 status=0
 
 printf '== control core CTest ==\n'
@@ -21,12 +23,5 @@ else
   status=1
 fi
 
-printf '== mapped_palm CTest ==\n'
-if [[ -d "$root/build/control/mapped-palm" ]]; then
-  ctest --test-dir "$root/build/control/mapped-palm" --output-on-failure || status=1
-else
-  printf 'mapped_palm build tree missing; run bash/bash/build_native.sh first.\n' >&2
-  status=1
-fi
 
 exit "$status"

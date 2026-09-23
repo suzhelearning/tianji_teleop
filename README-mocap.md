@@ -11,11 +11,11 @@
 - 左臂：`[55, -65, -70, -60, 60, 0, 0]°`
 - 右臂：`[-55, -65, 70, -60, -60, 0, 0]°`
 
-SPARK／mapped-palm 默认遥操模型、Mocap 回放模型初始化和真机受保护回位共用此文件。
+Mocap 回放模型初始化和真机受保护回位共用此文件。
 控制器 YAML 的 `controller.home_config`、真机配置的 `staged_motion.home_config`
 均相对各自配置文件解析。修改 Home 后重启入口；不需要修改 URDF 关节零位。
 显式模型起始关节与真机实测接管仍优先使用完整双臂关节向量，不能把 Home 冒充实测姿态；
-离线算法基准配置、DLS／Ceres 仍保持各自的 Home／实验起点，不受此共用部署 Home 替换。
+DLS 控制器保持自身配置的 Home／起点，不受此共用部署 Home 替换。
 `h5-real`／`regrind-real` 从编码器实测姿态初始化并自动定位，不要求先到 Home，也不自动回 Home。
 
 只读检查：`bash bash/run_home.sh --dry-run`。**不带 `--dry-run` 的 `bash bash/run_home.sh` 会授权双臂真机回位**，
@@ -365,6 +365,6 @@ H5／Regrind 状态机与故障清理回归。**未连接真实设备，未做�
 未验证现场键盘／Motive 联调，也未验证当前环境的 CUDA 推理。**
 
 本次迁移的逐项结果与尚未完成的 DDS／推理回归见
-[迁移验收状态](docs/migration-verification-status.md)。裸 shell 完整安装和安装后的 VR DLS／Ceres
-合成输入窗口流程已通过，但它们不能替代本页的真实 Motive、物理键盘、机器人、
+[迁移验收状态](docs/migration-verification-status.md)。当前双臂只保留 Franka DLS＋Ruckig；
+软件构建、合成 ROS 输入与仿真启动不能替代真实 Motive、物理键盘、机器人、
 设备身份／方向／外参、模型权重及 CUDA 联调；不得据此宣称六条路线全部现场通过。

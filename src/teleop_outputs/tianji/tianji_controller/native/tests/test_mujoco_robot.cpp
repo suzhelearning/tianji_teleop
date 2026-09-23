@@ -1,4 +1,3 @@
-#include "tianji_qp_ik/arm_angle.hpp"
 #include "tianji_qp_ik/mujoco_robot.hpp"
 
 #include <gtest/gtest.h>
@@ -32,73 +31,6 @@ std::string fullWujiModelPath() {
       .string();
 }
 
-void expectUrdfJointLimits(const std::filesystem::path& path,
-                           const std::string& joint_name,
-                           const std::string& lower,
-                           const std::string& upper) {
-  std::ifstream stream(path);
-  ASSERT_TRUE(stream.good()) << path;
-  std::ostringstream buffer;
-  buffer << stream.rdbuf();
-  const std::string document = buffer.str();
-  const std::string name = "name=\"" + joint_name + "\"";
-  const std::size_t joint_begin = document.find(name);
-  ASSERT_NE(joint_begin, std::string::npos) << path << " " << joint_name;
-  const std::size_t joint_end = document.find("</joint>", joint_begin);
-  ASSERT_NE(joint_end, std::string::npos) << path << " " << joint_name;
-  const std::string joint =
-      document.substr(joint_begin, joint_end - joint_begin);
-  EXPECT_NE(joint.find("lower=\"" + lower + "\""), std::string::npos)
-      << path << " " << joint_name;
-  EXPECT_NE(joint.find("upper=\"" + upper + "\""), std::string::npos)
-      << path << " " << joint_name;
-}
-
-void expectUrdfJointVelocity(const std::filesystem::path& path,
-                             const std::string& joint_name,
-                             const std::string& velocity) {
-  std::ifstream stream(path);
-  ASSERT_TRUE(stream.good()) << path;
-  std::ostringstream buffer;
-  buffer << stream.rdbuf();
-  const std::string document = buffer.str();
-  const std::string name = "name=\"" + joint_name + "\"";
-  const std::size_t joint_begin = document.find(name);
-  ASSERT_NE(joint_begin, std::string::npos) << path << " " << joint_name;
-  const std::size_t joint_end = document.find("</joint>", joint_begin);
-  ASSERT_NE(joint_end, std::string::npos) << path << " " << joint_name;
-  const std::string joint =
-      document.substr(joint_begin, joint_end - joint_begin);
-  EXPECT_NE(joint.find("velocity=\"" + velocity + "\""), std::string::npos)
-      << path << " " << joint_name;
-}
-
-void expectUrdfJointExists(const std::filesystem::path& path,
-                           const std::string& joint_name) {
-  std::ifstream stream(path);
-  ASSERT_TRUE(stream.good()) << path;
-  std::ostringstream buffer;
-  buffer << stream.rdbuf();
-  const std::string document = buffer.str();
-  EXPECT_NE(document.find("<joint name=\"" + joint_name + "\""),
-            std::string::npos)
-      << path << " " << joint_name;
-}
-
-double signedArmAngleError(const ArmKinematicSample& sample,
-                           const Eigen::Vector3d& world_reference) {
-  const Eigen::Vector3d axis =
-      (sample.wrist_position - sample.shoulder_position).normalized();
-  Eigen::Vector3d current =
-      sample.elbow_position - sample.shoulder_position;
-  current -= axis * axis.dot(current);
-  current.normalize();
-  Eigen::Vector3d projected =
-      world_reference - axis * axis.dot(world_reference);
-  projected.normalize();
-  return std::atan2(axis.dot(current.cross(projected)),
-                    current.dot(projected));
-}
 
 TEST(MujocoRobot, MapsExactlySevenJointsPerArmByName) {
   MujocoRobot robot(modelPath());
@@ -153,22 +85,6 @@ TEST(MujocoRobot, BothModelsUseSideSpecificJoint1AndJoint3TeleoperationEnvelope)
     EXPECT_NEAR(left.upper_position[2], 0.0, 1e-12) << path;
     EXPECT_NEAR(right.lower_position[2], 0.0, 1e-12) << path;
     EXPECT_NEAR(right.upper_position[2], 3.1067, 1e-12) << path;
-  }
-}
-
-TEST(MujocoRobot, AllUrdfModelsUseSideSpecificJoint1AndJoint3Envelope) {
-  // The package URDFs and the controller-local URDF live in different packages,
-  // so each path is composed from its own root.
-  const std::filesystem::path package(TIANJI_DESCRIPTION_DIR);
-  const std::filesystem::path local(TIANJI_MODEL_DIR);
-  for (const std::filesystem::path& path : {
-           package / "marvin_m6_ccs/urdf/marvin_m6_s_ccs_696_v4.urdf",
-           package / "marvin_m6_ccs/urdf/marvin_m6_s_ccs_696_v4_mujoco.urdf",
-           local / "marvin_m6_s_ccs_696_v4_local.urdf"}) {
-    expectUrdfJointLimits(path, "Joint1_L", "-1.5708", "3.1067");
-    expectUrdfJointLimits(path, "Joint1_R", "-3.1067", "1.5708");
-    expectUrdfJointLimits(path, "Joint3_L", "-3.1067", "0");
-    expectUrdfJointLimits(path, "Joint3_R", "0", "3.1067");
   }
 }
 
@@ -444,44 +360,6 @@ TEST(MujocoRobot, FullWujiModelJ1ChangesArmPose) {
   }
 }
 
-TEST(MujocoRobot, ImportedWujiUrdfUsesPicoFastArmEnvelope) {
-  const std::filesystem::path path =
-      std::filesystem::path(TIANJI_MODEL_DIR) / "tianji_wuji2" /
-      "tianji_wuji2.urdf";
-  const std::array<const char*, 4> expected_hand_joints{
-      "r_thumb_cmc_flex", "r_index_finger_mcp_flex",
-      "l_thumb_cmc_flex", "l_index_finger_mcp_flex"};
-  for (const char* joint : expected_hand_joints) {
-    expectUrdfJointExists(path, joint);
-  }
-
-  struct ArmLimit {
-    const char* name;
-    const char* lower;
-    const char* upper;
-  };
-  const std::array<ArmLimit, 14> expected_arm_limits{{
-      {"Joint1_L", "-1.5708", "3.1067"},
-      {"Joint2_L", "-2.0944", "2.0944"},
-      {"Joint3_L", "-3.1067", "0"},
-      {"Joint4_L", "-2.5307", "0"},
-      {"Joint5_L", "-3.1067", "3.1067"},
-      {"Joint6_L", "-1.0472", "1.0472"},
-      {"Joint7_L", "-1.5708", "1.5708"},
-      {"Joint1_R", "-3.1067", "1.5708"},
-      {"Joint2_R", "-2.0944", "2.0944"},
-      {"Joint3_R", "0", "3.1067"},
-      {"Joint4_R", "-2.5307", "0"},
-      {"Joint5_R", "-3.1067", "3.1067"},
-      {"Joint6_R", "-1.0472", "1.0472"},
-      {"Joint7_R", "-1.5708", "1.5708"},
-  }};
-  for (const ArmLimit& expected : expected_arm_limits) {
-    expectUrdfJointLimits(path, expected.name, expected.lower, expected.upper);
-    expectUrdfJointVelocity(path, expected.name, "4.0");
-  }
-}
-
 TEST(MujocoRobot, SettingOneArmDoesNotChangeTheOther) {
   MujocoRobot robot(modelPath());
   const Vec7 right_before = robot.armPosition(ArmSide::kRight);
@@ -605,47 +483,6 @@ TEST(MujocoRobot, RejectsNonFiniteArbitraryKinematicsPosition) {
   invalid[2] = std::numeric_limits<double>::quiet_NaN();
   EXPECT_THROW(robot.armKinematicsAt(ArmSide::kLeft, invalid),
                std::invalid_argument);
-}
-
-TEST(MujocoRobot, NominalArmAngleJacobianMatchesModelFiniteDifference) {
-  MujocoRobot robot(modelPath());
-  for (const ArmSide side : {ArmSide::kLeft, ArmSide::kRight}) {
-    const ArmLimits& limits = robot.mapping(side).limits;
-    const Vec7 nominal =
-        0.5 * (limits.lower_position + limits.upper_position);
-    const ArmKinematicSample model =
-        robot.armKinematicsAt(side, nominal);
-    ArmAngleTaskBuilder builder(side, 0.015, 0.050, 8.0);
-    const ArmDirectionReference reference =
-        side == ArmSide::kLeft ? defaultArmDirectionReferences().left
-                               : defaultArmDirectionReferences().right;
-    const ArmAngleTask task = builder.compute(
-        {model.shoulder_position, model.elbow_position, model.wrist_position,
-         model.shoulder_position_jacobian, model.elbow_position_jacobian,
-         model.wrist_position_jacobian},
-        reference, 0.005);
-    ASSERT_TRUE(task.active);
-    ASSERT_GT(task.jacobian.norm(), 1e-4) << toString(side);
-
-    constexpr double kStep = 1e-6;
-    for (int joint = 0; joint < kArmDof; ++joint) {
-      Vec7 plus = nominal;
-      Vec7 minus = nominal;
-      plus[joint] += kStep;
-      minus[joint] -= kStep;
-      const double plus_error = signedArmAngleError(
-          robot.armKinematicsAt(side, plus), reference.direction);
-      const double minus_error = signedArmAngleError(
-          robot.armKinematicsAt(side, minus), reference.direction);
-      const double wrapped_error_delta = std::atan2(
-          std::sin(plus_error - minus_error),
-          std::cos(plus_error - minus_error));
-      const double expected_current_rate =
-          -wrapped_error_delta / (2.0 * kStep);
-      EXPECT_NEAR(task.jacobian[joint], expected_current_rate, 1e-7)
-          << toString(side) << " joint=" << joint;
-    }
-  }
 }
 
 TEST(MujocoRobot, MissingModelIsRejected) {

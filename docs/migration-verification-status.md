@@ -4,6 +4,41 @@
 
 > 范围更新：现已按三条主输入路线移除旧 PICO 专用录制、外接 IMU 与 Odin 辅助包；正式 schema-v1 collector 和 PICO2 仿真录制保留。下方第 1～5 节是删除前的迁移验收快照，历史构建数量和测试数量不反写为本次结果；删除后的验证另记于文末。
 
+## 当前双臂 ROS 与唯一 DLS 后端验收
+
+本节覆盖后文历史快照中的双臂后端、端口、构建和测试数量；历史结果不代表当前仍提供旧入口。
+
+生产链为 `pico_arm_input → /pico/arm_input → tianji_arm_ros →
+/tianji/controller/joint_targets → Python 执行器安全门控`。业务 UDP 15000／17000
+不再用于生产双臂链；外骨骼输入及其手部 UDP 路线未改动。
+ROS 输入／输出适配复用原生 DLS/Ruckig 控制循环，不增加第二套求解实现。
+输入身份、epoch、撤销代际和实际应用输入的单调时间参与失鲜与撤销判定；
+DDS 发布和回调位于控制循环之外。订阅、发布或采集服务都不授予运动权限。
+
+Ceres LM、SPARK、mapped-palm、其他双臂求解分支及其专属入口、配置、构建依赖、
+测试与对照工具已删除；历史由 Git 保存。公共代码使用 DLS／SharedRoot／Ruckig
+命名，配置只使用 `shared_root`／`shared_root_shape`，不保留旧键别名。
+冻结模型文件名中的 `ceres` 是资产名称，不是可选后端，模型内容未因本轮删除而替换。
+
+| 实际检查 | 结果 |
+|---|---|
+| control 原生构建与完整 CTest | **34/34 通过**，覆盖 DLS、Ruckig、共享根、协议和实际 Viewer 集成 |
+| 隔离 arm-ros 构建 | 通过；使用与 control 相同数值库版本，独立 Jazzy 消息与运行时 |
+| default／policy 最终定向构建 | 各 **5 包通过** |
+| 执行器／仿真／接口回归 | 分别 **240／22／33 passed** |
+| policy Mocap 回归 | **85 passed** |
+| 合成 typed ROS → 实际原生 DLS/Ruckig → typed ROS，domain 121 | **391** 个有效目标；初始姿态保持、撤销、epoch 改变、输入停止后的抑制通过 |
+| ROS 目标与同次原生已提交参考比较 | 14 维最大差 **4.994e-12 rad**；此项不是异步跨运行轨迹逐位一致性证明 |
+| 最终实际 Python 执行器 dry-run，domain 121 | **530** 帧；目标限位和输入新鲜度通过，未加载 SDK、未连接设备、未发送电机命令 |
+| 最终实际仿真启动 | `DLS_SIM: WAITING`，model-reference，无目标导出，运行 2 秒后退出 0 |
+
+原生测试同时修复了根 YAML 重复键未拒绝的问题。共享根形态学检查针对未经可达域
+投影的原始偏好，保持原有数值容差，不再错误地要求投影后的目标等于未投影长度。
+
+本轮没有做物理输入、真机反馈、设备使能或运动验收。Manus 新 ROS 手部目标仍未
+接入执行器，不能宣称完整 Manus 真机采集已可用。用户正在运行的 SPD worker 及其
+`install/spd` 部署未停止或覆盖；该部署不能算作本轮重新安装验收的结果。
+
 ## 采集双服务与三键门控（2026-09-22）
 
 录制控制已从旧 `RecordingCommand` 切换为 `/start_collect`（StartCollect）和

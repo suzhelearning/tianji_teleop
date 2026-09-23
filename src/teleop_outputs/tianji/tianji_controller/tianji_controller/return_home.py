@@ -9,8 +9,9 @@ import signal
 import sys
 import time
 
-from tianji_runtime.resources import config_path as workspace_config
-from .run_teleop import CommandReceiver, load_configuration, make_hardware
+from tianji_runtime.resources import config_path as workspace_config, workspace
+from .run_teleop import load_configuration, make_hardware
+from .ros_commands import ExecutorLease
 from .safety import SafetyFault
 from .staged_motion import HOME_REACHED, HOMING, StagedMotionGate
 
@@ -82,10 +83,10 @@ def main(argv=None):
 
         for sig in (signal.SIGINT, signal.SIGTERM):
             handlers[sig] = signal.signal(sig, interrupt)
-        # Reserve the same exclusive endpoint as teleop before touching hardware.
-        # No controller is started and no source packets are fabricated/consumed.
-        receiver = CommandReceiver(config["command_port"])
-        device = make_hardware(config, ("arms",), config_path.parent)["arms"]
+        # Reserve teleop's machine-wide lease before touching hardware. No ROS
+        # controller is started and no source commands are fabricated/consumed.
+        receiver = ExecutorLease()
+        device = make_hardware(config, ("arms",), workspace())["arms"]
         device.connect()
 
         def enable_guard():

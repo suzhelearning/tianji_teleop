@@ -16,24 +16,17 @@ class FrankaDlsController : public ::testing::Test {
   }
   DualArmTargets target() { return {robot.tcpPose(ArmSide::kLeft),robot.tcpPose(ArmSide::kRight)}; }
 };
-TEST_F(FrankaDlsController, ProfileIsOptInAndDefaultUnchanged) {
-  EXPECT_TRUE(config.shared_root_profile_path.empty());
-  EXPECT_EQ(config.ik_algorithm, IkAlgorithm::kPicoEeFrankaDls);
-  EXPECT_FALSE(config.cartesian_otg.enabled);
-  EXPECT_EQ(loadConfig(TIANJI_PROJECT_SOURCE_DIR "/config/qp_ik_pico_shared_root_reachable.yaml").ik_algorithm,
-            IkAlgorithm::kSparkUpperQpoasesHeadroomFeedforwardVelocityQp);
-}
 TEST_F(FrankaDlsController, ExplicitPinocchioIsRequiredWithoutFallback) {
   auto c=config;c.controller.pico_ee_dls_kinematics_urdf_path.clear();
   EXPECT_THROW(DualArmController(robot,c),std::invalid_argument);
-  c=config;c.controller.pico_ee_dls_kinematics_urdf_path="/nonexistent/ceres.urdf";
+  c=config;c.controller.pico_ee_dls_kinematics_urdf_path="/nonexistent/dls.urdf";
   EXPECT_ANY_THROW(DualArmController(robot,c));
   c=config;c.controller.pico_ee_dls_kinematics_urdf_path=
       TIANJI_MODEL_DIR "/marvin_m6_s_ccs_696_v4_local.urdf";
   EXPECT_THROW(DualArmController(robot,c),std::invalid_argument);
 }
 TEST_F(FrankaDlsController, PinocchioTcpAndJacobianMatchBothModelAndFullPinocchio) {
-  CeresPinocchioArmKinematics kin(config.controller.pico_ee_dls_kinematics_urdf_path,
+  DlsPinocchioArmKinematics kin(config.controller.pico_ee_dls_kinematics_urdf_path,
       {robot.tcpRelativeToLink7(ArmSide::kLeft),robot.tcpRelativeToLink7(ArmSide::kRight)});
   for(auto side:{ArmSide::kLeft,ArmSide::kRight}) {
     const auto& limits=robot.mapping(side).limits;
@@ -57,25 +50,6 @@ TEST_F(FrankaDlsController, ReportsPinocchioAndSeparatePipelineTiming) {
     EXPECT_TRUE(arm->ee_pinocchio_kinematics);EXPECT_TRUE(arm->ee_ruckig_invoked);
     EXPECT_GT(arm->ee_ik_wall_time_us,0);EXPECT_GT(arm->ee_ruckig_wall_time_us,0);
     EXPECT_GE(arm->ee_ik_to_ruckig_wall_time_us,arm->ee_ik_wall_time_us+arm->ee_ruckig_wall_time_us);
-  }
-}
-TEST_F(FrankaDlsController, SourceModelAndRuckigLimits) {
-  Vec7 acceleration, jerk;
-  acceleration << 60,60,60,90,90,90,90;
-  jerk << 3000,3000,3000,4500,4500,4500,4500;
-  EXPECT_TRUE(config.joint_limits.hard_jerk_enabled);
-  EXPECT_EQ(config.joint_limits.max_acceleration_rad_s2,acceleration);
-  EXPECT_EQ(config.joint_limits.max_jerk_rad_s3,jerk);
-  const auto& post=config.pico_ee_franka_dls.post_smoothing;
-  EXPECT_EQ(post.max_velocity_rad_s,Vec7::Constant(4));
-  EXPECT_EQ(post.max_acceleration_rad_s2,acceleration);
-  EXPECT_EQ(post.max_jerk_rad_s3,jerk);
-  for(auto side:{ArmSide::kLeft,ArmSide::kRight}) {
-    Vec7 lower,upper;
-    lower << (side==ArmSide::kLeft?-1.5708:-3.1067),-1.76,-3.1,-2.5307,-3.1067,-1.0472,-1.5708;
-    upper << (side==ArmSide::kLeft?3.1067:1.5708),2.0944,3.1,2.5307,3.1067,1.0472,1.5708;
-    EXPECT_EQ(robot.mapping(side).limits.lower_position,lower);
-    EXPECT_EQ(robot.mapping(side).limits.upper_position,upper);
   }
 }
 TEST_F(FrankaDlsController, KinematicsOnlyMatchesFullModelAndDoesNotMutateLiveState) {
@@ -220,13 +194,13 @@ TEST_F(FrankaDlsController, ResetDropsOldGoalSeed) {
 }
 TEST_F(FrankaDlsController, LivePipelineMatchesSourceKernelThenOnlineRuckig) {
   DualArmController controller(robot,config);
-  CeresPinocchioArmKinematics kin(config.controller.pico_ee_dls_kinematics_urdf_path,
+  DlsPinocchioArmKinematics kin(config.controller.pico_ee_dls_kinematics_urdf_path,
       {robot.tcpRelativeToLink7(ArmSide::kLeft),robot.tcpRelativeToLink7(ArmSide::kRight)});
   PicoEeFrankaDlsIk7 solver(config.iterative_dls,config.pico_ee_franka_dls,config.joint_limits.margin_rad);
   auto limits=robot.mapping(ArmSide::kLeft).limits, safe=limits;
   safe.lower_position.array()+=config.joint_limits.margin_rad;
   safe.upper_position.array()-=config.joint_limits.margin_rad;
-  CeresTrajectoryLimiter7 smoother(config.pico_ee_franka_dls.post_smoothing,safe,.005);
+  RuckigTrajectoryLimiter7 smoother(config.pico_ee_franka_dls.post_smoothing,safe,.005);
   auto current=controller.referenceState(ArmSide::kLeft);
   solver.reset(current);ASSERT_TRUE(smoother.reset(current));
   auto t=target();

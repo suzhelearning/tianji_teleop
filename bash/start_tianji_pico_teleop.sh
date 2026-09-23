@@ -15,7 +15,7 @@ Usage: ./bash/start_tianji_pico_teleop.sh [--detach] [--calibration-dir ABS_DIR]
        ./bash/start_tianji_pico_teleop.sh --status|--stop|--help
 
 Start and manage the PICO-side Tianji teleoperation pipeline in tmux.
-The Tianji DLS/Spark MuJoCo viewer is not started by this script.
+The Tianji Franka DLS/Ruckig viewer is not started by this script.
 
 Options:
   --detach  Start the session without attaching to it.
@@ -171,7 +171,7 @@ if [[ -n "$calibration_dir" ]]; then
   printf -v calibration_dir_quoted '%q' "$calibration_dir"
   m0_inner+=" --calibration-dir $calibration_dir_quoted"
 fi
-bridge_inner="cd $repo_quoted && $ros_environment && source bash/environment.sh && exec ros2 launch tianji_cmd_pub start_tianji_mujoco_teleop.launch.py destination_address:=127.0.0.1 destination_port:=15000 position_retargeting_mode:=robot_arm_segments robot_arm_reach_scale:=0.95"
+bridge_inner="cd $repo_quoted && $ros_environment && source bash/environment.sh && exec ros2 launch tianji_cmd_pub pico_arm_input.launch.py position_retargeting_mode:=robot_arm_segments robot_arm_reach_scale:=0.95"
 if [[ -n "$pico_world_x_offset" ]]; then
   bridge_inner+=" pico_world_x_offset_m:=$pico_world_x_offset"
 fi

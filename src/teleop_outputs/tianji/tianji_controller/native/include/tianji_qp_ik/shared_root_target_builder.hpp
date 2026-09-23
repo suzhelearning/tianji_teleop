@@ -1,12 +1,12 @@
 #pragma once
 #include "tianji_qp_ik/shared_root_morphology.hpp"
-#include "tianji_qp_ik/spark_upper_retarget.hpp"
+#include "tianji_qp_ik/shared_root_retarget.hpp"
 #include "tianji_qp_ik/shared_root_closure.hpp"
 
 namespace tianji_qp_ik {
 struct SharedRootBuilderConfig {
-  SparkUpperRobotGeometry geometry;
-  SparkUpperQpoasesConfig shape_config;
+  SharedRootRobotGeometry geometry;
+  SharedRootShapeConfig shape_config;
   // Frozen loader always supplies R3 geometry. Empty only for legacy algebra unit fixtures.
   std::optional<SharedRootClosureGeometry> closure_geometry;
   Eigen::Matrix3d R_BCt{Eigen::Matrix3d::Identity()};
@@ -21,8 +21,8 @@ struct SharedRootBuiltTargets {
   bool valid{false}, intent_evidence_valid{false};
   bool stream_discontinuity{false};
   std::string_view detail{"not_built"};
-  SparkUpperTargets raw, filtered;
-  SparkUpperTargets raw_preference, filtered_preference;
+  SharedRootTargets raw, filtered;
+  SharedRootTargets raw_preference, filtered_preference;
   Eigen::Vector3d reachable_translation{Eigen::Vector3d::Zero()};
   Pose left_intent, right_intent;
   Vec6 left_intent_twist{Vec6::Zero()}, right_intent_twist{Vec6::Zero()};
@@ -43,7 +43,7 @@ class SharedRootTargetBuilder {
  private:
   SharedRootBuiltTargets updateCandidate(const SharedRootInput&,const MorphologyEstimate&);
   SharedRootBuilderConfig config_;
-  UpperSparkSkeletonScaler scaler_;
+  SharedRootSkeletonScaler scaler_;
   SharedRootBuiltTargets previous_;
   SharedRootElbowHistory elbow_history_;
   Eigen::Vector3d center_{Eigen::Vector3d::Zero()}, relation_{Eigen::Vector3d::Zero()};
@@ -51,6 +51,6 @@ class SharedRootTargetBuilder {
   bool initialized_{false}, intent_upgraded_{false}, intent_history_valid_{false};
   bool intent_scale_locked_{false};
 };
-SparkUpperTargets blendSharedRootTargets(const SparkUpperTargets& start,
-                                         const SparkUpperTargets& goal,double alpha);
+SharedRootTargets blendSharedRootTargets(const SharedRootTargets& start,
+                                         const SharedRootTargets& goal,double alpha);
 } // namespace tianji_qp_ik

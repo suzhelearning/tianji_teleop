@@ -1,4 +1,4 @@
-"""Offline, read-only Phase A artifact validation. No SDK, network or viewer."""
+"""Offline, read-only shared-root artifact validation. No SDK, network or viewer."""
 from __future__ import annotations
 
 import argparse
@@ -19,11 +19,7 @@ def digest(path: Path) -> str:
 def validate(profile_path: Path) -> dict:
     profile_path = profile_path.resolve(strict=True)
     profile = yaml.safe_load(profile_path.read_text())
-    cfg = profile["spark_shared_root"]
-    if cfg["enabled"] is not False:
-        raise ValueError("Phase A artifacts are not a motion authorization: enabled must be false")
-    if "mix" in cfg:
-        raise ValueError("legacy/canonical mix is unsupported")
+    cfg = profile["shared_root"]
     input_path = controller_resource(profile_path, cfg["input_contract_artifact"])
     geometry_path = controller_resource(profile_path, cfg["robot_geometry_artifact"])
     root = workspace()
@@ -96,7 +92,7 @@ def validate(profile_path: Path) -> dict:
         raise ValueError("missing explicit simple model semantics")
     for key in ("morphology", "bridge_frame_filter", "continuity", "target_gate"):
         if not isinstance(cfg[key], dict) or not cfg[key]:
-            raise ValueError("missing experiment configuration: " + key)
+            raise ValueError("missing shared-root configuration: " + key)
         for value in cfg[key].values():
             values = np.asarray(value, dtype=float)
             if not np.isfinite(values).all() or not (values > 0).all():
@@ -107,8 +103,8 @@ def validate(profile_path: Path) -> dict:
     for key, value in m.items():
         if isinstance(value, list) and (len(value) != 2 or value[0] >= value[1]):
             raise ValueError("invalid range: " + key)
-    if profile["ik"]["algorithm"] != "spark_upper_qpoases_headroom_feedforward_velocity_qp":
-        raise ValueError("wrong experimental backend")
+    if profile["ik"]["algorithm"] != "pico_ee_franka_dls":
+        raise ValueError("expected Franka DLS profile")
     return {"passed": True, "scope": "offline_artifact_consistency_only",
             "profile_sha256": digest(profile_path),
             "input_contract_sha256": digest(input_path),
@@ -121,5 +117,5 @@ if __name__ == "__main__":
     parser.add_argument("profile", type=Path, nargs="?")
     args = parser.parse_args()
     if args.profile is None:
-        args.profile = controller_profile("qp_ik_pico_shared_root.yaml")
+        args.profile = controller_profile("qp_ik_pico_shared_root_dls.yaml")
     print(json.dumps(validate(args.profile), sort_keys=True))

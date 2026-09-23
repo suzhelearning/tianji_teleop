@@ -94,7 +94,6 @@ bool TargetManager::setManualTarget(ArmSide side, const Pose& requested,
     updateManualKinematics(state, raw_twist, dt);
   } else {
     state.filtered_twist.setZero();
-    state.filtered_acceleration.setZero();
   }
   target = accepted;
   state.source_timestamp_seconds = source_timestamp_seconds;
@@ -138,8 +137,6 @@ bool TargetManager::setManualTargets(const Pose& left_requested,
   } else {
     left_state_candidate.filtered_twist.setZero();
     right_state_candidate.filtered_twist.setZero();
-    left_state_candidate.filtered_acceleration.setZero();
-    right_state_candidate.filtered_acceleration.setZero();
   }
 
   manual_candidate.left = left_requested;
@@ -230,15 +227,7 @@ DualArmTargets TargetManager::sample(double time_seconds) {
 Pose TargetManager::predictedManualPose(const Pose& target,
                                         const ManualTargetState& state,
                                         double time_seconds) const {
-  const bool second_order_otg_prediction =
-      config_.cartesian_otg.enabled &&
-      !config_.cartesian_otg.translation_position_mode &&
-      config_.cartesian_otg.translation_prediction_enabled;
-  if (config_.cartesian_otg.enabled && !second_order_otg_prediction) {
-    return target;
-  }
-  if (!second_order_otg_prediction &&
-      config_.cartesian_servo.kff_linear <= 0.0 &&
+  if (config_.cartesian_servo.kff_linear <= 0.0 &&
       config_.cartesian_servo.kff_angular <= 0.0) {
     return target;
   }
@@ -250,19 +239,12 @@ Pose TargetManager::predictedManualPose(const Pose& target,
     return target;
   }
   const double horizon = std::min(
-      age, second_order_otg_prediction
-               ? config_.cartesian_otg.translation_prediction_horizon_seconds
-               : config_.cartesian_servo.prediction_horizon_seconds);
+      age, config_.cartesian_servo.prediction_horizon_seconds);
   if (horizon <= 0.0) {
     return target;
   }
   Pose predicted = target;
   predicted.position += state.filtered_twist.head<3>() * horizon;
-  if (second_order_otg_prediction) {
-    predicted.position +=
-        0.5 * state.filtered_acceleration.head<3>() * horizon * horizon;
-    return predicted;
-  }
   const Eigen::Vector3d rotation_vector =
       state.filtered_twist.tail<3>() * horizon;
   if (rotation_vector.norm() > 0.0) {
@@ -276,8 +258,7 @@ Pose TargetManager::predictedManualPose(const Pose& target,
 
 Vec6 TargetManager::manualTwist(const ManualTargetState& state,
                                 double time_seconds) const {
-  if (!config_.cartesian_otg.enabled &&
-      config_.cartesian_servo.kff_linear <= 0.0 &&
+  if (config_.cartesian_servo.kff_linear <= 0.0 &&
       config_.cartesian_servo.kff_angular <= 0.0) {
     return Vec6::Zero();
   }
@@ -285,21 +266,10 @@ Vec6 TargetManager::manualTwist(const ManualTargetState& state,
     return Vec6::Zero();
   }
   const double age = time_seconds - state.receive_time_seconds;
-  const bool second_order_otg_prediction =
-      config_.cartesian_otg.enabled &&
-      !config_.cartesian_otg.translation_position_mode &&
-      config_.cartesian_otg.translation_prediction_enabled;
   if (age < 0.0 || age >= config_.cartesian_servo.target_timeout_seconds) {
     return Vec6::Zero();
   }
-  Vec6 predicted_twist = state.filtered_twist;
-  if (second_order_otg_prediction) {
-    const double horizon = std::min(
-        age, config_.cartesian_otg.translation_prediction_horizon_seconds);
-    predicted_twist.head<3>() +=
-        state.filtered_acceleration.head<3>() * horizon;
-  }
-  return predicted_twist;
+  return state.filtered_twist;
 }
 
 void TargetManager::updateManualKinematics(ManualTargetState& state,
@@ -307,21 +277,7 @@ void TargetManager::updateManualKinematics(ManualTargetState& state,
                                            double dt_seconds) const {
   const double cutoff = config_.cartesian_servo.feedforward_filter_cutoff_hz;
   const double alpha = 1.0 - std::exp(-kTwoPi * cutoff * dt_seconds);
-  const Vec6 previous_twist = state.filtered_twist;
   state.filtered_twist += alpha * (raw_twist - state.filtered_twist);
-  const Vec6 raw_acceleration =
-      (state.filtered_twist - previous_twist) / dt_seconds;
-  state.filtered_acceleration +=
-      alpha * (raw_acceleration - state.filtered_acceleration);
-  const double linear_acceleration_norm =
-      state.filtered_acceleration.head<3>().norm();
-  if (linear_acceleration_norm >
-      config_.cartesian_otg.translation_acceleration_max) {
-    state.filtered_acceleration.head<3>() *=
-        config_.cartesian_otg.translation_acceleration_max /
-        linear_acceleration_norm;
-  }
-  state.filtered_acceleration.tail<3>().setZero();
 }
 
 bool TargetManager::manualTargetStale(const ManualTargetState& state,

@@ -4,8 +4,8 @@
   <name>simulation</name>
   <version>0.3.0</version>
   <description>
-    Actuator-driven and direct-state simulation for the Tianji arms. Provides no
-    hardware access and never publishes on the teleoperation input ports.
+    Franka DLS/Ruckig arm simulation and offline joint-state replay helpers.
+    Provides no hardware access or joint-command export from interactive simulation.
   </description>
   <maintainer email="ops@example.com">Tianji operators</maintainer>
   <license>Apache-2.0</license>

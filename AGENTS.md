@@ -4,7 +4,7 @@
 
 环境由 Pixi 管理，统一为 ROS 2 Jazzy + Fast DDS：`RMW_IMPLEMENTATION=rmw_fastrtps_cpp`、`ROS_DOMAIN_ID=120`、`ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST`（只支持同机采集与共享单调时钟）。大多数 `bash/` 入口会自行进入 Pixi 环境并 `source bash/environment.sh`，确认 `ROS_DISTRO=jazzy`、Python 3.12，并清掉旧 shell 可能残留的 Humble／旧 `tracking/install` overlay；`bash bash/build.sh` 与 `bash bash/test_native.sh` 例外，它们要求调用者已经在 Pixi 环境内（推荐用 `pixi run build`／`pixi run test-native`）。不要手动 source 旧环境。
 
-配置只有一个来源：`config/robot.json` 保存设备身份、端口、安全边界、控制器 profile 名与模型路径；`config/collect_real.json` 保存相机角色、序列号和 `state_rate_hz`（整数 `0` 表示该角色禁用）。相机序列号不另存第二份。
+配置只有一个来源：`config/robot.json` 保存设备身份、ROS 话题、保留的手部端口、安全边界、控制器 profile 名与模型路径；双臂只使用 `pico_input_topic` 与 `joint_command_topic`，不再配置 `pico_port`／`command_port`。`config/collect_real.json` 保存相机角色、序列号和 `state_rate_hz`（整数 `0` 表示该角色禁用）。相机序列号不另存第二份。
 
 ## 本分支唯一遥操作算法基线
 
@@ -14,9 +14,9 @@
 - PICO 手柄侧负责人员标定、TCP／骨架校正与坐标变换，不是机器人 IK 求解器。
 - Manus 双手使用 **手部骨架 → 21 点适配 → Wuji Hand2 重定向 → 双手关节目标**，不套用双臂 DLS／Ruckig。其他输入路线保留自身输入适配与手部重定向，后续双臂实现仍统一到上述 DLS／Ruckig 主线。
 - 标准仿真使用 `direct`／model-reference：直接显示关节目标，不做动力学积分，不发送真机指令。真机执行仍须独立的现场授权与验收。
-- `--real`／`--data` 已统一到该 DLS／Ruckig 主线，`--ik-backend` 只接受 `franka-dls`；旧 real 的 SPARK／mapped-palm 选项和专属 C 标定／断流宽限选项已移除。原生子进程仅通过执行器传入的 `--franka-dls-executor` 启用受限回环 TJRC 输出；它不授予使能或运动权限，仍须经过 Python 的反馈、限位、失鲜和分阶段 Enter 授权门控。仅修改 profile 不能把普通仿真变成真机出口。
+- `--real`／`--data` 已统一到该 DLS／Ruckig 主线，`--ik-backend` 只接受 `franka-dls`；旧 real 的 SPARK／mapped-palm 选项和专属 C 标定／断流宽限选项已移除。执行器启动 `tianji_arm_ros` 并显式传入 `--franka-dls-executor` 才启用受限 ROS 目标输出；它不授予使能或运动权限，仍须经过 Python 的反馈、限位、失鲜和分阶段 Enter 授权门控。仅修改 profile 不能把普通仿真变成真机出口。默认 DLS 生产链不打开业务 UDP 15000／17000，旧 UDP 核心只保留给显式历史／离线工具，不作自动回退。
 - 不得为迁移、仿真、headless 或输入接入改用 SPARK、Ceres LM、mapped-palm 或 V131 双臂后端；所需功能应在上述主线上实现并验证，不增加第二套算法实现。
-- 后文列出的其他后端和默认值仅描述尚存的历史功能，不是后续实现选项。此约束不表示存量入口已全部完成切换，也不授权擅自删除保留的离线审计、benchmark 或历史对照工具；如需统一存量入口，应按此基线明确迁移并完成行为验收。
+- 用户已明确要求删除 Ceres、SPARK、mapped-palm 及其他旧双臂后端，历史由 Git 保存；不得恢复其实现、配置、构建依赖、可选入口或兼容回退。DLS 所需的共享根几何、FK、Ruckig 和模型资产保留，公共代码已使用 DLS／SharedRoot／Ruckig 命名。配置只用 `shared_root`、`shared_root_shape`，不接受旧配置键作为别名。
 
 ## 安装、构建与环境检查
 
@@ -27,20 +27,23 @@
 | 只安装外骨骼环境 | `bash bash/install.sh --exoskeleton` |
 | 重建 control 原生目标与当前环境的 ROS 包 | `pixi run build`（default）；`pixi run -e policy build`（policy 独立 overlay） |
 | 校验环境（Python 3.12 / Jazzy / Fast DDS） | `pixi run check-env`（等价 `python bash/check_env.py`） |
-| 原生 CTest（control core 与 mapped_palm） | `pixi run test-native` |
+| 原生 CTest（唯一 DLS/Ruckig 核心） | `pixi run test-native` |
+| 独立重建双臂 ROS 核心 | `pixi run build-arm-ros`／`bash bash/build_arm_ros.sh`（不连接设备） |
 
-构建输出按环境分离：`build/<环境>`、`install/<环境>`、`log/<环境>`。colcon 只扫描 `src/`；control 的 core／mapped-palm 分开构建，原生可执行文件安装到 `install/control/bin/` 或 `install/control/lib/mapped_palm/`，统一由资源 helper 定位。不再构建辅助定位、外接 IMU 或旧 PICO 专用录制包。
+构建输出按环境分离：`build/<环境>`、`install/<环境>`、`log/<环境>`。colcon 只扫描 `src/`；DLS 原生代码在 control 与 arm-ros 隔离环境构建，可执行文件由 `install/control/bin/` 的资源 helper 定位。不再构建旧后端、辅助定位、外接 IMU 或旧 PICO 专用录制包。
 
-模型及共用部署 Home 属于 `src/teleop_outputs/tianji/tianji_description/`，运行时用 `tianji_runtime.package_share()` 读取安装资源；native 程序用 `native_executable()`，不指向旧构建树。根 config／profiles／vendor 由 Pixi 注入的 `TIANJI_WORKSPACE` 定位，不能依赖 cwd。DLS／Ceres 的 Home 保持各自配置。缺少消息包 overlay 的节点必须先构建，不靠源码路径注入或旧环境回退。
+模型及共用部署 Home 属于 `src/teleop_outputs/tianji/tianji_description/`，运行时用 `tianji_runtime.package_share()` 读取安装资源；native 程序用 `native_executable()`，不指向旧构建树。根 config／profiles／vendor 由 Pixi 注入的 `TIANJI_WORKSPACE` 定位，不能依赖 cwd。DLS 初始参考与受保护 Home 保持各自配置含义。缺少消息包 overlay 的节点必须先构建，不靠源码路径注入或旧环境回退。
 
 环境保持隔离：default 为 Jazzy／Python 3.12／Fast DDS，新 Manus 链在此使用锁定 `wuji-sdk==2026.8.31` 的纯求解 `RetargetSession`，不连接 Wuji 硬件；control 为无 ROS 的原生工具链，cameras 为官方 RealSense 4.58.3。保留的 manus/Python 3.12/Pinocchio 3.8 环境只服务历史离线重定向工具，不再属于新 Manus 生产链。policy 使用同一 Jazzy／Python ABI，但拥有自己的 overlay，锁定 CPU torch 2.10.0＋Zenoh；模型权重、CUDA wheel／驱动需要显式准备，CPU 验证不等于 GPU 验收。
+
+双臂 ROS 核心使用独立 `arm-ros` 环境：与 control 相同的 Eigen 3.4／Pinocchio／MuJoCo 数值 ABI，加 Jazzy rclcpp/Fast DDS。`tianji_arm_ros` 直接复用 `run_qp_ik_viewer.cpp` 的原控制循环，双臂源码不复制、不新增后端；消息库在 `install/arm-ros` 编译，二进制仍由 `native_executable("tianji_arm_ros")` 定位。RPATH 与 AMENT discovery 只指向 arm-ros，不注入 default 的共享库。输入 `/pico/arm_input` 为原子 `PicoArmInput`，输出 `/tianji/controller/joint_targets` 为提交后的 `ControllerJointTargets`，不是实测反馈。ROS 输入撤销代际跨 latest-only 保留；输出失效 ready 锁存到核心重启。Python 执行器及 Home 使用本机互斥租约，不能通过换 ROS domain/topic 绕过。
 
 ## 外骨骼 + PICO → Tianji + Wuji
 
 ```text
-PICO → UDP :15000 → 双臂控制
+PICO → ROS /pico/arm_input → 原双臂 DLS/Ruckig 核心
 外骨骼 → bash/run_exoskeleton.sh（采集、重定向、TJH2 直发）→ UDP :16000 → 双手控制
-双臂／双手控制 → bash/run_teleop.sh 选择仿真或真机
+双臂／旧手部目标 → ROS /tianji/controller/joint_targets → Python 执行器
 ```
 
 ```bash
@@ -87,7 +90,6 @@ ros2 launch manus_bridge manus_hand2.launch.py user:=NAME
 | 模式 | 命令 |
 |---|---|
 | 有窗口仿真 | `bash bash/run_teleop.sh --sim` |
-| 无窗口 SPARK 仿真 | `bash bash/run_teleop.sh --sim --ik-backend spark --headless`（默认 DLS direct 不支持 headless） |
 | 真机执行 | `bash bash/run_teleop.sh --real` |
 | 真机 + schema-v1 采集 | `bash bash/run_teleop.sh --data` |
 
@@ -133,7 +135,7 @@ PICO 视频串流运行在 default，只订阅唯一配置中的 top RGB，不�
 
 ## 其余 Pixi 任务
 
-`pixi run` 提供：`test-native`、`test-native-core`、`test-native-mapped-palm`、`test-sim`、`test-collection`、`test-controller`、`test-interfaces`、`test-pico`、`test-pico2`、`test-ros`（domain 121 真实 DDS）、`test-retargeting`、`test-manus`；Mocap 回归用 `pixi run -e policy test-mocap`。
+`pixi run` 提供：`test-native`、`test-native-core`、`test-sim`、`test-collection`、`test-controller`、`test-interfaces`、`test-pico`、`test-pico2`、`test-ros`（domain 121 真实 DDS）、`test-retargeting`、`test-manus`；Mocap 回归用 `pixi run -e policy test-mocap`。
 
 输入任务有 `setup-pico`（`bash/run_setup_pico.sh`，简化人员标定向导）、`stop-pico`（`bash/run_stop_pico.sh`）、`test-pico-simple`／`test-sim-user`，以及 `sim`／`real`／`home`。
 

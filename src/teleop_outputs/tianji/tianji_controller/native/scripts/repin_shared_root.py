@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Re-pin the shared-root content addresses to the files on disk.
 
-The input contract, the robot geometry artifacts, and the source-evidence
-manifest are content-addressed: editing any of them invalidates the digests that
-identify them. Run this after such an edit, then re-run the native suite.
+The input contract and robot geometry artifact are content-addressed: editing
+either invalidates the digests that identify them. Run this after such an edit.
 """
 
 from __future__ import annotations
@@ -17,7 +16,7 @@ from pathlib import Path
 CONFIG = Path(__file__).resolve().parents[1] / "config"
 OPTIONS = Path(__file__).resolve().parents[1] / "src" / "shared_root_options.cpp"
 INPUT = "shared_root_tjvr_input_contract.yaml"
-GEOMETRY = ("shared_root_robot_geometry.yaml", "shared_root_robot_geometry_ceres.yaml")
+GEOMETRY = ("shared_root_robot_geometry_dls.yaml",)
 
 
 def digest(path: Path) -> str:

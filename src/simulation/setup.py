@@ -14,6 +14,6 @@ setup(
     zip_safe=True,
     maintainer="Tianji operators",
     maintainer_email="ops@example.com",
-    description="Actuator-driven and direct-state Tianji simulation",
+    description="Franka DLS/Ruckig simulation and offline joint-state replay",
     license="Apache-2.0",
 )

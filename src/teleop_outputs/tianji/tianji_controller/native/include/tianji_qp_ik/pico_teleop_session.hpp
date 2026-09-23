@@ -46,6 +46,7 @@ class PicoTeleopSession {
   PicoTeleopClassification classify(const PicoTeleopFrame& frame,
                                      std::int64_t now_monotonic_ns) const;
   void commitApplied(const PicoTeleopFrame& frame) noexcept;
+  void invalidate() noexcept;
   PicoTeleopFreshness freshness(
       std::int64_t now_monotonic_ns) const noexcept;
 

@@ -14,10 +14,6 @@ void SharedRootPipeline::resetSession() noexcept {
   clearAlgorithms(); sequence_=epoch_=generation_=0;
   source_ns_=receive_ns_=now_ns_=0;
 }
-void SharedRootPipeline::restartRecovery() noexcept {
-  continuity_.resetSession();builder_.beginRecovery();candidate_={};
-  interrupted_=true;last_valid_receive_ns_=0;
-}
 void SharedRootPipeline::interruptBuilder() noexcept {
   if(!interrupted_) builder_.beginRecovery();
   interrupted_=true;
@@ -70,7 +66,7 @@ bool SharedRootPipeline::observe(const PicoTeleopFrame& f,std::int64_t now) {
   return candidate_.valid;
 }
 SharedRootContinuityOutput SharedRootPipeline::step(std::int64_t now,bool authorized,
-                                                    const SparkUpperTargets& model) {
+                                                    const SharedRootTargets& model) {
   if(!authorized||now<=0||(now_ns_&&now<now_ns_)) {
     // Keep the unique-source fence on revocation: old data cannot rearm motion.
     clearAlgorithms(); return {};

@@ -151,7 +151,6 @@ TEST(TargetManager, UsesSourceTimestampsAndOnlyUpdatesTwistOnNewFrames) {
 
 TEST(TargetManager, BilateralManualTargetsCommitAtomically) {
   QpIkConfig target_config = config();
-  target_config.cartesian_otg.enabled = true;
   target_config.safety.max_target_position_step = 1.0;
   target_config.safety.max_target_orientation_step = 1.0;
   TargetManager manager(target_config, initialTargets());
@@ -186,7 +185,9 @@ TEST(TargetManager, BilateralManualTargetsCommitAtomically) {
 
 TEST(TargetManager, BilateralTwistUsesCommonSourceFrameDelta) {
   QpIkConfig target_config = config();
-  target_config.cartesian_otg.enabled = true;
+  target_config.cartesian_servo.kff_linear = 1.0;
+  target_config.cartesian_servo.kff_angular = 1.0;
+  target_config.cartesian_servo.prediction_horizon_seconds = 0.0;
   target_config.cartesian_servo.feedforward_filter_cutoff_hz = 1.0e6;
   target_config.safety.max_target_position_step = 1.0;
   target_config.safety.max_target_orientation_step = 1.0;
@@ -212,52 +213,11 @@ TEST(TargetManager, BilateralTwistUsesCommonSourceFrameDelta) {
   EXPECT_NEAR(output.right_twist(5), 1.0, 1e-9);
 }
 
-TEST(TargetManager, BilateralPredictionUsesAccelerationFromNewSourceFrames) {
-  QpIkConfig target_config = config();
-  target_config.cartesian_otg.enabled = true;
-  target_config.cartesian_otg.translation_prediction_enabled = true;
-  target_config.cartesian_servo.feedforward_filter_cutoff_hz = 1.0e6;
-  target_config.safety.max_target_position_step = 1.0;
-  target_config.safety.max_target_orientation_step = 1.0;
-  TargetManager manager(target_config, initialTargets());
-  manager.setMode(TargetMode::kManual, 0.0);
-
-  const DualArmTargets first = initialTargets();
-  ASSERT_TRUE(manager.setManualTargets(first.left, first.right, 25.0, 0.0));
-  DualArmTargets second = first;
-  second.left.position.x() += 0.00005;
-  second.right.position.y() -= 0.0001;
-  ASSERT_TRUE(manager.setManualTargets(second.left, second.right,
-                                       25.01, 0.01));
-
-  const DualArmTargets between_frames = manager.sample(0.015);
-  EXPECT_NEAR(between_frames.left.position.x(),
-              second.left.position.x() + 0.005 * 0.005 +
-                  0.5 * 0.5 * 0.005 * 0.005,
-              1e-10);
-  EXPECT_NEAR(between_frames.right.position.y(),
-              second.right.position.y() - 0.01 * 0.005 -
-                  0.5 * 1.0 * 0.005 * 0.005,
-              1e-10);
-  EXPECT_NEAR(between_frames.left_twist.x(), 0.0075, 1e-8);
-  EXPECT_NEAR(between_frames.right_twist.y(), -0.015, 1e-8);
-
-  const DualArmTargets after_prediction_horizon = manager.sample(0.040);
-  EXPECT_NEAR(after_prediction_horizon.left.position.x(),
-              second.left.position.x() + 0.005 * 0.015 +
-                  0.5 * 0.5 * 0.015 * 0.015,
-              1e-10);
-  EXPECT_NEAR(after_prediction_horizon.right.position.y(),
-              second.right.position.y() - 0.01 * 0.015 -
-                  0.5 * 1.0 * 0.015 * 0.015,
-              1e-10);
-  EXPECT_NEAR(after_prediction_horizon.left_twist.x(), 0.0125, 1e-8);
-  EXPECT_NEAR(after_prediction_horizon.right_twist.y(), -0.025, 1e-8);
-}
-
 TEST(TargetManager, BilateralTargetsBecomeStaleAtTimeoutBoundary) {
   QpIkConfig target_config = config();
-  target_config.cartesian_otg.enabled = true;
+  target_config.cartesian_servo.kff_linear = 1.0;
+  target_config.cartesian_servo.kff_angular = 1.0;
+  target_config.cartesian_servo.prediction_horizon_seconds = 0.0;
   target_config.cartesian_servo.feedforward_filter_cutoff_hz = 1.0e6;
   target_config.cartesian_servo.target_timeout_seconds = 0.050;
   target_config.safety.max_target_position_step = 1.0;
@@ -285,7 +245,6 @@ TEST(TargetManager, BilateralTargetsBecomeStaleAtTimeoutBoundary) {
 
 TEST(TargetManager, StaleManualTargetsStopAdvancingTowardUnpublishedJump) {
   QpIkConfig target_config = config();
-  target_config.cartesian_otg.enabled = true;
   target_config.cartesian_servo.target_timeout_seconds = 0.050;
   target_config.safety.max_target_position_step = 0.05;
   target_config.safety.max_target_orientation_step = 0.20;
@@ -322,6 +281,9 @@ TEST(TargetManager, StaleManualTargetsStopAdvancingTowardUnpublishedJump) {
 
 TEST(TargetManager, TimesOutStaleManualTargetVelocity) {
   QpIkConfig target_config = config();
+  target_config.cartesian_servo.kff_linear = 1.0;
+  target_config.cartesian_servo.kff_angular = 1.0;
+  target_config.cartesian_servo.prediction_horizon_seconds = 0.0;
   target_config.cartesian_servo.feedforward_filter_cutoff_hz = 1.0e6;
   target_config.cartesian_servo.kff_linear = 0.8;
   target_config.cartesian_servo.kff_angular = 0.8;
@@ -364,78 +326,6 @@ TEST(TargetManager, ZeroFeedforwardKeepsManualTargetUnpredicted) {
   const DualArmTargets target = manager.sample(0.015);
   EXPECT_TRUE(target.left.position.isApprox(moved.position, 1e-12));
   EXPECT_TRUE(target.left_twist.isZero(1e-12));
-}
-
-TEST(TargetManager, OtgReceivesTimestampedTwistWithoutTargetPrediction) {
-  QpIkConfig target_config = config();
-  target_config.cartesian_otg.enabled = true;
-  target_config.cartesian_servo.kff_linear = 0.0;
-  target_config.cartesian_servo.kff_angular = 0.0;
-  target_config.cartesian_servo.feedforward_filter_cutoff_hz = 1.0e6;
-  target_config.safety.max_target_position_step = 1.0;
-  TargetManager manager(target_config, initialTargets());
-  manager.setMode(TargetMode::kManual, 0.0);
-  ASSERT_TRUE(manager.setManualTarget(ArmSide::kLeft, initialTargets().left,
-                                      40.0, 0.0));
-  Pose moved = initialTargets().left;
-  moved.position.x() += 0.01;
-  ASSERT_TRUE(manager.setManualTarget(ArmSide::kLeft, moved, 40.01, 0.01));
-
-  const DualArmTargets target = manager.sample(0.015);
-  EXPECT_TRUE(target.left.position.isApprox(moved.position, 1e-12));
-  EXPECT_TRUE(target.left_twist.head<3>().isApprox(
-      Eigen::Vector3d(1.0, 0.0, 0.0), 1e-8));
-}
-
-TEST(TargetManager, TranslationPositionModeUsesRawPoseAndPreservesIntentTwist) {
-  QpIkConfig target_config = config();
-  target_config.cartesian_otg.enabled = true;
-  target_config.cartesian_otg.translation_position_mode = true;
-  target_config.cartesian_otg.translation_prediction_enabled = true;
-  target_config.cartesian_servo.feedforward_filter_cutoff_hz = 1.0e6;
-  target_config.safety.max_target_position_step = 1.0;
-  target_config.safety.max_target_orientation_step = 1.0;
-  TargetManager manager(target_config, initialTargets());
-  manager.setMode(TargetMode::kManual, 0.0);
-
-  const Pose first = initialTargets().left;
-  ASSERT_TRUE(manager.setManualTarget(ArmSide::kLeft, first, 45.0, 0.0));
-  Pose second = first;
-  second.position.x() += 0.01;
-  second.rotation =
-      Eigen::AngleAxisd(0.02, Eigen::Vector3d::UnitY()).toRotationMatrix();
-  ASSERT_TRUE(manager.setManualTarget(ArmSide::kLeft, second, 45.01, 0.01));
-
-  const DualArmTargets between_frames = manager.sample(0.015);
-  EXPECT_TRUE(between_frames.left.position.isApprox(second.position, 1e-12));
-  EXPECT_NEAR(between_frames.left_twist.x(), 1.0, 1e-8);
-  EXPECT_NEAR(between_frames.left_twist(4), 2.0, 1e-8);
-}
-
-TEST(TargetManager, EstimatesAccelerationOnlyOnNewSourceFrames) {
-  QpIkConfig target_config = config();
-  target_config.cartesian_otg.enabled = true;
-  target_config.cartesian_otg.translation_prediction_enabled = true;
-  target_config.cartesian_servo.feedforward_filter_cutoff_hz = 1.0e6;
-  target_config.safety.max_target_position_step = 1.0;
-  TargetManager manager(target_config, initialTargets());
-  manager.setMode(TargetMode::kManual, 0.0);
-
-  Pose frame = initialTargets().left;
-  ASSERT_TRUE(manager.setManualTarget(ArmSide::kLeft, frame, 50.0, 0.0));
-  EXPECT_TRUE(manager.sample(0.0).left_twist.isZero(1e-12));
-
-  frame.position.x() += 0.00005;
-  ASSERT_TRUE(manager.setManualTarget(ArmSide::kLeft, frame, 50.01, 0.01));
-  const DualArmTargets on_frame = manager.sample(0.01);
-  EXPECT_NEAR(on_frame.left_twist.x(), 0.005, 1e-10);
-
-  const DualArmTargets between_frames = manager.sample(0.015);
-  EXPECT_NEAR(between_frames.left.position.x(),
-              frame.position.x() + 0.005 * 0.005 +
-                  0.5 * 0.5 * 0.005 * 0.005,
-              1e-10);
-  EXPECT_NEAR(between_frames.left_twist.x(), 0.0075, 1e-8);
 }
 
 TEST(TargetManager, LimitsScriptedJumpsAndHoldCapturesLastPublishedTarget) {

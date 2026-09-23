@@ -25,6 +25,9 @@ printf '== building control native targets ==\n'
 pixi run --locked --manifest-path "$root/pixi.toml" -e control \
   bash "$root/bash/build_native.sh"
 
+printf '== isolated ROS arm controller ==\n'
+bash "$root/bash/build_arm_ros.sh"
+
 
 # Resolve the interpreter once and pass it explicitly: ament's FindPython3 runs
 # inside CMake, where `$CONDA_PREFIX` is not expanded by the caller's shell.

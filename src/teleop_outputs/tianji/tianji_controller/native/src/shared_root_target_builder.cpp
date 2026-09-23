@@ -52,7 +52,7 @@ bool validSide(const SharedRootSideInput& s) {
       isProperRotation(s.R_shoulder_Ct) && isProperRotation(s.R_elbow_Ct) &&
       isProperRotation(s.R_wrist_Ct);
 }
-bool filterShape(SparkUpperArmTarget& out,const SparkUpperArmTarget& old,double t) {
+bool filterShape(SharedRootArmTarget& out,const SharedRootArmTarget& old,double t) {
   std::array<Eigen::Vector3d,3> now{out.elbow-out.shoulder,out.wrist-out.elbow,out.hand-out.wrist};
   std::array<Eigen::Vector3d,3> before{old.elbow-old.shoulder,old.wrist-old.elbow,old.hand-old.wrist};
   for(std::size_t i=0;i<3;++i) {
@@ -148,8 +148,8 @@ SharedRootBuiltTargets SharedRootTargetBuilder::updateCandidate(const SharedRoot
       (right.position-out.raw.right.hand).norm()>config_.maximum_correction_m) {
     out.detail="shape_correction_gate"; return out;
   }
-  // Legacy shape construction copies hand into palm; the isolated adapter
-  // explicitly replaces only the main palm task, preserving the proxy.
+  // Shape construction copies hand into palm; replace only the main palm task,
+  // preserving the shape proxy.
   out.raw.left.palm=left; out.raw.right.palm=right;
   out.filtered=out.raw;
   if(!initialized_) {
@@ -219,8 +219,8 @@ SharedRootBuiltTargets SharedRootTargetBuilder::updateCandidate(const SharedRoot
   return out;
 }
 
-SparkUpperTargets blendSharedRootTargets(const SparkUpperTargets& start,const SparkUpperTargets& goal,double t) {
-  SparkUpperTargets out=goal;
+SharedRootTargets blendSharedRootTargets(const SharedRootTargets& start,const SharedRootTargets& goal,double t) {
+  SharedRootTargets out=goal;
   if(!start.valid||!goal.valid||!std::isfinite(t)||t<0||t>1) {
     out.valid=false; out.detail="invalid_shared_blend"; return out;
   }

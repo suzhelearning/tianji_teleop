@@ -42,7 +42,7 @@ SharedRootClosedArm closeSharedRootArm(const SharedRootClosureSideGeometry& g,
   out.target.hand=palm.position;out.target.palm=palm;
   out.status=ClosureStatus::kAccepted;return out;
 }
-bool closeSharedRootTargets(SparkUpperTargets& targets,const SharedRootClosureGeometry& geometry,
+bool closeSharedRootTargets(SharedRootTargets& targets,const SharedRootClosureGeometry& geometry,
                             const SharedRootElbowHistory& history) noexcept {
   auto candidate=targets;
   for(int side=0;side<2;++side) {

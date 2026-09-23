@@ -1,6 +1,5 @@
 #pragma once
 
-#include "tianji_qp_ik/arm_angle.hpp"
 #include "tianji_qp_ik/config.hpp"
 #include "tianji_qp_ik/mujoco_robot.hpp"
 #include "tianji_qp_ik/pico_teleop_protocol.hpp"
@@ -20,69 +19,14 @@ namespace tianji_qp_ik {
 
 struct ArmIkSnapshot {
   bool accepted{false};
-  bool fallback_applied{false};
   HoldReason hold_reason{HoldReason::kNone};
   double position_error{0.0};
   double orientation_error{0.0};
   double actual_position_error{0.0};
   double actual_orientation_error{0.0};
-  double slack_position_norm{0.0};
-  double slack_orientation_norm{0.0};
-  double equality_residual{0.0};
-  double reference_error_max_abs{0.0};
-  double reference_scale{1.0};
-  bool reference_frozen{false};
-  double qdot_max_ratio{0.0};
   double solve_time_us{0.0};
-  int active_position_bounds{0};
-  int active_velocity_bounds{0};
-  int active_acceleration_bounds{0};
-  int active_braking_bounds{0};
   int iterations{0};
   SolverStatus status{SolverStatus::kInvalidInput};
-  bool otg_valid{true};
-  bool otg_stale{false};
-  double reference_linear_velocity{0.0};
-  double reference_angular_velocity{0.0};
-  double reference_linear_acceleration{0.0};
-  double reference_angular_acceleration{0.0};
-  double qdot_reference_error_max_abs{0.0};
-  double qddot_max_ratio{0.0};
-  int active_qddot_bounds{0};
-  double task_scale_position{1.0};
-  double task_scale_orientation{1.0};
-  ArmDirectionReferenceSource arm_angle_reference_source{
-      ArmDirectionReferenceSource::kDegenerate};
-  bool arm_angle_active{false};
-  double arm_angle_error_rad{0.0};
-  double arm_angle_robot_rad{0.0};
-  double arm_angle_target_rad{0.0};
-  double arm_angle_control_error_rad{0.0};
-  double arm_angle_current_rate_rad_s{0.0};
-  double arm_angle_requested_velocity_rad_s{0.0};
-  double arm_angle_requested_acceleration_rad_s2{0.0};
-  double arm_angle_radius_m{0.0};
-  double arm_angle_reference_projection_norm{0.0};
-  double arm_angle_jacobian_norm{0.0};
-  bool arm_angle_projection_held{false};
-  bool arm_angle_reference_governor_held{false};
-  bool arm_angle_branch_lock_active{false};
-  double arm_angle_branch_lock_distance_m{0.0};
-  bool arm_angle_branch_lock_constraint_active{false};
-  double arm_angle_branch_lock_requested_lower{0.0};
-  double arm_angle_branch_lock_effective_lower{0.0};
-  bool arm_angle_branch_lock_feasibility_clipped{false};
-  double arm_angle_achieved_acceleration_rad_s2{0.0};
-  double arm_angle_acceleration_residual_rad_s2{0.0};
-  double elbow_world_z{0.0};
-  double shoulder_world_z{0.0};
-  bool upper_arm_outward_active{false};
-  double upper_arm_outward_distance_m{0.0};
-  double upper_arm_outward_requested_lower{0.0};
-  double upper_arm_outward_effective_lower{0.0};
-  double upper_arm_outward_achieved{0.0};
-  double upper_arm_outward_residual{0.0};
-  bool upper_arm_outward_feasibility_clipped{false};
   bool dls_posture_reference_active{false};
   // PoseDlsStatus::kRejected; kept as an integer to keep telemetry.hpp
   // independent from the iterative solver implementation header.
@@ -100,51 +44,6 @@ struct ArmIkSnapshot {
   double dls_posture_velocity_target_max_abs{0.0};
   double dls_posture_qdot_error_max_abs{0.0};
   double dls_posture_goal_limit_margin_rad{0.0};
-  bool spark_posture_active{false};
-  bool spark_ik_accepted{false};
-  int spark_stage1_iterations{0};
-  int spark_stage2_iterations{0};
-  double spark_solve_time_us{0.0};
-  double spark_palm_position_error_m{0.0};
-  double spark_palm_orientation_error_rad{0.0};
-  double spark_reference_velocity_ratio{0.0};
-  double spark_reference_acceleration_ratio{0.0};
-  double spark_reference_jerk_ratio{0.0};
-  double spark_q_ik_error_max_abs{0.0};
-  double spark_q_ref_error_max_abs{0.0};
-  double spark_posture_velocity_max_abs{0.0};
-  bool spark_feedforward_valid{false};
-  int spark_feedforward_state{0};
-  bool spark_feedforward_dt_valid{false};
-  bool spark_feedforward_jump_rejected{false};
-  bool spark_feedforward_epoch_reset{false};
-  double spark_feedforward_source_dt_seconds{0.0};
-  double spark_feedforward_median_dt_seconds{0.0};
-  double spark_feedforward_activation{0.0};
-  double spark_feedforward_linear_velocity{0.0};
-  double spark_feedforward_angular_velocity{0.0};
-  double spark_motion_intent_linear_velocity{0.0};
-  double spark_motion_intent_angular_velocity{0.0};
-  bool spark_stationary_joint_reference_held{false};
-  bool spark_settled_hold_active{false};
-  double spark_settled_hold_dwell_seconds{0.0};
-  int spark_settled_hold_reason{0};
-  Vec7 spark_feedforward_q_ik{Vec7::Zero()};
-  Vec7 spark_feedforward_q{Vec7::Zero()};
-  Vec7 spark_feedforward_qdot{Vec7::Zero()};
-  Vec7 spark_feedforward_qddot{Vec7::Zero()};
-  Vec7 spark_feedforward_jerk{Vec7::Zero()};
-  bool headroom_valid{false};
-  bool headroom_derivative_history_valid{false};
-  double headroom_velocity{0.0};
-  double headroom_acceleration{0.0};
-  double headroom_jerk{0.0};
-  double headroom_task{0.0};
-  double headroom_raw{0.0};
-  double headroom_filtered{0.0};
-  double headroom_scale{0.0};
-  int headroom_state{0};
-  int headroom_dominant_source{0};
   double ee_ik_wall_time_us{0.0};
   double ee_ruckig_wall_time_us{0.0};
   double ee_ik_to_ruckig_wall_time_us{0.0};
@@ -156,18 +55,13 @@ struct TelemetrySample {
   int simulation_phase{-1};
   std::uint64_t sequence{0U};
   double control_time_seconds{0.0};
-  IkAlgorithm algorithm{IkAlgorithm::kHierarchicalQp};
-  ControlLevel control_level{ControlLevel::kVelocity};
-  SolverBackend backend{SolverBackend::kQpoases};
+  IkAlgorithm algorithm{IkAlgorithm::kPicoEeFrankaDls};
   TargetMode mode{TargetMode::kHold};
-  ArmAngleReferenceMode arm_angle_reference_mode{
-      ArmAngleReferenceMode::kPico};
   bool paused{false};
   bool accepted{false};
   HoldReason hold_reason{HoldReason::kNone};
   bool left_target_stale{false};
   bool right_target_stale{false};
-  bool otg_enabled{false};
   double left_position_error{0.0};
   double left_orientation_error{0.0};
   double right_position_error{0.0};
@@ -218,17 +112,13 @@ struct ViewerSnapshot {
   Vec20 left_hand_q{Vec20::Zero()};
   Vec20 right_hand_q{Vec20::Zero()};
   DualArmTargets targets;
-  IkAlgorithm algorithm{IkAlgorithm::kHierarchicalQp};
-  ControlLevel control_level{ControlLevel::kVelocity};
-  SolverBackend backend{SolverBackend::kQpoases};
+  IkAlgorithm algorithm{IkAlgorithm::kPicoEeFrankaDls};
   TargetMode mode{TargetMode::kHold};
   bool paused{false};
-  bool at_nominal_configuration{false};
   bool accepted{false};
   HoldReason hold_reason{HoldReason::kNone};
   bool left_target_stale{false};
   bool right_target_stale{false};
-  bool otg_enabled{false};
   bool hand_configured{false};
   bool hand_live{false};
   bool hand_stale{true};
@@ -260,8 +150,6 @@ struct ViewerSnapshot {
   bool pico_enabled{false};
   bool pico_live{false};
   bool pico_stale{false};
-  ArmAngleReferenceMode arm_angle_reference_mode{
-      ArmAngleReferenceMode::kPico};
   std::uint64_t pico_tracking_epoch{0U};
   std::uint64_t pico_sequence{0U};
   std::uint64_t pico_datagrams{0U};
@@ -281,7 +169,7 @@ struct ViewerSnapshot {
   double pico_receive_to_control_us{0.0};
   double pico_bridge_to_control_us{0.0};
   PicoUpperLimbSkeleton pico_upper_limb_skeleton;
-  PicoUpperLimbSkeleton spark_upper_limb_skeleton;
+  PicoUpperLimbSkeleton shared_root_upper_limb_skeleton;
 };
 
 enum class ViewerCommandType {
@@ -289,23 +177,16 @@ enum class ViewerCommandType {
   kSimulationHome,
   kSimulationHold,
   kSetMode,
-  kSetBackend,
-  kSetIkAlgorithm,
-  kSetControlLevel,
   kResetNominal,
   kSetManualTarget,
   kSetPaused,
   kTogglePicoTeleop,
-  kTogglePicoArmAngleSource,
 };
 
 struct ViewerCommand {
   std::uint64_t id{0U};
   ViewerCommandType type{ViewerCommandType::kSetMode};
   TargetMode mode{TargetMode::kHold};
-  SolverBackend backend{SolverBackend::kQpoases};
-  IkAlgorithm algorithm{IkAlgorithm::kHierarchicalQp};
-  ControlLevel control_level{ControlLevel::kVelocity};
   ArmSide side{ArmSide::kLeft};
   Pose target;
   double target_timestamp_seconds{

@@ -12,7 +12,7 @@ struct SharedRootContinuityOutput {
   bool valid{false}, reset_histories{false}, suppress_stationary_hold{false};
   SharedRootState state{SharedRootState::kUninitialized};
   double alpha{0};
-  SparkUpperTargets target;
+  SharedRootTargets target;
   std::uint64_t sequence{0},epoch{0},generation{0};
   std::int64_t receive_monotonic_ns{0};
 };
@@ -25,7 +25,7 @@ class SharedRootContinuity {
   void resetSession() noexcept;
   void observe(const SharedRootBuiltTargets&,std::int64_t now_ns);
   SharedRootContinuityOutput step(std::int64_t now_ns,bool authorized,
-                                  const SparkUpperTargets& model_snapshot);
+                                  const SharedRootTargets& model_snapshot);
   bool accept(std::uint64_t sequence,std::uint64_t epoch,std::uint64_t generation) noexcept;
   const SharedRootElbowHistory& elbowHistory() const noexcept { return elbow_history_; }
   const SharedRootElbowHistory& acceptedElbows() const noexcept { return accepted_elbows_; }
@@ -37,7 +37,7 @@ class SharedRootContinuity {
   SharedRootElbowHistory elbow_history_,accepted_elbows_;
   SharedRootState state_{SharedRootState::kUninitialized};
   SharedRootBuiltTargets candidate_;
-  SparkUpperTargets held_,start_;
+  SharedRootTargets held_,start_;
   SharedRootContinuityOutput pending_;
   std::uint64_t epoch_{0},generation_{0},sequence_{0};
   std::int64_t source_ns_{0},receive_ns_{0},held_receive_ns_{0};

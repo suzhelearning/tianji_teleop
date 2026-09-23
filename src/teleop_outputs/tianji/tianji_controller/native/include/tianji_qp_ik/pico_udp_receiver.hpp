@@ -1,7 +1,7 @@
 #pragma once
 
 #include "tianji_qp_ik/pico_teleop_protocol.hpp"
-#include "tianji_qp_ik/pico_trace_recorder.hpp"
+#include "tianji_qp_ik/pico_input_receiver.hpp"
 #include "tianji_qp_ik/telemetry.hpp"
 
 #include <cstdint>
@@ -19,38 +19,19 @@ struct PicoUdpReceiverOptions {
   bool reject_pose_jumps{true};
 };
 
-struct PicoReceiverStats {
-  std::uint64_t datagrams{0};
-  std::uint64_t accepted{0};
-  std::uint64_t malformed{0};
-  std::uint64_t crc_failures{0};
-  std::uint64_t reordered{0};
-  std::uint64_t jump_rejections{0};
-  std::uint64_t superseded{0};
-  std::uint64_t epoch_resets{0};
-  std::uint64_t resynchronizations{0};
-  std::uint64_t tracking_epoch{0};
-  std::uint64_t sequence{0};
-  std::int64_t latest_receive_monotonic_ns{0};
-  double input_frequency_hz{0.0};
-  PicoTraceRecorderState recording_state{PicoTraceRecorderState::kDisabled};
-  std::uint64_t recorded_packets{0U};
-  std::size_t recording_packet_size{0U};
-};
-
-class PicoUdpReceiver {
+class PicoUdpReceiver final : public PicoInputReceiver {
  public:
   PicoUdpReceiver(PicoUdpReceiverOptions options,
                   LatestSpscExchange<PicoTeleopFrame>& exchange);
-  ~PicoUdpReceiver();
+  ~PicoUdpReceiver() override;
 
   PicoUdpReceiver(const PicoUdpReceiver&) = delete;
   PicoUdpReceiver& operator=(const PicoUdpReceiver&) = delete;
 
-  void start();
-  void stop() noexcept;
+  void start() override;
+  void stop() noexcept override;
   std::uint16_t boundPort() const noexcept;
-  PicoReceiverStats stats() const noexcept;
+  PicoReceiverStats stats() const noexcept override;
 
  private:
   struct Impl;

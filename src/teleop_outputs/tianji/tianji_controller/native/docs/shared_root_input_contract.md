@@ -1,8 +1,8 @@
-# Shared-root TJVR 输入契约（Phase A）
+# Shared-root TJVR 输入契约
 
-本契约替代旧稿关于“原 PICO 世界系”和“独立解剖 hand”的假设，不修改发布端或线协议。
+本契约规定共享根掌心映射的输入来源、坐标系和几何证据，不修改发布端或线协议。
 配置证据见 [输入 artifact](../config/shared_root_tjvr_input_contract.yaml) 和
-[机器人 artifact](../config/shared_root_robot_geometry.yaml)。
+[机器人 artifact](../config/shared_root_robot_geometry_dls.yaml)。
 
 ## 来源与单一所有权
 
@@ -33,7 +33,7 @@ M0 的 raw/hold 回退不会通过该状态门。这是仓库发布端实现保�
 
 依据用户明确要求，保留既有 `symmetric_max`。M0 可将左右已标定的上臂、前臂
 长度分别替换为共同最大值，bridge 对 skeleton 仅做刚体变换，不再缩放骨段。
-新估计器应读取这些**米制有效骨长**，不恢复原始不对称观测，不重复对称化。
+估计器读取这些**米制有效骨长**，不恢复原始不对称观测，不重复对称化。
 这不是宣称修正后的长度是未经处理的真实人体测量。
 
 ## 机器人几何
@@ -42,37 +42,38 @@ M0 的 raw/hold 回退不会通过该状态门。这是仓库发布端实现保�
 固定根方向来自模型基座轴和肩中心关系，不来自随 J1 转动的 Link1 局部姿态。
 零位、配置初始姿态和两组非零关节姿态由 `test_shared_root_geometry` 对照。
 
-SPARK 将 MuJoCo 的 Link7→tcp 固定变换传给 Pinocchio；求解 TCP 是 `tcp_L/R`，
-不是 flange TCP。当前独立共享根模型的腕中心→TCP 距离为 0.1615 m；
-旧模型的 0.1315 m 不作为当前值。Link5 局部向量随腕关节变化；
+控制器将 MuJoCo 的 Link7→tcp 固定变换传给 Pinocchio；求解 TCP 是 `tcp_L/R`，
+不是 flange TCP。冻结共享根模型的腕中心→TCP 距离为 0.1615 m。
+Link5 局部向量随腕关节变化；
 artifact 中局部向量只是 reference q 的 shape 参考，不得当作固定安装外参。
 
 ## 当前接线状态
 
-已实现纯 C++ adapter、尺度估计、目标构造/滤波/intent、连续性管理和 guidance 离线接线。
-Viewer 已接通共享根 SPARK、Ceres 和 Franka DLS 分支；模型参考回放和真实输入仿真
-均有历史记录，但不能据此宣称完整阶段验收、动力学或真机验收通过。
-实验 profile 默认关闭；只有声明 `ConfigConsumer::kSharedRootAware` 的入口可加载
-开启的完整契约。其他入口 fail fast，不会静默走 legacy 冒充新算法。
-实验模式禁止 joint command export，也禁止会话内切换 IK/控制级别；不改变现有路线。
-当前入口与验收边界见 [交互仿真说明](verification/ceres_interactive_sim.md)；
-[guidance 报告](archive/2026-09-shared-root/shared_root_phase_a_guidance.md)仅为历史记录。
-离线 validator 只验证工作区证据与配置一致性，不授予运动权限，也不等于阶段 6 验收。
+唯一控制链为共享根掌心映射 → Franka DLS → Ruckig。
+配置使用 `shared_root` 和 `shared_root_shape`，
+唯一 profile 为 `config/qp_ik_pico_shared_root_dls.yaml`。
+纯 C++ adapter、尺度估计、目标构造/滤波、连续性管理和 guidance
+为 DLS 提供目标；不提供会话内算法选择。
+
+生产入口 `tianji_arm_ros` 使用 ROS 输入/输出。关节目标导出要求执行器显式
+启用 `--franka-dls-executor`；硬件授权与 SDK 属于 Python 执行器。
+离线 validator 仅验证工作区 artifact 与配置一致性，不授予运动权限。
+入口和传输边界见 [原生控制器说明](../README.md)；
+冻结模型来源见 [几何证据](verification/shared_root_dls_geometry.md)。
 
 连续性模块的 `accept(sequence, epoch, generation)` 只能由最终控制参考接受路径调用，
 不能仅因为生成目标、IK 成功或 guidance 返回 `accepted` 就调用。
-shared-root guidance 已消费恢复期间普通 stationary hold 的抑制和历史重置信号；
-安全保持、stale、Home、失能和故障仍然优先。该接线有离线回归，不代表现场验收。
+guidance 消费恢复期间普通 stationary hold 的抑制和历史重置信号；
+安全保持、stale、Home、失能和故障仍然优先。
 
-## zhoujie 简化对称配置
+## 简化对称配置
 
 除既有 measured/symmetric_max 来源外，输入契约也允许显式声明的
 `left_measured_symmetric_local_y_height_template`：左侧实测 TCP，右侧采用声明的镜像模型，
 双侧臂长由身高模板生成。简化 bundle v2 的腕掌距离也由身高估计，v1 才使用左腕实测；
-它是有效模型几何，不是双侧独立实测。入口见[简化标定](../../docs/pico-simple-calibration.md)。
+它是有效模型几何，不是双侧独立实测。
 控制端仍只消费 M0/bridge 输出，不再镜像 TCP、不再生成一次骨长，也不读取个人文件热更新。
 
-本轮离线输入依据为 `profiles/zhoujie/pico-simple/cal-91c71441c51b47db9366390c96c96199`，
-身高 1.62 m。其后已有使用该配置的[动作录制证据](archive/2026-09-shared-root/shared_root_actions_20260918.md)。
-历史录制与文件存在不等于当前人员指针已发布；启动时必须验证 `pico-simple/active.json`。
-原生合成测试不能证明右侧物理轴、SDK 输出或换人后的现场跟踪效果。
+启动时必须验证参与者的 `pico-simple/active.json` 指针。
+历史录制与文件存在不等于当前配置已发布；原生合成输入不能证明
+右侧物理轴、SDK 输出或换人后的现场跟踪效果。

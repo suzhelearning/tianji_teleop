@@ -1,6 +1,5 @@
 #pragma once
 
-#include "tianji_qp_ik/arm_angle.hpp"
 #include "tianji_qp_ik/types.hpp"
 
 #include <Eigen/Geometry>
@@ -11,6 +10,16 @@
 #include <optional>
 
 namespace tianji_qp_ik {
+
+enum class ArmDirectionReferenceSource { kPico = 0, kDegenerate = 3 };
+
+struct ArmDirectionReference {
+  bool valid{false};
+  Eigen::Vector3d direction{Eigen::Vector3d::Zero()};
+  ArmDirectionReferenceSource source{ArmDirectionReferenceSource::kDegenerate};
+  bool shoulder_to_wrist_axis_valid{false};
+  Eigen::Vector3d shoulder_to_wrist_axis{Eigen::Vector3d::Zero()};
+};
 
 inline constexpr std::size_t kPicoTeleopPacketV1Size = 160;
 inline constexpr std::size_t kPicoTeleopPacketV2Size = 208;
@@ -76,6 +85,8 @@ struct PicoTeleopFrame {
   // Monotonic receiver-local event generation. Persisted on later frames so a
   // latest-only exchange cannot erase a discontinuity before it is consumed.
   std::uint64_t resynchronization_generation{0U};
+  // Receiver-local validity; false revokes input without creating a zero pose.
+  bool valid{true};
 };
 
 struct PicoPacketDecodeResult {

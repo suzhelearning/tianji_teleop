@@ -76,7 +76,7 @@ class MujocoRobot {
   void forward();
   Pose tcpPose(ArmSide side) const;
   // Fixed transform of the selected TCP site in the Link7 body frame.
-  // This is shared with Pinocchio/Spark so all IK layers use the same TCP.
+  // Shared with Pinocchio so mapping and DLS use the same TCP.
   Pose tcpRelativeToLink7(ArmSide side) const;
   Mat67 tcpJacobianWorld(ArmSide side);
   ArmKinematicSample armKinematicsAt(ArmSide side, const Vec7& position);

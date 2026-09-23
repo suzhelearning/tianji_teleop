@@ -1,32 +1,44 @@
 #!/usr/bin/env python3
-"""Observe startup health without binding TJVR ports or granting motion authority."""
+"""Observe live matched ROS arm input and rendering without granting motion authority."""
 import argparse
 import json
 import math
 import subprocess
+from pathlib import Path
+import uuid
 import time
 
 
-class BridgeProgress:
-    def __init__(self):
+class ArmInputProgress:
+    def __init__(self, boot_id):
+        self.boot_id = boot_id
         self.previous = None
-        self.ready = False
+        self.advancing = False
+        self.published_ns = 0
 
-    def observe(self, payload):
-        self.ready = False
+    def observe(self, message, now_ns):
+        self.advancing = False
         try:
-            value = json.loads(payload)
-            keys = ("packets_sent", "source_stamp_ns", "tracking_epoch", "send_errors")
-            current = tuple(value[key] for key in keys)
-            if any(type(x) is not int or x < 0 for x in current):
-                raise ValueError("invalid counters")
+            if (not message.valid or message.boot_id != self.boot_id
+                    or str(uuid.UUID(message.session_id)) != message.session_id
+                    or message.sequence <= 0 or message.source_timestamp_ns <= 0
+                    or message.tracking_epoch <= 0
+                    or not 0 <= now_ns - message.published_monotonic_ns < 100_000_000):
+                raise ValueError("invalid or stale arm input")
+            current = (message.session_id, message.tracking_epoch,
+                       message.revocation_generation, message.sequence,
+                       message.source_timestamp_ns, message.published_monotonic_ns)
             old = self.previous
-            self.ready = bool(old and current[0] > old[0] and current[1] > old[1]
-                              and current[2] == old[2] and current[2] > 0
-                              and current[3] == old[3])
+            self.advancing = bool(old and current[:3] == old[:3]
+                                  and all(current[i] > old[i] for i in (3, 4, 5)))
             self.previous = current
-        except (ValueError, KeyError, TypeError):
+            self.published_ns = message.published_monotonic_ns
+        except (ValueError, AttributeError, TypeError):
             self.previous = None
+            self.published_ns = 0
+
+    def ready(self, now_ns):
+        return self.advancing and 0 <= now_ns - self.published_ns < 100_000_000
 
 
 class ViewerProgress:
@@ -65,30 +77,37 @@ def check_panes(session, checkout, run=subprocess.run):
 def wait_ready(session, checkout, timeout):
     import rclpy
     from std_msgs.msg import String
+    from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
+    from tianji_interfaces.msg import PicoArmInput
+    from tianji_runtime.resources import config_path
     rclpy.init()
     node = None
     try:
         node = rclpy.create_node("pico_session_startup_check")
-        progress = BridgeProgress()
+        progress = ArmInputProgress(Path("/proc/sys/kernel/random/boot_id").read_text().strip())
         pane = subprocess.run(["tmux", "display-message", "-p", "-t", session + ":m0", "#{pane_id}"],
                               capture_output=True, text=True, check=True, timeout=2).stdout.strip()
         viewer = ViewerProgress(pane)
         viewer_topic = "/pico/skeleton_viewer/status"
         viewer_subscription = node.create_subscription(String, viewer_topic, lambda msg: viewer.observe(msg.data), 10)
-        topic = "/pico/tianji_mujoco_teleop/status"
-        subscription = node.create_subscription(String, topic, lambda msg: progress.observe(msg.data), 10)
+        topic = json.loads(config_path("robot.json").read_text())["pico_input_topic"]
+        qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT,
+                         durability=DurabilityPolicy.VOLATILE)
+        subscription = node.create_subscription(
+            PicoArmInput, topic,
+            lambda msg: progress.observe(msg, time.monotonic_ns()), qos)
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             check_panes(session, checkout)
             rclpy.spin_once(node, timeout_sec=0.2)
-            if progress.ready and viewer.ready(time.monotonic_ns()):
-                # Do not interpret interleaved diagnostics from duplicate bridges as progress.
+            if progress.ready(time.monotonic_ns()) and viewer.ready(time.monotonic_ns()):
+                # Multiple semantic mappers must not be mistaken for one live stream.
                 if node.count_publishers(topic) != 1 or node.count_publishers(viewer_topic) != 1:
-                    raise RuntimeError("Expected exactly one PICO bridge status publisher")
+                    raise RuntimeError("Expected exactly one PICO arm input and viewer publisher")
                 check_panes(session, checkout)
-                print("PICO input ready: skeleton viewer rendering; fresh TJVR sends observed (no executor authorization)")
+                print("PICO input ready: skeleton viewer rendering; fresh matched ROS arm frames observed (no executor authorization)")
                 return
-        raise RuntimeError("Timed out waiting for advancing PICO bridge packets and fresh skeleton viewer heartbeat")
+        raise RuntimeError("Timed out waiting for advancing PICO arm input and fresh skeleton viewer heartbeat")
     finally:
         if node is not None:
             node.destroy_node()

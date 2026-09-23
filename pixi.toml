@@ -123,9 +123,9 @@ install = "bash bash/install.sh"
 check-env = "python bash/check_env.py"
 build-workspace = "bash bash/build.sh"
 build = "bash bash/build.sh"
+build-arm-ros = "bash bash/build_arm_ros.sh"
 test-native = "bash bash/test_native.sh"
 test-native-core = "ctest --test-dir build/control/core --output-on-failure"
-test-native-mapped-palm = "ctest --test-dir build/control/mapped-palm --output-on-failure"
 test-sim = "bash bash/test_python.sh simulation"
 test-collection = "bash bash/test_python.sh collection"
 test-controller = "bash bash/test_python.sh controller"
@@ -145,8 +145,8 @@ collect = "bash bash/run_data_collector.sh"
 setup-pico = "bash bash/run_setup_pico.sh"
 stop-pico = "bash bash/run_stop_pico.sh"
 pico = "bash bash/run_pico.sh"
-# The Manus launcher runs in the default Jazzy environment; the `manus`
-# environment owns retargeting and TJH2 output; ROS input crosses a private pipe.
+# Manus ROS acquisition and SDK Hand2 target publication run in default.
+# The ROS-free manus environment is retained only for separate offline tools.
 manus = "bash bash/run_manus.sh"
 prepare-manus = "bash bash/build_manus.sh"
 sim = "bash bash/run_sim.sh"
@@ -175,7 +175,7 @@ ros-jazzy-launch = "*"
 ros-jazzy-ament-index-python = "*"
 
 # ---------------------------------------------------------------------------
-# control: C++/Pinocchio/OSQP/qpOASES/Ceres/Ruckig toolchain, no ROS.
+# control: the retained C++/Pinocchio/Franka DLS/Ruckig toolchain, no ROS.
 # ---------------------------------------------------------------------------
 [feature.control.dependencies]
 # Build toolchain. Declared here rather than inherited: this environment is
@@ -188,14 +188,31 @@ pkg-config = "*"
 make = "*"
 eigen = ">=3.4,<4"
 libpinocchio = ">=3.8,<4"
-libosqp = ">=1.0,<2"
-qpoases = ">=3.2,<4"
 # control/CMakeLists.txt does `find_package(mujoco 3.10.0 EXACT CONFIG REQUIRED)`
 # and `find_package(glfw3 CONFIG REQUIRED)` for the viewer.
 libmujoco = "==3.10.0"
 glfw = ">=3.4,<4"
 yaml-cpp = ">=0.8,<1"
 gtest = ">=1.15,<2"
+
+# ROS boundary for the unchanged native core; never borrow default's Eigen ABI.
+[feature.arm-ros.dependencies]
+python = "3.12.*"
+numpy = "*"
+colcon-common-extensions = "*"
+ros-jazzy-rclcpp = "*"
+ros-jazzy-rmw-fastrtps-cpp = "*"
+ros-jazzy-ament-cmake = "*"
+ros-jazzy-ament-cmake-python = "*"
+ros-jazzy-rosidl-default-generators = "*"
+ros-jazzy-rosidl-default-runtime = "*"
+ros-jazzy-rosidl-typesupport-fastrtps-c = "*"
+ros-jazzy-rosidl-typesupport-fastrtps-cpp = "*"
+ros-jazzy-rosidl-typesupport-introspection-c = "*"
+ros-jazzy-rosidl-typesupport-introspection-cpp = "*"
+ros-jazzy-std-msgs = "*"
+ros-jazzy-geometry-msgs = "*"
+ros-jazzy-builtin-interfaces = "*"
 
 # ---------------------------------------------------------------------------
 # manus: Python 3.12 + Pinocchio/nlopt hand retargeting.
@@ -238,6 +255,7 @@ eclipse-zenoh = ">=1.10,<2"
 default = { features = [], solve-group = "default" }
 cameras = { features = ["cameras"], no-default-feature = true, solve-group = "cameras" }
 control = { features = ["control"], no-default-feature = true, solve-group = "control" }
+arm-ros = { features = ["control", "arm-ros"], no-default-feature = true, solve-group = "arm-ros" }
 manus = { features = ["manus"], no-default-feature = true, solve-group = "manus" }
 policy = { features = ["policy"], solve-group = "default" }
 

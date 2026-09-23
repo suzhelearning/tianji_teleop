@@ -21,10 +21,6 @@ install(DIRECTORY
   DESTINATION share/${PROJECT_NAME}/marvin_m6_ccs
 )
 install(DIRECTORY
-  mapped_palm/
-  DESTINATION share/${PROJECT_NAME}/mapped_palm
-)
-install(DIRECTORY
   config/
   DESTINATION share/${PROJECT_NAME}/config
 )

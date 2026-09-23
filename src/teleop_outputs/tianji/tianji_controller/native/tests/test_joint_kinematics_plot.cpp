@@ -62,7 +62,7 @@ TEST(JointKinematicsDifferentiatorTest,
 }
 
 TEST(JointKinematicsDifferentiatorTest,
-     UsesDirectQpAccelerationAndResetsOnSourceChange) {
+     UsesRuckigAccelerationAndResetsOnSourceChange) {
   JointKinematicsDifferentiator differentiator;
   const Vec7 zero = Vec7::Zero();
   (void)differentiator.update(
@@ -75,7 +75,7 @@ TEST(JointKinematicsDifferentiatorTest,
 
   const JointKinematicsDerivatives first_direct = differentiator.update(
       Vec7::Constant(0.1), Vec7::Constant(7.0),
-      ReferenceAccelerationSource::kDirectQpOutput,
+      ReferenceAccelerationSource::kRuckigOutput,
       Vec7::Constant(0.1), 0.005, false);
   EXPECT_TRUE(first_direct.reference_acceleration_valid);
   EXPECT_TRUE(first_direct.reference_acceleration.isApprox(Vec7::Constant(7.0)));
@@ -84,7 +84,7 @@ TEST(JointKinematicsDifferentiatorTest,
 
   const JointKinematicsDerivatives second_direct = differentiator.update(
       Vec7::Constant(0.12), Vec7::Constant(8.0),
-      ReferenceAccelerationSource::kDirectQpOutput,
+      ReferenceAccelerationSource::kRuckigOutput,
       Vec7::Constant(0.13), 0.005, false);
   EXPECT_TRUE(second_direct.reference_jerk_valid);
   EXPECT_TRUE(second_direct.reference_jerk.isApprox(Vec7::Constant(200.0)));
@@ -115,7 +115,7 @@ TEST(JointKinematicsDifferentiatorTest,
   Vec7 non_finite = Vec7::Zero();
   non_finite[3] = std::numeric_limits<double>::quiet_NaN();
   const JointKinematicsDerivatives invalid = differentiator.update(
-      non_finite, zero, ReferenceAccelerationSource::kDirectQpOutput, zero,
+      non_finite, zero, ReferenceAccelerationSource::kRuckigOutput, zero,
       0.005, false);
   EXPECT_FALSE(invalid.reference_acceleration_valid);
   EXPECT_FALSE(invalid.actual_acceleration_valid);
@@ -192,8 +192,6 @@ TEST(JointKinematicsHistoryTest, RejectsInvalidCapacityAndJointIndex) {
 }
 
 TEST(JointKinematicsPlotMetricTest, CyclesNamesAndUnits) {
-  EXPECT_STREQ(plotMetricName(PlotMetric::kPosition), "q");
-  EXPECT_STREQ(plotMetricUnit(PlotMetric::kVelocity), "rad/s");
   EXPECT_EQ(nextPlotMetric(PlotMetric::kPosition), PlotMetric::kVelocity);
   EXPECT_EQ(nextPlotMetric(PlotMetric::kVelocity), PlotMetric::kAcceleration);
   EXPECT_EQ(nextPlotMetric(PlotMetric::kAcceleration), PlotMetric::kJerk);

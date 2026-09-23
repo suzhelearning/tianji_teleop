@@ -27,6 +27,8 @@ struct JointCommandFrame {
   std::uint64_t sequence{0U};
   std::int64_t source_timestamp_ns{0};
   std::uint64_t pico_tracking_epoch{0U};
+  // Local metadata only; intentionally absent from the historical TJRC codec.
+  std::int64_t input_monotonic_ns{0};
   // Left arm 7, right arm 7, left hand 20, right hand 20 in TJH2 joint order.
   std::array<double, 54U> position_rad{};
 };
@@ -85,15 +87,21 @@ class JointCommandArmReadiness {
   bool inhibited_{false};
 };
 
+class JointCommandSink {
+ public:
+  virtual ~JointCommandSink() = default;
+  virtual void send(const JointCommandFrame& frame) = 0;
+};
+
 // Socket preparation is explicit and loopback-only. send() never allocates on
 // its success path; any failure aborts export rather than disguising a fault.
-class JointCommandExporter {
+class JointCommandExporter final : public JointCommandSink {
  public:
   JointCommandExporter(const std::string& host, std::uint16_t port);
-  ~JointCommandExporter();
+  ~JointCommandExporter() override;
   JointCommandExporter(const JointCommandExporter&) = delete;
   JointCommandExporter& operator=(const JointCommandExporter&) = delete;
-  void send(const JointCommandFrame& frame);
+  void send(const JointCommandFrame& frame) override;
 
  private:
   int socket_fd_{-1};

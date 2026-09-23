@@ -7,8 +7,8 @@
   "controller_config": "qp_ik_pico_shared_root_dls.yaml",
   "controller_model": "src/teleop_outputs/tianji/tianji_description/models/marvin_m6_wuji2_shared_root_ceres.xml",
   "controller_velocity_scale": 1.0,
-  "command_port": 17000,
-  "pico_port": 15000,
+  "joint_command_topic": "/tianji/controller/joint_targets",
+  "pico_input_topic": "/pico/arm_input",
   "hand_port": 16000,
   "startup_timeout_s": 30.0,
   "safety": {

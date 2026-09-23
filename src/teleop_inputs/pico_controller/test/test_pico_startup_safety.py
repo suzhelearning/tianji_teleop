@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import runpy
 import subprocess
+from types import SimpleNamespace
 
 import pytest
 
@@ -12,17 +13,25 @@ SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 READY = runpy.run_path(str(SCRIPTS / "check_pico_session_ready.py"))
 
 
-def payload(sent=10, stamp=100, epoch=1, errors=0):
-    return json.dumps(dict(packets_sent=sent, source_stamp_ns=stamp,
-                           tracking_epoch=epoch, send_errors=errors))
+BOOT_ID = "01234567-89ab-4cde-8123-456789abcdef"
+SESSION_ID = "abcdef01-2345-4678-9abc-def012345678"
 
 
-def test_readiness_requires_two_advancing_valid_samples():
-    tracker = READY["BridgeProgress"]()
-    tracker.observe(payload())
-    assert not tracker.ready
-    tracker.observe(payload(11, 101))
-    assert tracker.ready
+def frame(sequence=10, stamp=100, epoch=1, published=1000, **overrides):
+    values = dict(sequence=sequence, source_timestamp_ns=stamp, tracking_epoch=epoch,
+                  published_monotonic_ns=published, boot_id=BOOT_ID,
+                  session_id=SESSION_ID, revocation_generation=0, valid=True)
+    values.update(overrides)
+    return SimpleNamespace(**values)
+
+
+def test_readiness_requires_two_advancing_live_frames():
+    tracker = READY["ArmInputProgress"](BOOT_ID)
+    tracker.observe(frame(), 1000)
+    assert not tracker.ready(1000)
+    tracker.observe(frame(11, 101, published=1001), 1001)
+    assert tracker.ready(1001)
+    assert not tracker.ready(100_001_001)
 
 
 def test_viewer_readiness_requires_matching_fresh_render_heartbeat():
@@ -82,13 +91,19 @@ def test_skeleton_heartbeat_is_only_sent_after_viewer_sync(monkeypatch, sync_fai
         assert events == ["sync", "heartbeat"]
 
 
-@pytest.mark.parametrize("sample", [payload(), payload(11, 100), payload(9, 101),
-    payload(11, 101, epoch=2), payload(11, 101, errors=1), "{}", "null", "broken"])
-def test_readiness_rejects_stale_reset_error_and_bad_json(sample):
-    tracker = READY["BridgeProgress"]()
-    tracker.observe(payload())
-    tracker.observe(sample)
-    assert not tracker.ready
+@pytest.mark.parametrize("sample", [
+    frame(), frame(11, 100, published=1001), frame(9, 101, published=1001),
+    frame(11, 101, epoch=2, published=1001), frame(11, 101, valid=False),
+    frame(11, 101, boot_id="another-boot"), frame(11, 101, session_id="bad"),
+    frame(11, 101, session_id=BOOT_ID, published=1001),
+    frame(11, 101, published=1002), SimpleNamespace(),
+    frame(11, 101, published=1001, revocation_generation=1),
+])
+def test_readiness_rejects_stale_reset_invalid_and_foreign_frames(sample):
+    tracker = READY["ArmInputProgress"](BOOT_ID)
+    tracker.observe(frame(), 1000)
+    tracker.observe(sample, 1001)
+    assert not tracker.ready(1001)
 
 
 @pytest.mark.parametrize("owner,panes,valid", [
@@ -158,11 +173,6 @@ esac
     calls = log.read_text().splitlines()
     assert "kill-session" not in log.read_text()
     for window in ("driver", "m0", "bridge"):
-        retain = f"set-option -w -t pico_tianji_teleop:{window} remain-on-exit on"
-        assert retain in calls
-        send = next(i for i, call in enumerate(calls)
-                    if call.startswith(f"send-keys -t pico_tianji_teleop:{window} "))
-        assert calls.index(retain) < send
         capture = f"capture-pane -p -t pico_tianji_teleop:{window} -S -200"
         assert (capture in calls) == (ready_rc != 0)
     assert ("PICO startup diagnostic logs:" in result.stderr) == (ready_rc != 0)

@@ -3,7 +3,6 @@ import contextlib
 import io
 import json
 from pathlib import Path
-import socket
 import tempfile
 from types import SimpleNamespace
 import unittest
@@ -14,6 +13,7 @@ from unittest.mock import patch
 from tianji_controller import hardware, return_home
 from wuji_controller import hardware as hand_hardware
 from tianji_controller.safety import SafetyFault
+from tianji_controller.ros_commands import ExecutorLease
 
 CONFIG = workspace_config("robot.json")
 
@@ -26,11 +26,13 @@ class HomeTests(unittest.TestCase):
         self.now = 10_000_000_000
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as reserved:
-            reserved.bind(("127.0.0.1", 0))
-            self.config["command_port"] = reserved.getsockname()[1]
         self.site_config = Path(self.temporary.name) / "config.json"
         self.site_config.write_text(json.dumps(self.config))
+        # Site config may live outside the workspace; SDK resources may not.
+        self.sdk_root = Path(self.temporary.name) / "workspace"
+        sdk_file = self.sdk_root / self.config["arms"]["sdk_directory"] / "fx_robot.py"
+        sdk_file.parent.mkdir(parents=True)
+        sdk_file.write_text("# offline SDK resource\n")
 
     def feedback(self, positions=None, *, enabled=True, stamp=None):
         return SimpleNamespace(position_rad=self.home if positions is None else positions,
@@ -61,8 +63,9 @@ class HomeTests(unittest.TestCase):
         state = SimpleNamespace(actual=tuple(actual), enabled=enabled, sends=[], cleanup=[])
 
         class Arms:
-            def __init__(self, *args, **kwargs):
-                pass
+            def __init__(self, sdk_directory, *args, **kwargs):
+                # Resolve/read the configured resource, but never import a real SDK.
+                (Path(sdk_directory) / "fx_robot.py").read_text()
 
             def connect(self):
                 pass
@@ -94,6 +97,7 @@ class HomeTests(unittest.TestCase):
             self.now += round(seconds * 1e9)
 
         with patch.object(hardware, "MarvinDevice", Arms), \
+                patch.object(return_home, "workspace", return_value=self.sdk_root), \
                 patch.object(hand_hardware, "Hand2Device",
                              side_effect=AssertionError("HOME touched a hand")), \
                 patch.object(return_home.sys.stdin, "isatty", return_value=True), \
@@ -151,13 +155,14 @@ class HomeTests(unittest.TestCase):
         self.assertEqual(state.cleanup, ["stop", "close"])
         self.assertFalse(state.enabled)
 
-    def test_occupied_teleop_endpoint_refuses_home_before_hardware(self):
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as occupied:
-            occupied.bind(("127.0.0.1", self.config["command_port"]))
-            with patch.object(return_home.sys.stdin, "isatty", return_value=True), \
-                    patch.object(return_home, "make_hardware", side_effect=AssertionError("connected despite live executor")), \
-                    contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-                self.assertEqual(return_home.main(["--config", str(self.site_config), "--confirm-real"]), 1)
+    def test_existing_teleop_lease_refuses_home_before_hardware(self):
+        occupied = ExecutorLease()
+        self.addCleanup(occupied.close)
+        with patch.object(return_home.sys.stdin, "isatty", return_value=True), \
+                patch.object(return_home, "make_hardware") as hardware_factory, \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(return_home.main(["--config", str(self.site_config), "--confirm-real"]), 1)
+        hardware_factory.assert_not_called()
 
     def test_default_and_nonterminal_execution_cannot_connect_hardware(self):
         with patch.object(return_home, "make_hardware", side_effect=AssertionError("unexpected device access")), \

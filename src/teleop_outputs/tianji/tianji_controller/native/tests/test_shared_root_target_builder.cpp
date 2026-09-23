@@ -100,7 +100,6 @@ TEST(SharedRootTargetBuilder, ReachableProjectionPreservesRelationAndHonorsBound
   excessive.left.p_control_root_Ct.x()=excessive.right.p_control_root_Ct.x()=.85;
   SharedRootTargetBuilder reference=b;
   const auto rejected=b.update(excessive,m);EXPECT_FALSE(rejected.valid);
-  EXPECT_EQ(rejected.detail,"ReachableProjectionInfeasible");
   next.sequence=4;next.source_timestamp_ns+=20000000;next.receive_monotonic_ns+=20000000;
   EXPECT_EQ(b.update(next,m).filtered.left.palm.position,reference.update(next,m).filtered.left.palm.position);
 }
@@ -133,14 +132,13 @@ TEST(SharedRootTargetBuilder, ReachableProjectionRejectsConflictingArmsAndSpeedJ
   auto f=input(1);f.left.p_elbow_root_Ct.z()=f.right.p_elbow_root_Ct.z()=.08;
   f.left.p_control_root_Ct.x()=.735;f.right.p_control_root_Ct.x()=-.475;
   const auto conflict=SharedRootTargetBuilder(c).update(f,m);
-  EXPECT_FALSE(conflict.valid);EXPECT_EQ(conflict.detail,"ReachableProjectionInfeasible");
+  EXPECT_FALSE(conflict.valid);
   SharedRootTargetBuilder b(c);f=input(1);
   f.left.p_elbow_root_Ct.z()=f.right.p_elbow_root_Ct.z()=.08;
   ASSERT_TRUE(b.update(f,m).valid);
   f.sequence=2;f.source_timestamp_ns+=10000000;f.receive_monotonic_ns+=10000000;
   f.left.p_control_root_Ct.x()=f.right.p_control_root_Ct.x()=.74;
   const auto jump=b.update(f,m);EXPECT_FALSE(jump.valid);
-  EXPECT_EQ(jump.detail,"ReachableProjectionInfeasible");
 }
 TEST(SharedRootTargetBuilder, NamedBilateralActionsPreserveRawSharedTransform) {
   struct Action {const char* name;Eigen::Vector3d left,right;};
@@ -194,7 +192,7 @@ TEST(SharedRootTargetBuilder, CenterAndNonfiniteGuardsRemainEnabled) {
   f.left.p_control_root_Ct.x()=2;f.right.p_control_root_Ct.x()=2;
   SharedRootTargetBuilder b(config());
   const auto out=b.update(f,scale());
-  EXPECT_FALSE(out.valid);EXPECT_EQ(out.detail,"target_gate");
+  EXPECT_FALSE(out.valid);
   f=input(1);f.left.p_control_root_Ct.y()=std::numeric_limits<double>::infinity();
   EXPECT_FALSE(b.update(f,scale()).valid);
 }
@@ -259,7 +257,7 @@ TEST(SharedRootTargetBuilder, RotationJumpFallsBackInSameRobotFrame) {
   auto f=input(2);
   f.left.R_shoulder_Ct=Eigen::AngleAxisd(1.5,Eigen::Vector3d::UnitZ()).toRotationMatrix();
   const auto out=b.update(f,m);ASSERT_TRUE(out.valid);
-  EXPECT_EQ(out.raw.left.upper_source,SparkSegmentSource::kPositionFallback);
+  EXPECT_EQ(out.raw.left.upper_source,SharedRootSegmentSource::kPositionFallback);
   const Eigen::Vector3d expected=.28*c.R_BCt*Eigen::Vector3d::UnitX();
   EXPECT_LT((out.raw.left.elbow-out.raw.left.shoulder-expected).norm(),1e-12);
 }

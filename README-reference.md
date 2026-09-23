@@ -1,11 +1,16 @@
 # 完整操作参考
 
-本页保留原 README 的进阶路线、安装细节及历史验证记录，避免精简首页时丢失信息。
+本页记录当前 DLS/Ruckig 链路的标定、安装、采集与安全操作；旧后端实现和说明已删除，历史由 Git 保存。
 新人员简化标定和默认 DLS 仿真请优先按[当前快速开始](README.md)操作。
 以下各路线的标定、环境和授权要求不同，不要交叉执行；历史测试数字不代表本轮重新验证。
 当前工作空间为 `bash/`、`config/`、`src/` 和 `vendor/`；默认使用 Jazzy／Python 3.12／Fast DDS。
 本轮安装与图形窗口证据及仍待完成项统一见[迁移验证状态](docs/migration-verification-status.md)。
 本文历史实机、微基准和回归记录保留原日期与范围，不作为迁移后的硬件或全量测试通过声明。
+
+> 双臂通信更新：标准 DLS 仿真及真机执行使用 `pico_arm_input` → `/pico/arm_input`
+> → `tianji_arm_ros`（同一 DLS/Ruckig 核心）→ `/tianji/controller/joint_targets`。
+> 业务 UDP 15000／17000 已从生产路径移除；双臂不再提供其他 IK 后端或自动回退。
+> 新核心在隔离 `arm-ros` 环境构建，`pixi run build-arm-ros` 不连接设备。
 
 > Manus 范围更新（2026-09-22）：当前 `run_manus.sh` 已切换为 ROS 采集、21 点适配、
 > SDK Hand2 重定向和左右手各 20 维命令发布；不再发送 TJH2，尚未接入执行器。
@@ -19,15 +24,13 @@ PICO 裸手使用独立[仿真入口 `bash/run_pico_hand_sim.sh --height-m HEIGH
 跟踪抖动仍是已知限制，不能视为性能验收完成；不支持真机。
 现有 VR、Manus、外骨骼输入入口保留；默认仿真以及 `--real`／`--data` 均采用共享根 Franka DLS＋Ruckig。真机执行器只接受 `franka-dls`，不再提供旧 real 后端选择。
 
-2026-09-15 已合入 mapped-palm 路线及退出清理修复，保留本工程原生外骨骼输入。
-mapped-palm 来源移植与验收记录见[历史说明](docs/mapped-palm-port.md)；当前真机操作以[快速开始](README.md#真机遥操)为准，软件验证结果见[迁移验收记录](docs/migration-verification-status.md)。
 
 以 **人员标定 → PICO／Manus 输入 → C++ 重定向与控制 → 安全执行 → 数据落盘** 为主链。
 标定、Hand2 retargeting、双臂控制、模型和必要的原生依赖源码均位于本仓库，不需要克隆其他业务仓库或初始化子模块。
 硬件 SDK、ROS、MuJoCo、Pinocchio 等通用库仍须安装；厂商二进制和私钥不由重构替代。
 
 > **三种模式必须区分，且不能同时占用相同输入端口。**
-> - `pixi run sim`（或 `bash bash/run_teleop.sh --sim`）：默认 Franka DLS＋Ruckig 双臂 direct 仿真，按 S 接入；默认接收 Hand2，纯双臂使用 `--no-hand-teleop`。旧双臂＋双手入口用 `--ik-backend spark`，动力学仿真再加 `--simulation-mode dynamics`。
+> - `pixi run sim`（或 `bash bash/run_teleop.sh --sim`）：仅 Franka DLS＋Ruckig 双臂 direct 仿真，按 S 接入；默认接收 Hand2，纯双臂使用 `--no-hand-teleop`。不提供旧后端或动力学模式切换。
 > - `bash bash/run_teleop.sh --real`：共享根 DLS＋Ruckig 双臂与独立 TJH2 双 Hand2 真机执行，保留实测／目标双模型窗口；三次 Enter 分别授权慢速对齐、实时遥操、回 HOME 后失能。激活 default overlay 后执行 `python -m tianji_controller.run_teleop` 不带使能参数仍为 dry-run。
 > - `bash bash/run_teleop.sh --data --task TASK`：使用相同 DLS／Ruckig 执行器和真机安全门控，额外管理相机及独立 DDS 采集器，默认写入 `/data/TianjiData/raw/YYYYMMDD/`；用 `--dataset PATH` 指定根目录。
 > - 当前真机支持双臂与左右两只 Hand2；`all` 表示双臂＋双手，`hands` 表示仅双手。
@@ -76,56 +79,30 @@ pixi run -e default bash -c 'source bash/environment.sh; exec python src/teleop_
 2026-09-20 用 1.62 m 录制的 4471 帧构造了 11 组合成人体离线测试：
 等比例身高 1.45～1.95 m 的机械臂掌心目标与基线几乎一致；单独改变臂长／肩宽时，
 目标出现厘米级差异。全部组最终几何闭合，但不代表 IK、碰撞或真人换人验收通过。
-该结果仅针对共享根映射，不外推到旧 SPARK 或 mapped-palm 的其他映射模式。
-历史方法、数值和复现记录见[合成人体映射实验](src/teleop_outputs/tianji/tianji_controller/native/docs/verification/synthetic_body_mapping_20260920.md)。
+该结果仅针对当前共享根映射；软件几何验证不等于实际佩戴、碰撞或真机验收。
 
 换人须以新的人员名和实际身高重新标定、明确发布，再检查 MuJoCo 骨架的掌心位置、
 转腕方向及伸臂动作；不要复用上一人的 TCP 或手工改派生骨长文件。
 完整步骤及仍需检查的体型差异见[简化标定说明](docs/pico-simple-calibration.md#换人身高与臂长适配)。
 
-当前控制操作与验收边界见[DLS/Ceres 交互仿真](src/teleop_outputs/tianji/tianji_controller/native/docs/verification/ceres_interactive_sim.md)；
-旧阶段报告和参数实验已集中到[历史归档索引](src/teleop_outputs/tianji/tianji_controller/native/docs/archive/2026-09-shared-root/README.md)，
-其中旧命令、旧版本指纹和测试数字不作为当前启动依据。
+当前仿真只使用 DLS/Ruckig：S 接入、H 回双臂 Home、P／空格停止跟随。实际证据见迁移验证状态。
 
-## PICO＋VR 手柄：mapped-palm IK＋对称骨架启动
+## PICO＋VR 手柄：DLS/Ruckig 与人员骨架
 
-**`bash bash/run_teleop.sh --sim` 默认使用 Franka DLS＋Ruckig（双臂 direct 仿真）。
-`--real`／`--data` 已统一到同一算法，但仍使用独立的安全执行器与人工授权，不能套用仿真窗口按键。**
-默认 DLS/Ceres 仿真按 S 接入、H 平滑回双臂 Home、P/空格停止；默认接收双手，不导出硬件指令。
-原生构建分别使用 `build/control/core` 与 `build/control/mapped-palm`，安装到 `install/control`：
+`bash bash/run_teleop.sh --sim` 只使用 Franka DLS＋Ruckig 的 direct/model-reference 显示。
+`--real`／`--data` 使用同一双臂算法，但运动授权仍只属于 Python 安全执行器。
 
 ```bash
-pixi run build                         # 自动 configure，包含 DLS 和 Ceres
-pixi run sim                           # 默认 Franka DLS + Ruckig
-pixi run sim --user zhoujie             # 校验/启动该人员 PICO 输入，再打开机械臂仿真
-pixi run sim --ik-backend ceres         # 可选 Ceres LM + Ruckig
-pixi run sim --ik-backend spark         # 旧 SPARK 仿真入口
+pixi run build
+pixi run sim --user YOUR_USER --no-hand-teleop
 pixi run test-native
 pixi run test-sim
 ```
 
-`sim` 任务使用 default Pixi 环境及其 overlay。
-已发布简化标定后，也可直接运行 `bash bash/run_teleop.sh --sim --user zhoujie`；
-该 Bash 入口自动进入 Pixi。请替换为实际人员名。
-`--user` 当前仅支持 DLS/Ceres direct 仿真和固定 PICO 端口 15000；不自动启动 Manus 或真机。
-无输入会话时启动该人员骨架/输入；已有会话须工程、标定目录及内容指纹一致，并重新通过
-就绪检查，否则拒绝，不会静默换人。旧会话缺少标记时先 `pixi run stop-pico`。
-仿真仍须按 S 接入；退出只按 owner token 清理本次新建的 PICO 会话，复用的会话保留，
-需要时另执行 `pixi run stop-pico`。启动失败／Ctrl+C 同样不杀他人或后来重建的会话。
-首次启用 Ceres 时，CMake 优先寻找已安装库，否则下载并校验固定版本源码。
-显式选项 `--ik-backend ceres`、`--ik-backend spark`、`--ik-backend mapped-palm` 仅作为已有仿真／历史对照功能保留，不是本分支后续实现路线；真机执行器不再接受这些后端。
-旧仿真的 headless／dynamics 能力不代表 DLS 交互仿真支持这些选项，也不作为真机切换后端的依据。
-后端选择不会替 PICO 输入端选择对称骨长。两项需分别选择：
-
-| 选择项 | 入口与参数 | 不选择时 |
-| --- | --- | --- |
-| 左右对称骨长 | 下文 `pico_symmetric_profile.py --resolve` 后显式传 `--calibration-dir` | 使用人员原始骨长 |
-| 历史 mapped-palm IK | `bash bash/run_teleop.sh --sim --ik-backend mapped-palm` | 仿真默认及当前真机执行器均使用 Franka DLS＋Ruckig |
-| 现场末端 X/Z 对齐 | `bash bash/run_teleop.sh --sim --ik-backend mapped-palm --mapped-palm-xz-calibration` | 不要求 C，使用原映射 |
-
-骨长标定默认 `symmetric_max`：左右完整 TCP/腕心/骨长均通过校验后，自动生成对称快照，
-上臂、前臂分别取左右较大值；不改写原始测量。**自动生成不等于自动启用。**
-C 标定则是人体末端与机器人末端的 X/Z 对齐，不改变骨长，也不修改 Y 或姿态。
+`YOUR_USER` 必须换成实际佩戴者的已发布标定；已有输入会话需工作区、人员和指纹一致，
+且通过新鲜 ROS 输入检查。不会静默换人，退出只停止本次拥有的输入会话。
+双臂 ROS 核心位于独立 arm-ros 环境，普通 control 环境保留 DLS worker 和只读显示工具。
+人员骨长策略属于输入标定，不是另一种 IK 后端。需要对称快照时仍可用以下显式流程。
 
 ### 1. 环境和构建
 
@@ -169,44 +146,25 @@ python src/teleop_inputs/pico_controller/scripts/pico_symmetric_profile.py --sou
 ### 3A. 终端二：仿真（不连接真机）
 
 ```bash
-bash bash/run_teleop.sh --sim \
-  --ik-backend mapped-palm \
-  --mapped-palm-xz-calibration \
-  --simulation-mode direct
+bash bash/run_teleop.sh --sim --no-hand-teleop
 ```
 
-在 **MuJoCo 窗口**按 C，双臂向前水平伸直并稳定两秒；标定成功后按 S 接管。
-H 停止跟随并回配置 Home，到位静止且重新准备完成后可按 S 恢复；保留手动 R。
-回位期间拒绝 S，不自动接管。direct 显示期望关节角，不经过 PD/动力学；
-没有 Manus 输入时可先只测试双臂，仿真手部保持目标。
+在机器人窗口按 S 接入、H 受控回双臂 Home、P／空格停止跟随。回位中不排队接管，
+普通仿真不导出硬件目标；新 Manus 目前只发布 ROS 手部目标，尚未接入执行器。
 
-### 3B. 终端二：真机仅双臂（无需 Manus）
+### 3B. 终端二：真机仅双臂
 
-先停止仿真执行器，核对设备 IP、左右臂身份、人员标定并做只读预检：
+先停止仿真，确认急停、设备身份和运动空间，再做只读预检：
 
 ```bash
-pixi run -e default bash -c 'source bash/environment.sh; exec python -m tianji real --devices arms --inspect'
+pixi run bash -c 'source bash/environment.sh; python -m tianji_controller.run_teleop --devices arms --inspect'
 ```
 
-预检失败不要继续。确认活动范围安全、负载妥善处理、硬件急停可用后单独执行：
+现场确认通过后才启动 `bash bash/run_teleop.sh --real --devices arms`。
+第一次 Enter 慢速对齐，到 READY 后第二次 Enter 开始跟随；TELEOP 中第三次 Enter
+受控回 Home 并失能。对齐／回位中的 Enter 或 Ctrl+C 直接停止，不追加 Home。
+这不是图形窗口的 S/H/P 授权，也不驱动手部。软件验证不等于现场动作验收。
 
-```bash
-bash bash/run_teleop.sh --real \
-  --devices arms \
-  --ik-backend mapped-palm \
-  --mapped-palm-xz-calibration \
-  --mapped-palm-resync-policy stop
-```
-
-在 **启动终端**按 C（不用回车），水平前伸稳定两秒，确认标定成功；
-第一次 Enter 锁定标定并慢速对齐，等 READY 后第二次 Enter 才开始遥操。
-C 本身不使能、不驱动真机。TELEOP 中第三次 Enter 慢速回 Home，到位后失能退出；
-对齐/回位期间 Enter 或 Ctrl+C 直接停止并失能，不追加回位。失能可能失去支撑。
-真机这条入口使用 C/Enter，不能照搬仿真的 S/H/R；`--devices arms` 不启用真实灵巧手。
-
-本目录尚需现场验收，不能把合并前来源目录的成功测试当作当前目录的验收结果。
-更多边界见 [真机说明](docs/mapped-palm-real-readiness.md)，骨长策略与异常处理见
-[对称骨长说明](docs/mapped-palm-port.md#自动生成对称骨长配置)。
 
 ## 目录
 
@@ -218,7 +176,7 @@ C 本身不使能、不驱动真机。TELEOP 中第三次 Enter 慢速回 Home�
 | `bash/` | 安装、构建、环境激活和日常操作包装器 |
 | `config/` | 机器人、设备身份、唯一采集／相机配置及 Fast DDS 配置 |
 | `src/teleop_inputs/` | 人手侧输入：PICO 手柄、Manus、外骨骼和 PICO 裸手四种主输入；正式观测采集独立位于 `src/data_collector/` |
-| `src/teleop_outputs/tianji/tianji_cmd_pub/` | 机器人侧：PICO 人体目标映射与 TJVR 发布 |
+| `src/teleop_outputs/tianji/tianji_cmd_pub/` | 机器人侧：PICO 人体目标映射与原子 `PicoArmInput` ROS 发布 |
 | `src/teleop_outputs/tianji/tianji_controller/` | 机器人侧：原生控制算法、Python 真机执行器和反馈发布 |
 | `src/teleop_outputs/tianji/tianji_description/` | 机器人侧：安装到 share 的机器人模型、网格及共用 Home |
 | `src/teleop_outputs/wuji/` | 机器人侧：Hand2 硬件适配与重定向 |
@@ -233,11 +191,10 @@ C 本身不使能、不驱动真机。TELEOP 中第三次 Enter 慢速回 Home�
 
 ### C++ 与 Python 边界
 
-- PICO／IMU 桥、Manus 原始采集、双臂 IK／QP／轨迹限制和 UDP 控制协议在 C++ 中运行。
-- Hand2 分析目标函数和梯度位于 `src/teleop_outputs/wuji/wuji_retargeting/wuji_retargeting/native.cpp`，由 Manus 准备步骤在使用环境中编译；
-  每次优化迭代借用连续 float64 数组，三维临时量在栈上，缺少扩展时不静默退回 Python。
-- Pinocchio 已有原生 FK／Jacobian 保留；双臂迭代去掉重复 FK，左右臂输入构造合并但安全提交和回退顺序不变。
-- TJRC／TJVR／TJH2 共用 constexpr CRC-32 表，协议布局、校验范围和多项式不变。
+- PICO／Manus 采集、共享根映射、Franka DLS 和 Ruckig 在 C++ 原生代码中执行；
+  双臂输入输出使用原子 ROS 消息，没有第二条硬件控制通道。
+- 新 Manus 使用 SDK Hand2 RetargetSession；其余仍被使用的离线手部工具保持独立。
+- Pinocchio FK／Jacobian、双侧安全提交、恢复和轨迹约束保留，不因删除旧后端改变数值约定。
 - Python 保留标定交互、配置、SDK 编排、安全状态机和数据段生命周期；NumPy、h5py／HDF5、OpenCV 本身调用原生库。
   不为了换语言重写这些边界，也不改变 schema-v1、人工授权或过期输入拒绝策略。
 
@@ -297,9 +254,7 @@ USB 权限、设备网络地址及个人标定仍须按后续文档配置；已�
 已有主项目环境，仅补装外骨骼输入时执行 `bash bash/install.sh --exoskeleton`。
 该分支安装 `src/teleop_inputs/exoskeleton/.pixi/envs/default` 并重建其扩展，不重装主环境、不编译控制器／Manus／ROS，也不启动硬件。编译需要 `/usr/bin/gcc`、`/usr/bin/g++`（Ubuntu/Debian 的 `build-essential`）。
 
-历史精简副本交付曾完成文件 SHA-256 对比、基础预检与 Manus 编译，当时因磁盘空间未完成全量安装。
-本轮裸 shell 完整安装已通过，DLS/Ceres 实际安装窗口也已通过合成 S→TELEOP→P/HOLD→H/Home；
-其余当前证据以[迁移验证状态](docs/migration-verification-status.md)为准，不据此宣称真实输入／硬件／GPU 验收通过。
+当前构建、无硬件验证及未验收范围以[迁移验证状态](docs/migration-verification-status.md)为准。
 
 ### 手动分步安装
 
@@ -315,9 +270,9 @@ bash src/teleop_inputs/pico_hand/build_native.sh
 ```
 
 `build` 只扫描 `src/`，默认输出为 `build/default`、`install/default`、`log/default`；
-policy 有自己的同名环境前缀。control 原生目标独立构建到 `build/control/{core,mapped-palm}`，
-安装到 `install/control/bin/`。Manus 原始采集／ROS 适配由 default 启动，通过私有通道接入 manus 重定向，
-不能让 ROS-free manus 环境 source default 的 ROS 或 Python 库。
+policy 有独立 overlay。DLS 原生目标在 `build/control/core`，ROS 适配核心在
+`build/arm-ros/core`，可执行文件安装到 `install/control/bin/`。Manus ROS 链在 default
+运行；不同环境不互相注入 Python 或数值库路径。
 
 系统还需 `adb`、`tmux`、USB／网络权限。必需的厂商库通过本仓库 LFS 提供。
 运行包装器不需要手动激活；需要下面的 `python -m tianji` 等直接模块命令时，在该终端先执行：
@@ -363,12 +318,12 @@ python -m tianji visualize /data/tianji_jpeg50
 | 通道 | 默认设置 |
 | --- | --- |
 | ROS 2 | Jazzy／Fast DDS，Domain `120`，`ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST`；清除 `ROS_LOCALHOST_ONLY` |
-| PICO 双臂输入 | UDP `127.0.0.1:15000` |
-| Hand2 手部输入 | UDP `127.0.0.1:16000` |
-| 控制器 → 真机执行器 | UDP `127.0.0.1:17000`，仅 loopback |
+| PICO 双臂输入 | ROS `/pico/arm_input`，`PicoArmInput` |
+| 旧手部输入（外骨骼） | TJH2 UDP `127.0.0.1:16000`；新 Manus ROS 目标尚未接入执行器 |
+| 控制器 → 真机执行器 | ROS `/tianji/controller/joint_targets`，`ControllerJointTargets`，同机 boot/时钟 |
 
 **同一时刻只保留一套 PICO 驱动、一套 Manus 采集链路和一个机器人控制器。**
-仿真 Viewer 与真机执行器内部的控制器不能同时占用相同输入端口。
+ROS 订阅不代表拥有硬件；执行器和 Home 通过本机互斥租约排他，不能换 domain/topic 绕过。
 
 ## RealSense RGB 相机
 
@@ -773,52 +728,15 @@ FK／求解耗时计入帧年龄；发送器保留过期丢弃门禁，执行端
 历史外骨骼迁入验证覆盖锁定环境、双手离线配置，以及合成零位帧经真实 FK／官方求解 worker／随机回环 UDP 直发，由原生协议解码和每侧新鲜度逻辑检查；覆盖旧侧过期、故障缓存清除与退出不补包。当时未连接实物手套、修改网络或启动真机，实际外骨骼＋PICO 带运动闭环仍需按安全流程验证。
 历史原生内核迁移曾编译安装，并通过左右手各两帧合成编码器输入运行实际机构换算／FK／手型拟合／官方求解／TJH2 UDP 链路；当时未运行测试套件或性能基准，不宣称具体加速倍数，不作为本轮重跑结果。
 
-### 3. 选择参考显示或动力学仿真
-
-先关闭旧机器人 Viewer，再在终端 3 执行：
+### 3. 启动 DLS 参考显示
 
 ```bash
-cd /path/to/tianji_teleop
-
-# 参考运动可视化：检查 IK / 重定向结果，不模拟受力后的运动。
-pixi run -e default bash -c 'source bash/environment.sh; exec python -m tianji view'
-
-# 或：旧双臂＋双手 direct，须显式选择 SPARK，不经过 PD 或动力学积分。
-bash bash/run_teleop.sh --sim --ik-backend spark
-
-# 显式选择动力学积分，仍然不连接任何真机硬件。
-bash bash/run_teleop.sh --sim --ik-backend spark --simulation-mode dynamics
+bash bash/run_teleop.sh --sim --user YOUR_USER --no-hand-teleop
 ```
 
-检查顺序：先缓慢、小幅活动双臂，再保持手腕稳定，逐个活动手指。
-确认左右对应，握拳时手指朝掌心弯曲。
-
-两者都使用上文的 PICO 和手部输入（Manus 或外骨骼二选一）。`--sim` 内部启动同一套无界面参考控制器，
-通过独占的动态 loopback UDP 端口接收 TJRC v2 目标，不占用真机输出端口 `17000`。
-不能再额外启动独立机器人 Viewer。没有输入时保持初始目标；某一路输入失效时保持
-该路最后目标。仅 dynamics 模式继续物理积分，受力后仍可能运动；direct 模式没有重力下垂。
-终端区分 `waiting`、`ready` 和 `stale-hold`。
-
-动力学路径保留原模型惯性、重力、关节及力矩限制，增加 54 个有界位置／阻尼执行器，
-以 `1 ms` 步长和 `implicitfast` 积分。只在初始化设置关节姿态，后续目标仅写入执行器。
-控制器仍产生 `model_reference`，没有把模拟反馈送回 IK；反馈闭环在模拟关节伺服层。
-仿真不做重力补偿，因此存在重力下垂和目标误差，这与 `--view` 的参考姿态显示不同。
-可用 MuJoCo 鼠标交互调整视角；窗口默认隐藏侧栏以完整显示双臂和双手。
-
-**物理仿真不等于经过真机辨识的数字孪生。** 增益位于 `src/simulation/simulation/physics.py`，仅为仿真调参，
-不是硬件标定值。碰撞采用原模型网格的凸包，定点排除肩部安装壳、复合腕关节及复合指根
-装配内部的重叠；其余接触保持启用。原始 XML 不修改。不能据此认定真机抓取或碰撞安全。
-
-无窗口验证使用同一动力学路径：
-
-```bash
-bash bash/run_teleop.sh --sim --ik-backend spark --simulation-mode dynamics --headless --duration 10
-```
-
-结束时输出 `SIM_SUMMARY`，包括实际物理时间、各路目标误差和输入状态。
-`--duration` 对有窗口与无窗口动力学均有效。关闭动力学窗口或按 `Ctrl+C` 会清理内部控制器。
-统一停止整套遥操使用 `bash bash/stop.sh`：依次停止真机执行器、动力学执行器、
-本项目机器人 Viewer、Manus 和受管理的 PICO 会话；不停止其他工程的同名进程。
+该入口直接显示 DLS/Ruckig 参考，不做动力学积分，不连接真实硬件。
+PICO 输入和原生核心通过 ROS 通信；没有有效输入时保持，不通过其他算法或脚本轨迹回退。
+S/H/P 的操作见首页。通用物理显示引擎仍供 Mocap 回放使用，不是可选双臂 IK 后端。
 
 ### 4. 停止仿真
 
@@ -839,7 +757,7 @@ pixi run stop-pico
 > 软件 watchdog 不替代物理急停；SDK 阻塞、进程强制终止及固件行为都可能影响实际停机。
 
 包含双臂的真机入口内部启动无界面控制器，并自动打开一个独立、只读的 MuJoCo 实测／目标窗口。
-窗口必须成功打开后才连接设备；不需要也不能另开占用相同 `15000/16000` 输入端口的机器人 Viewer。
+窗口必须成功打开后才连接设备；不要同时运行两个执行模式。双臂已改为 ROS，保留手部输入仍占用 16000。
 PICO 人体骨架窗口可以保留。单手／双手独立执行不包含双臂时，保留原来的无窗口启动流程。
 
 ### 1. 核对设备配置和左右手 SN
@@ -856,8 +774,8 @@ PICO 人体骨架窗口可以保留。单手／双手独立执行不包含双臂
 左右 SN 来自已保存的 `config/hand_devices.json` 固件身份查询结果，连接及使能前仍会再次校验。
 两侧不能配置成同一个 SN；双手共用一份 SDK 初始化，但设备句柄、反馈和故障状态独立。
 
-当前内部目标协议为 **TJRC v2 / 468 字节**，包含 14 个机械臂关节和左右各 20 个手关节。
-旧 v1 / 308 字节会被拒绝；升级后停止旧执行器和旧机器人 Viewer，再使用新编译的控制器与执行器。
+当前内部目标接口为 **ControllerJointTargets ROS 消息**，包含双臂 14 维 rad 参考及兼容旧手部路线的左右各 20 维参考。
+它保留实际已应用输入时间、产生时间和有效标志；不是实测反馈，也不授予使能。旧 TJRC 字节协议只供历史离线工具。
 
 ```bash
 cd /path/to/tianji_teleop
@@ -1047,25 +965,6 @@ READY 必须同时满足指令已到目标、所有选中设备实测误差在�
 回 HOME 前还要求双臂指令停止变化，不能把移动中的遥操指令直接接到零初速轨迹；
 未满足此条件时请求被拒绝并走现有停止／失能流程。微小但持续变化的输入也可能阻止此切换，
 此时应先安全退出遥操，释放设备后使用独立 `bash/run_home.sh`，不要放宽安全阈值强行切换。
-mapped-palm 可显式选择 `--mapped-palm-resync-policy bounded`，通过私有事件通道
-执行同 epoch 重同步的短时保持及限速衔接；默认仍为 `stop`。
-这是待实机验收的选项，不是取消失鲜/限位/反馈保护；详见
-[真机执行层说明](docs/mapped-palm-real-readiness.md)。
-仅新 mapped-palm 真机路线可选 `--mapped-palm-xz-calibration`：在启动终端按 **C**
-（无需回车）水平前伸标定 X/Z；成功后第一次 Enter 锁定标定并慢速对齐，
-到位静止后第二次 Enter 遥操。C 不使能/不驱动机械臂，执行期间禁止 C，epoch
-变化后标定失效。此选项不自动开启 bounded；未启用时仍使用固定映射，SPARK 不变。
-mapped-palm 双臂真机默认启用 `--mapped-palm-dropout-policy hold-300ms`：
-仅 TELEOP 中的 PICO 短时断流可保持所有选中设备的最后下发目标，
-在最后有效输入时间起 300 ms 内恢复同 epoch／同流代次的新有效帧后，按原执行限速继续。
-不补发积压目标，重复帧不续期；超过窗口、无效包、求解失败、坐标系重置仍停机。
-命令与硬件反馈看门狗、双手输入时效及关节保护不变。显式传 `--mapped-palm-dropout-policy stop`
-可恢复原失鲜即停行为；它与上面的重同步策略是两个独立选项，新增恢复行为仍待实机验收。
-
-2026-09-15 已完成一次 PICO＋VR 手柄、mapped-palm、C 标定、`stop` 策略的真实双臂
-流程测试：标定 → 对齐 → 遥操 → 回 Home → 释放连接。该结果不覆盖 bounded、
-Manus/Hand2 联合真机或长期稳定性；完整命令和证据见
-[mapped-palm 真机说明](docs/mapped-palm-real-readiness.md)。
 
 只读 Viewer 清理时的非零退出、ERROR 或退出超时现在会计入会话 `cleanup_errors`，
 并使入口返回失败状态；硬件停止/释放先于 Viewer 清理。历史修复报告记录 170 项软件回归，
@@ -1178,7 +1077,7 @@ right = (-0.9599310886, -1.1344640138,  1.2217304764, -1.0471975512, -1.04719755
 - **直接停止：**Ctrl+C、关闭窗口、`bash bash/stop.sh` 或对齐／回位中按 Enter，均停止并失能，不追加 HOME 运动。
 - **异常运动、碰撞风险或软件无响应：立即按硬件急停。** 不要只等待终端退出。
 - 输入断流超过允许窗口、无效输入、反馈异常、越限、跟踪误差或控制器退出会终止已使能会话。
-  唯一默认断流恢复例外为 mapped-palm TELEOP 的 PICO `hold-300ms`；其余故障不自动清错恢复。
+  不再提供旧后端断流宽限或自动重新使能；故障需显式退出、检查并重新授权。
 - Hand2 非零诊断码由 SDK 静态目录按严重级别解析：`Warning` 不单独触发停机，
   会输出左右手、SN、NID、故障名及厂商处理建议，并保留在反馈 `detail` 中。
   `DeferredStop`、`ImmediateStop`、`Fatal`、未知码或解码失败仍锁存停机。
@@ -1253,7 +1152,6 @@ bash bash/calibrate_pico_arm.sh right all --user zjx
 
 ## 进一步说明
 
-- [mapped-palm 独立后端：构建、PICO＋VR 仿真及迁移边界](docs/mapped-palm-port.md)
 - [PICO 标定与输入会话](docs/pico-simple-calibration.md)
 - [双臂控制器与遥测说明](src/teleop_outputs/tianji/tianji_controller/native/README.md)
 - [Wuji 重定向说明](src/teleop_outputs/wuji/wuji_retargeting/README.md)

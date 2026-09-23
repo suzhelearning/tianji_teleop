@@ -17,14 +17,14 @@ TARGET_EXECUTABLES = frozenset(
         "pico_palm_tcp_publisher",
         "pico_palm_skeleton_filter",
         "smpl_mujoco_visualizer",
-        "tianji_mujoco_teleop_bridge",
+        "pico_arm_input",
     }
 )
 TARGET_LAUNCH_FILES = frozenset(
     {
         "start_pico_bridge.launch.py",
         "start_pico_palm_skeleton_filter.launch.py",
-        "start_tianji_mujoco_teleop.launch.py",
+        "pico_arm_input.launch.py",
     }
 )
 

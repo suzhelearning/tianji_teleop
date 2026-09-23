@@ -7,7 +7,6 @@ from contextlib import ExitStack, redirect_stderr, redirect_stdout
 import io
 import json
 import os
-import socket
 import struct
 import subprocess
 import sys
@@ -35,6 +34,7 @@ from tianji_controller.safety import MotionGate, SafetyFault
 from tianji_controller.tests.test_safety import configuration, frame, feedback, NOW
 from tianji_controller.staged_motion import StagedMotionGate
 from tianji_controller.protocol import decode_packet
+from tianji_controller.ros_commands import ExecutorLease
 
 
 def _fake_native_executable(path):
@@ -46,17 +46,13 @@ def _fake_native_executable(path):
     return resolve
 
 
-def packet(sequence, flags=7, epoch=7):
-    body = struct.pack("<4sBBHQqQ54d", b"TJRC", 2, flags, 468,
-                       sequence, NOW+sequence, epoch, *([0.0]*54))
-    return body + struct.pack("<I", zlib.crc32(body))
 
 
 class ExecutorTests(unittest.TestCase):
     def setUp(self):
         # These deterministic gate tests own a synthetic clock. Background DDS
         # and SDK sampling are exercised separately with real process loopback.
-        for target in ("ExecutorObserver", "FeedbackHub"):
+        for target in ("ExecutorObserver", "FeedbackHub", "CommandReceiver"):
             patcher = patch("tianji_controller.run_teleop." + target)
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -118,31 +114,6 @@ class ExecutorTests(unittest.TestCase):
             finally:
                 os.close(write_fd)
 
-    def test_disabled_frame_cannot_be_hidden_by_following_ready_frame(self):
-        gate = MotionGate(configuration(), ("right_hand",))
-        gate.arm(frame(), feedback(), NOW)
-        receiver = CommandReceiver(0)
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sender:
-                sender.sendto(packet(2, flags=1), ("127.0.0.1", receiver.port))
-                sender.sendto(packet(3, flags=3), ("127.0.0.1", receiver.port))
-            with self.assertRaises(SafetyFault):
-                receiver.drain(lambda value: gate.observe_source(value, NOW+10))
-            self.assertIsNotNone(gate.fault)
-        finally:
-            receiver.close()
-
-    def test_reordered_command_is_not_accepted(self):
-        receiver = CommandReceiver(0)
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sender:
-                sender.sendto(packet(5), ("127.0.0.1", receiver.port))
-                sender.sendto(packet(4), ("127.0.0.1", receiver.port))
-            with self.assertRaises(SafetyFault):
-                receiver.drain()
-            self.assertEqual(receiver.latest.sequence, 5)
-        finally:
-            receiver.close()
 
     def test_crc_valid_but_unsafe_metadata_is_rejected(self):
         for flags, sequence, timestamp, value in ((8,1,NOW,0.0), (7,0,NOW,0.0),
@@ -215,7 +186,7 @@ class ExecutorTests(unittest.TestCase):
     def _delayed_preflight(self, delay, *, stop_source_at=None, confirm=True, arm_pose=None,
                            log_dir=None):
         clock = SimpleNamespace(now=NOW, reads=0, streaming=True, entered=False, enabled=False)
-        receiver = Mock(port=17001)
+        receiver = Mock()
         receiver.latest = frame(stamp=clock.now)
 
         def drain(*args):
@@ -259,7 +230,7 @@ class ExecutorTests(unittest.TestCase):
         monitor.is_running.return_value = True
         viewer_factory = Mock(return_value=monitor)
         with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
-            viewer = Path(temporary) / "tianji_qp_ik_viewer"
+            viewer = Path(temporary) / "tianji_arm_ros"
             viewer.touch()
             controller_config = Path(temporary) / "controller.yaml"
             controller_config.write_text("controller:\n  rate_hz: 200\n")
@@ -352,13 +323,13 @@ class ExecutorTests(unittest.TestCase):
                 ("controller", "model_state_only", False),
                 ("control", "level", "acceleration"),
                 ("controller", "pico_ee_dls_kinematics_urdf_path", str(folder / "missing.urdf")),
-                ("spark_shared_root", "robot_geometry_artifact", str(folder / "missing.yaml")),
+                ("shared_root", "robot_geometry_artifact", str(folder / "missing.yaml")),
             )
             for section, key, value in cases:
                 with self.subTest(section=section, key=key):
                     candidate = yaml.safe_load(yaml.safe_dump(valid))
                     target = (candidate["pico_ee_franka_dls"]["post_smoothing"]
-                              if section == "post_smoothing" else candidate[section])
+                              if section == "post_smoothing" else candidate.setdefault(section, {}))
                     target[key] = value
                     profile.write_text(yaml.safe_dump(candidate))
                     with patch("tianji_controller.run_teleop.CollectionSupervisor") as collection, \
@@ -401,19 +372,18 @@ class ExecutorTests(unittest.TestCase):
         hardware_factory.assert_not_called()
         viewer_factory.assert_not_called()
 
-    def test_occupied_command_port_is_refused_before_hardware_connection(self):
-        config, _ = load_configuration(ROOT / "config/robot.json")
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as occupied, \
-                tempfile.TemporaryDirectory() as folder:
-            occupied.bind(("127.0.0.1", 0))
-            config["command_port"] = occupied.getsockname()[1]
-            config_path = Path(folder) / "config.json"
-            config_path.write_text(json.dumps(config))
-            with patch("tianji_controller.run_teleop.make_hardware") as hardware_factory, \
-                    patch("tianji_controller.run_teleop.RealRobotViewer") as viewer_factory, \
-                    patch("tianji_controller.run_teleop.sys.stdin.isatty", return_value=True), \
-                    redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-                result = main(["--config", str(config_path), "--devices", "arms", "--confirm-real"])
+    def test_existing_executor_lease_refuses_second_executor_before_hardware(self):
+        occupied = ExecutorLease()
+        self.addCleanup(occupied.close)
+        with patch("tianji_controller.run_teleop.CommandReceiver", side_effect=CommandReceiver), \
+                patch("tianji_controller.run_teleop.native_executable",
+                      _fake_native_executable(Path(__file__))), \
+                patch("tianji_controller.run_teleop.make_hardware") as hardware_factory, \
+                patch("tianji_controller.run_teleop.RealRobotViewer") as viewer_factory, \
+                patch("tianji_controller.run_teleop.sys.stdin.isatty", return_value=True), \
+                patch.dict(os.environ, {"ROS_DOMAIN_ID": "122"}), \
+                redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            result = main(["--devices", "arms", "--confirm-real"])
         self.assertEqual(result, 1)
         hardware_factory.assert_not_called()
         viewer_factory.assert_not_called()
@@ -421,7 +391,7 @@ class ExecutorTests(unittest.TestCase):
     def test_all_stop_requests_precede_any_device_release(self):
         for failing_stop in (None, "right_hand"):
             with self.subTest(failing_stop=failing_stop), tempfile.TemporaryDirectory() as folder:
-                viewer = Path(folder) / "tianji_qp_ik_viewer"
+                viewer = Path(folder) / "tianji_arm_ros"
                 viewer.parent.mkdir(parents=True, exist_ok=True)
                 viewer.touch()
                 stopped = set()
@@ -473,7 +443,7 @@ class ExecutorTests(unittest.TestCase):
         monitor = Mock()
         controller = Mock()
         controller.poll.return_value = None
-        receiver = Mock(port=17001)
+        receiver = Mock()
 
         def gate_factory(*args):
             gate = StagedMotionGate(*args)
@@ -536,7 +506,7 @@ class ExecutorTests(unittest.TestCase):
             base = Path(temporary)
             config_path = base / "config.json"
             config_path.write_text(json.dumps(config))
-            viewer = base / "control/build/tianji_qp_ik_viewer"
+            viewer = base / "install/control/bin/tianji_arm_ros"
             viewer.parent.mkdir(parents=True, exist_ok=True)
             viewer.touch()
             controller_config = base / "controller.yaml"
@@ -654,7 +624,9 @@ class CollectionOwnershipTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         root = Path(temporary.name)
         config, model = root / "collection.json", root / "model.xml"
-        config.write_bytes(b'{"cameras": {}}\n')
+        config.write_text(json.dumps({
+            "robot_config": "tianji_wuji2_v1", "state_rate_hz": 120,
+            "cameras": {"top": "top123", "left_wrist": "left123", "right_wrist": "right123"}}))
         model.write_bytes(b"<mujoco/>\n")
         self.observer = Mock(session_id="this-executor")
         self.status = SimpleNamespace(session_id="", state="IDLE", prepared=True,
@@ -670,6 +642,8 @@ class CollectionOwnershipTests(unittest.TestCase):
         }
         self.duplicates = []
         self.foreign_services = {}
+        self.client_services = []
+        self.camera_ready = True
         self.events = []
         self.observer.request.side_effect = self.request
         self.clock = 0.0
@@ -695,6 +669,7 @@ class CollectionOwnershipTests(unittest.TestCase):
             services = [(name, [kind]) for node in self.participants
                         for name, kind in CollectionSupervisor.SERVICES[node].items()]
             services.extend((service, [kind]) for service, (_, kind) in self.foreign_services.items())
+            services.extend(self.client_services)
             return nodes, services
         if operation == "service_owners":
             service = args[0]
@@ -710,7 +685,9 @@ class CollectionOwnershipTests(unittest.TestCase):
             values = self.participants[args[0].removesuffix("/get_parameters")]
             return SimpleNamespace(values=[SimpleNamespace(type=4, string_value=values[key]) for key in args[1]])
         if operation == "trigger":
-            return SimpleNamespace(success=True)
+            if args[0] != "/tianji/cameras/check_ready":
+                raise AssertionError(args)
+            return SimpleNamespace(success=self.camera_ready)
         if operation in ("bind_collector", "activate_collection"):
             return True
         if operation == "drain_collection":
@@ -729,8 +706,9 @@ class CollectionOwnershipTests(unittest.TestCase):
         raise AssertionError(operation)
 
     def spawn(self, command, **kwargs):
-        node = (CollectionSupervisor.CAMERA if command[0] == "bash"
-                else CollectionSupervisor.COLLECTOR)
+        if "data_collector.node" not in command:
+            raise AssertionError(f"--data may only launch the collector: {command}")
+        node = CollectionSupervisor.COLLECTOR
         self.events.append(("spawn", node))
         self.participants[node] = self.supervisor._expected(node, self.observer.session_id)
         process = Mock(pid=100 + len(self.events), returncode=None)
@@ -750,23 +728,50 @@ class CollectionOwnershipTests(unittest.TestCase):
         self.supervisor.finish()
         self.assertEqual(self.events, [("drain", "this-executor")])
         self.assertEqual(self.drain_polls, 3)
-        self.assertEqual(set(self.participants), {CollectionSupervisor.CAMERA, CollectionSupervisor.COLLECTOR})
+
+    def test_external_camera_monitor_can_arrive_after_initial_graph_snapshot(self):
+        camera = self.participants.pop(CollectionSupervisor.CAMERA)
+
+        def delayed_discovery(operation, *args):
+            if self.clock >= 3.0:
+                self.participants[CollectionSupervisor.CAMERA] = camera
+            return self.request(operation, *args)
+
+        self.observer.request.side_effect = delayed_discovery
+        self.supervisor.start()
+        self.status.session_id = self.observer.session_id
+        self.status.inputs_ready = True
+        self.supervisor.check_before_enable()
+        self.assertGreaterEqual(self.clock, 3.0)
+        self.assertEqual(self.events, [])
 
     def test_only_created_collector_is_stopped_after_reusing_camera(self):
         del self.participants[CollectionSupervisor.COLLECTOR]
         self.supervisor.start()
         self.supervisor.finish()
         self.assertEqual(self.events, [
-            ("spawn", CollectionSupervisor.COLLECTOR), ("drain", "this-executor"),
-            ("kill", 101, signal.SIGINT)])
+            ("spawn", CollectionSupervisor.COLLECTOR),
+            ("drain", "this-executor"), ("kill", 101, signal.SIGINT)])
 
-    def test_created_workers_stop_in_reverse_order_after_session_drain(self):
+    def test_missing_camera_monitor_never_starts_or_activates_collection(self):
         self.participants.clear()
-        self.supervisor.start()
+        with self.assertRaises(RuntimeError):
+            self.supervisor.start()
         self.supervisor.finish()
-        self.assertEqual(self.events, [
-            ("spawn", CollectionSupervisor.CAMERA), ("spawn", CollectionSupervisor.COLLECTOR),
-            ("drain", "this-executor"), ("kill", 102, signal.SIGINT), ("kill", 101, signal.SIGINT)])
+        self.assertEqual(self.events, [])
+        self.assertNotIn("activate_collection", [call.args[0] for call in self.observer.request.call_args_list])
+
+    def test_client_only_service_names_do_not_block_collector_startup(self):
+        del self.participants[CollectionSupervisor.COLLECTOR]
+        self.client_services = [
+            (name, [kind]) for mapping in CollectionSupervisor.SERVICES.values()
+            for name, kind in mapping.items()]
+        self.supervisor.start()
+        self.status.session_id = self.observer.session_id
+        self.status.inputs_ready = True
+        self.supervisor.check_before_enable()
+        self.assertEqual(self.events, [("spawn", CollectionSupervisor.COLLECTOR)])
+        self.supervisor.finish()
 
     def test_foreign_owner_and_configuration_conflicts_never_launch_workers(self):
         collector = self.participants[CollectionSupervisor.COLLECTOR]
@@ -783,7 +788,9 @@ class CollectionOwnershipTests(unittest.TestCase):
                 self.assertEqual(self.events, [])
 
     def test_changed_file_bytes_are_not_hidden_by_matching_paths(self):
-        self.supervisor.config.write_bytes(b'{"cameras": {"changed": true}}\n')
+        content = json.loads(self.supervisor.config.read_text())
+        content["robot_config"] = "changed"
+        self.supervisor.config.write_text(json.dumps(content))
         with self.assertRaises(IdentityConflict):
             self.supervisor.start()
         self.assertEqual(self.events, [])
@@ -799,9 +806,9 @@ class CollectionOwnershipTests(unittest.TestCase):
             self.supervisor.start()
         self.assertEqual(self.events, [])
 
-    def test_orphan_standalone_collector_is_not_paired_with_owned_cameras(self):
+    def test_orphan_standalone_collector_does_not_start_cameras(self):
         del self.participants[CollectionSupervisor.CAMERA]
-        with self.assertRaises(IdentityConflict):
+        with self.assertRaises(RuntimeError):
             self.supervisor.start()
         self.assertEqual(self.events, [])
 
@@ -822,6 +829,60 @@ class CollectionOwnershipTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             self.supervisor.finish()
         self.assertEqual(self.events, [])
+
+    def test_client_only_camera_service_does_not_certify_missing_monitor(self):
+        self.participants.clear()
+        self.client_services = [("/tianji/cameras/check_ready", ["std_srvs/srv/Trigger"])]
+        with self.assertRaises(RuntimeError) as error:
+            self.supervisor.start()
+        self.assertNotIsInstance(error.exception, IdentityConflict)
+        self.supervisor.finish()
+        self.assertEqual(self.events, [])
+
+    def test_foreign_camera_service_owner_prevents_collector_startup(self):
+        del self.participants[CollectionSupervisor.COLLECTOR]
+        self.foreign_services["/tianji/cameras/check_ready"] = ("/rogue", "std_srvs/srv/Trigger")
+        with self.assertRaises(IdentityConflict):
+            self.supervisor.start()
+        self.assertEqual(self.events, [])
+
+    def test_camera_owned_by_another_session_is_not_reused(self):
+        del self.participants[CollectionSupervisor.COLLECTOR]
+        self.participants[CollectionSupervisor.CAMERA]["owner_token"] = "another-session"
+        with self.assertRaises(IdentityConflict):
+            self.supervisor.start()
+        self.assertEqual(self.events, [])
+
+    def test_camera_config_mismatch_prevents_collector_startup(self):
+        del self.participants[CollectionSupervisor.COLLECTOR]
+        self.participants[CollectionSupervisor.CAMERA]["config_digest"] = "different-config"
+        with self.assertRaises(IdentityConflict):
+            self.supervisor.start()
+        self.assertEqual(self.events, [])
+
+    def test_unready_camera_never_starts_collector_or_activates_collection(self):
+        del self.participants[CollectionSupervisor.COLLECTOR]
+        self.camera_ready = False
+        with self.assertRaises(RuntimeError):
+            self.supervisor.start()
+        self.supervisor.finish()
+        self.assertEqual(self.events, [])
+        self.assertNotIn("activate_collection", [call.args[0] for call in self.observer.request.call_args_list])
+
+    def test_camera_readiness_revoked_during_startup_stops_only_owned_collector(self):
+        del self.participants[CollectionSupervisor.COLLECTOR]
+        original = self.spawn
+        def spawn(command, **kwargs):
+            process = original(command, **kwargs)
+            self.camera_ready = False
+            return process
+        with patch("tianji_controller.collection_supervisor.subprocess.Popen", side_effect=spawn):
+            with self.assertRaises(RuntimeError):
+                self.supervisor.start()
+        self.supervisor.finish()
+        self.assertEqual(self.events, [
+            ("spawn", CollectionSupervisor.COLLECTOR), ("kill", 101, signal.SIGINT)])
+        self.assertNotIn("activate_collection", [call.args[0] for call in self.observer.request.call_args_list])
 
     def test_recording_failure_isolated_from_armed_motion_gate(self):
         gate = MotionGate(configuration(), ("right_hand",))

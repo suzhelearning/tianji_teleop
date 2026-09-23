@@ -12,7 +12,7 @@ class RecoveryTest : public ::testing::Test {
   const double dt=.005;
   void SetUp() override {
     config.joint_limits.margin_rad=.01;
-    auto& smoothing=config.pico_ee_franka_ceres_lm.post_smoothing;
+    auto& smoothing=config.pico_ee_franka_dls.post_smoothing;
     smoothing.velocity_scale=1;
     smoothing.max_velocity_rad_s=Vec7::Constant(1);
     smoothing.max_acceleration_rad_s2=Vec7::Constant(2);
@@ -62,15 +62,15 @@ TEST_F(RecoveryTest, HandsOnlyFollowDuringExplicitTeleop) {
   EXPECT_TRUE(gate.handsPaused(false,false));
 }
 
-TEST_F(RecoveryTest, DlsRecoveryUsesDlsLimitsNotCeresLimits) {
-  config.ik_algorithm=IkAlgorithm::kPicoEeFrankaDls;
-  config.pico_ee_franka_dls.post_smoothing=config.pico_ee_franka_ceres_lm.post_smoothing;
+TEST_F(RecoveryTest, BrakesWithinConfiguredDlsVelocityLimit) {
   config.pico_ee_franka_dls.post_smoothing.max_velocity_rad_s=Vec7::Constant(.3);
-  config.pico_ee_franka_ceres_lm.post_smoothing.max_velocity_rad_s=Vec7::Constant(.01);
   SimulationRecovery gate(config,limits,home,dt);
   auto state=home; state[0].qdot[0]=.2;
   ASSERT_TRUE(gate.stop(state));
-  for(int i=0;i<2000;++i)state=gate.update(state);
+  for(int i=0;i<2000;++i) {
+    state=gate.update(state);
+    for(const auto& arm:state)EXPECT_LE(arm.qdot.cwiseAbs().maxCoeff(),.3+1e-8);
+  }
   EXPECT_EQ(gate.phase(),SimulationRecovery::Phase::kHold);
 }
 TEST_F(RecoveryTest, HomeIsSmoothBilateralAndDoesNotResume) {

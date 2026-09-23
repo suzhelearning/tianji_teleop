@@ -32,8 +32,7 @@ struct DualArmReferences {
   CartesianReference right;
 };
 
-// Build an acceleration-controller reference directly from the sampled
-// target when Cartesian OTG is intentionally bypassed.
+// Build a reference directly from the sampled target.
 DualArmReferences directReferences(const DualArmTargets& targets);
 
 class TargetManager {
@@ -55,7 +54,6 @@ class TargetManager {
  private:
   struct ManualTargetState {
     Vec6 filtered_twist{Vec6::Zero()};
-    Vec6 filtered_acceleration{Vec6::Zero()};
     double source_timestamp_seconds{0.0};
     double receive_time_seconds{0.0};
     bool has_frame{false};

@@ -136,7 +136,6 @@ def native_executable(name: str) -> Path:
     candidates = (
         install / "bin" / name,
         install / "lib" / name,
-        install / "lib" / "mapped_palm" / name,
     )
     for candidate in candidates:
         if candidate.is_file() and os.access(candidate, os.X_OK):

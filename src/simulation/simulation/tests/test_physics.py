@@ -30,7 +30,7 @@ class PhysicsTests(unittest.TestCase):
     def setUp(self):
         self.sim = PhysicsSimulation(
             _model(),
-            controller_profile("qp_ik_pico_teleop.yaml"),
+            controller_profile("qp_ik_pico_shared_root_dls.yaml"),
         )
 
     def frame(self, positions, flags):
@@ -130,7 +130,7 @@ class PhysicsTests(unittest.TestCase):
             )
             decorated = PhysicsSimulation(
                 _model(),
-                controller_profile("qp_ik_pico_teleop.yaml"),
+                controller_profile("qp_ik_pico_shared_root_dls.yaml"),
                 object_mesh=mesh,
             )
         baseline = self.sim

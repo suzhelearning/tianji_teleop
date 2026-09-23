@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -11,11 +12,43 @@ import subprocess
 import sys
 import time
 
-from report_shared_root_actions import ACTIONS, sha256, validate_annotations
-from run_pico_trace_algorithm_benchmark import _read_trace
+from replay_pico_udp_trace import read_trace
 from tianji_runtime import controller_profile, native_executable, workspace
+from tianji_runtime.resources import controller_resource
 
 CONTROL = Path(__file__).resolve().parents[1]
+ACTIONS = ("natural_reach", "hands_approach", "crossing", "unequal_height",
+           "single_hand", "bilateral_motion", "extension_boundary")
+
+
+def sha256(path):
+    h = hashlib.sha256()
+    with Path(path).open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+def validate_annotations(document, trace_hash, duration):
+    if (not isinstance(document, dict) or type(document.get("schema_version")) is not int
+            or document.get("schema_version") != 1
+            or document.get("trace_sha256") != trace_hash):
+        raise ValueError("annotation schema/trace hash mismatch")
+    if document.get("time_basis") != "nanoseconds_since_first_receive":
+        raise ValueError("annotation time basis mismatch")
+    segments = document.get("segments")
+    if not isinstance(segments, list):
+        raise ValueError("segments must be a list")
+    last = 0
+    for segment in segments:
+        if not isinstance(segment, dict) or segment.get("action") not in ACTIONS:
+            raise ValueError("unknown action")
+        a, b = segment.get("start_ns"), segment.get("end_ns")
+        if (type(a) is not int or type(b) is not int
+                or not 0 <= a < b <= duration or a < last):
+            raise ValueError("invalid, overlapping or unordered annotation interval")
+        last = b
+    return segments
 
 
 def save_new(path, document):
@@ -47,7 +80,7 @@ def candidates(events, duration, trace_hash):
     document = dict(schema_version=1, trace_sha256=trace_hash,
                     time_basis="nanoseconds_since_first_receive", segments=segments)
     validate_annotations(document, trace_hash, duration)
-    # Deliberately not an annotations document: feeding this to the report fails.
+    # Prompt emission alone is not a confirmed action annotation.
     document["candidate_segments"] = document.pop("segments")
     document.update(actions_confirmed=False, evidence="prompt_emission_only",
                     explanation="提示发出时间不证明实际动作；须由佩戴者/观察者确认或修正。")
@@ -55,13 +88,16 @@ def candidates(events, duration, trace_hash):
 
 
 def snapshot_sources(output, calibration, binary):
-    paths = [controller_profile(name) for name in (
-        "shared_root_tjvr_input_contract.yaml", "shared_root_robot_geometry.yaml",
-        "qp_ik_pico_shared_root.yaml")]
-    paths += [binary, Path(__file__).resolve(), CONTROL / "apps/record_action_trace.cpp"]
-    # Resolve the input contract's file list using the project's YAML dependency.
     import yaml
-    contract = yaml.safe_load(paths[0].read_text())
+
+    profile_path = controller_profile("qp_ik_pico_shared_root_dls.yaml")
+    shared_root = yaml.safe_load(profile_path.read_text())["shared_root"]
+    input_path = controller_resource(profile_path, shared_root["input_contract_artifact"])
+    geometry_path = controller_resource(profile_path, shared_root["robot_geometry_artifact"])
+    paths = [input_path, geometry_path, profile_path, binary, Path(__file__).resolve(),
+             Path(__file__).with_name("replay_pico_udp_trace.py"),
+             CONTROL / "apps/record_action_trace.cpp"]
+    contract = yaml.safe_load(input_path.read_text())
     root = workspace()
     paths += [root / name for name in contract["tjvr_shared_root_input"]["source_files"]]
     if calibration:
@@ -123,7 +159,7 @@ def capture(args):
         if result:
             raise RuntimeError(f"native collector exited {result}; see native.stderr.log")
         partial = output / "input.tjvr.partial"
-        size, records = _read_trace(partial)
+        size, records = read_trace(partial)
         events = [json.loads(line) for line in (output / "events.jsonl").read_text().splitlines()]
         if (size != 656 or not records or records[0][0] != 0
                 or any(b[0] < a[0] for a, b in zip(records, records[1:]))

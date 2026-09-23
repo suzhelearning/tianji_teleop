@@ -107,18 +107,18 @@ def test_native_executable_requires_the_execute_bit(workspace):
 
 def test_controller_profile_prefers_the_installed_copy(workspace):
     installed = (workspace / "install" / "control" / "share" / "tianji_controller"
-                 / "config" / "qp_ik_pico_teleop.yaml")
+                 / "config" / "qp_ik_pico_shared_root_dls.yaml")
     installed.parent.mkdir(parents=True)
     installed.write_text("controller: {}\n")
-    assert resources.controller_profile("qp_ik_pico_teleop.yaml") == installed
+    assert resources.controller_profile("qp_ik_pico_shared_root_dls.yaml") == installed
 
 
 def test_controller_profile_falls_back_to_the_source_tree(workspace):
     source = (workspace / "src" / "teleop_outputs" / "tianji" / "tianji_controller"
-              / "native" / "config" / "qp_ik_pico_teleop.yaml")
+              / "native" / "config" / "qp_ik_pico_shared_root_dls.yaml")
     source.parent.mkdir(parents=True)
     source.write_text("controller: {}\n")
-    assert resources.controller_profile("qp_ik_pico_teleop.yaml") == source
+    assert resources.controller_profile("qp_ik_pico_shared_root_dls.yaml") == source
 
 
 def test_controller_profile_rejects_a_path(workspace):
@@ -128,7 +128,7 @@ def test_controller_profile_rejects_a_path(workspace):
 
 def test_controller_profile_reports_an_unbuilt_workspace(workspace):
     with pytest.raises(resources.ResourceNotFound) as error:
-        resources.controller_profile("qp_ik_pico_teleop.yaml")
+        resources.controller_profile("qp_ik_pico_shared_root_dls.yaml")
     assert "build-workspace" in str(error.value)
 
 

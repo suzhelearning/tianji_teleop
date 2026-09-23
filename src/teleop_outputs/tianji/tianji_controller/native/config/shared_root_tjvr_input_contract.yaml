@@ -61,12 +61,14 @@ tjvr_shared_root_input:
   source_pairing: matching_source_stamp_and_bilateral_corrected_status_required_by_bridge
   freshness_semantic: receiver_monotonic_age_not_source_clock_subtraction
   evidence_scope: repository_sources_not_remote_publisher_attestation
+  # Set Ground adds an explicit epoch source only; geometry and TJVR semantics
+  # remain those of the audited baseline.
   source_files:
     src/teleop_outputs/tianji/tianji_cmd_pub/src/tianji_teleop_geometry.cpp: b16d6e369cf7dce277c24fd895c6b37d22630bebe73f4807374da46aca72a155
     src/teleop_outputs/tianji/tianji_cmd_pub/src/tianji_teleop_protocol.cpp: 197a78dd45217a6d21d182b90967126292c44af93dbfa309d6bebc78cfc08847
     src/teleop_inputs/pico_controller/scripts/pico_palm_skeleton_filter_core.py: 1aabe6099d2d87fa66d3ef3c0f5c22f794e73c69cfa72926107fef23b6d1a980
-    src/teleop_inputs/pico_controller/scripts/pico_palm_skeleton_filter_node.py: 40f0091a20da1458df8920445b7d719cbe58b51eee94e65bb3a5b75915908ac6
+    src/teleop_inputs/pico_controller/scripts/pico_palm_skeleton_filter_node.py: a10b8406a116739f5b2b9320debf05329475a5217ff0603f9b2317151bace2fd
     src/teleop_inputs/pico_controller/scripts/pico_symmetric_geometry.py: 47a0669492c0771ee14afb0229f070b70edfa2d0963787e09847847ac5dd1520
     src/teleop_inputs/pico_controller/scripts/pico_simple_artifact.py: 190e7e074e6b5b578ceb58ef79c6694c70a25faa7b031dfb4a9e923eac11a579
-    src/teleop_inputs/pico_controller/scripts/pico_calibration_artifact.py: a07ad7c565c1f7baab101f8e989305897ebe540a85d032821344b24d6d7fa0c5
+    src/teleop_inputs/pico_controller/scripts/pico_calibration_artifact.py: 5686e83025fdbd4cda57e9f4f04b39322293433abb0847ca3ed970d602043a7e
     src/teleop_inputs/pico_controller/scripts/pico_palm_tcp_runtime.py: d9bd5ae198c528857383a9f1847e5b032d373a53e4c920bd5ea56a144149139a

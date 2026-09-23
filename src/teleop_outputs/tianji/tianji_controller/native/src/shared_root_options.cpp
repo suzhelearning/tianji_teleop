@@ -53,13 +53,17 @@ Pose transform(const Node& n) {
 SharedRootOptions loadSharedRootOptions(const std::string& path) {
   SharedRootOptions out;const fs::path profile=fs::canonical(path);
   out.profile_path=profile.string();out.profile_sha256=sharedRootSha256File(path);
-  const Node root=YAML::LoadFile(path),c=root["spark_shared_root"];
+  const Node root=YAML::LoadFile(path);
+  require(root.IsMap(),"expected configuration map");
+  std::set<std::string> root_keys;
+  for(const auto& entry:root)
+    require(root_keys.insert(entry.first.as<std::string>()).second,"duplicate root configuration key");
+  const Node c=root["shared_root"];
   keys(c,{"enabled","input_contract_artifact","robot_geometry_artifact","input_mode",
       "control_point_semantic","shape_proxy_semantic","morphology","bridge_frame_filter","continuity","target_gate","reachable_projection"},"reachable_projection");
   out.enabled=c["enabled"].as<bool>();
   const auto algorithm=root["ik"]["algorithm"].as<std::string>();
-  require(algorithm=="spark_upper_qpoases_headroom_feedforward_velocity_qp" ||
-          algorithm=="pico_ee_franka_ceres_lm" || algorithm=="pico_ee_franka_dls","incompatible algorithm");
+  require(algorithm=="pico_ee_franka_dls","incompatible algorithm");
   require(c["input_mode"].as<std::string>()=="tjvr_bridge_shoulder_frame","unsupported input");
   require(c["control_point_semantic"].as<std::string>()=="reconstructed_palm"&&
       c["shape_proxy_semantic"].as<std::string>()=="reconstructed_palm_proxy","wrong point semantics");
@@ -69,11 +73,9 @@ SharedRootOptions loadSharedRootOptions(const std::string& path) {
   out.input_sha256=sharedRootSha256File(input.string());out.geometry_sha256=sharedRootSha256File(geometry.string());
   // Adapter v1 has one source/basis contract; arbitrary valid rotations or new
   // field mappings must not silently reinterpret that implementation.
-  require(out.input_sha256=="11d862cc6f34d3909cc3ea7a9ccfb464fbf94e057f84addffa41b7dfaafbc84b","unsupported input contract revision");
-  // Both explicitly supported shared-root backends may use the source-confirmed
-  // limit revision. Artifact hashes and runtime model checks remain mandatory.
-  require(out.geometry_sha256=="9aafa35858e9673474ab423053b47d4ade26b74f2a661ca14520930d73188f4f" ||
-      out.geometry_sha256=="0d7cdcc7b8a97860108a5cf3e777edc03ce21e2a426fdf655c0c4a964fb19a0d",
+  require(out.input_sha256=="2aaa8c26ff6927605fce09d3f0ca8b726f224291d3740a8232865a08384ce818","unsupported input contract revision");
+  // The reviewed DLS geometry retains its frozen model hashes and runtime checks.
+  require(out.geometry_sha256=="73dc52b787e17af9610e0dfc2c0f06c96a79d1bc529c47fadee6f33995ca999f",
       "unsupported robot geometry revision");
   const Node ic=YAML::LoadFile(input.string())["tjvr_shared_root_input"];
   const Node g=YAML::LoadFile(geometry.string())["robot_geometry"];

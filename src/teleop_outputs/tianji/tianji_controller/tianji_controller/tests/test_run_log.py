@@ -142,12 +142,12 @@ class FlightRecorderTests(unittest.TestCase):
             log = open_session(folder)
             generated = Path(folder) / "generated-controller.yaml"
             generated.write_text("controller:\n  rate_hz: 200\n")
-            log.persist_controller_configuration(generated, source="/repo/config/qp_ik_pico_teleop.yaml")
+            log.persist_controller_configuration(generated, source="/repo/config/qp_ik_pico_shared_root_dls.yaml")
             self.assertEqual((Path(folder) / run_log.CONTROLLER_CONFIG_FILE).read_text(),
                              "controller:\n  rate_hz: 200\n")
             self.assertEqual(read_session(folder)["controller_configuration"],
                              {"file": run_log.CONTROLLER_CONFIG_FILE,
-                              "source_template": "/repo/config/qp_ik_pico_teleop.yaml"})
+                              "source_template": "/repo/config/qp_ik_pico_shared_root_dls.yaml"})
 
 
 class EnvironmentTests(unittest.TestCase):

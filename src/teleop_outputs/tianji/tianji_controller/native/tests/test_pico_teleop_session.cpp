@@ -238,6 +238,49 @@ TEST(PicoTeleopSession, RejectedApplicationDoesNotRefreshFreshness) {
   EXPECT_TRUE(session.freshness(1050000000LL).stale);
 }
 
+TEST(PicoTeleopSession, InvalidInputRevokesWithoutApplyingAZeroPose) {
+  PicoTeleopSession session(0.050);
+  session.setEnabled(true);
+  session.commitApplied(frameAt(9U, 5U, 1000000000LL));
+  ASSERT_TRUE(session.freshness(1001000000LL).live);
+
+  auto invalid = frameAt(9U, 6U, 1002000000LL);
+  invalid.valid = false;
+  invalid.resynchronization_generation = 1U;
+  EXPECT_EQ(session.classify(invalid, 1002000000LL).action,
+            PicoTeleopAction::kIgnoreStale);
+  session.invalidate();
+  EXPECT_FALSE(session.freshness(1002000000LL).live);
+  EXPECT_TRUE(session.enabled());
+  EXPECT_EQ(session.classify(frameAt(9U, 5U, 1003000000LL), 1003000000LL).action,
+            PicoTeleopAction::kIgnoreAlreadyApplied);
+
+  auto recovery = frameAt(9U, 7U, 1004000000LL);
+  recovery.resynchronization_generation = 1U;
+  EXPECT_EQ(session.classify(recovery, 1004000000LL).action,
+            PicoTeleopAction::kResetEpochAndApply);
+  EXPECT_FALSE(session.freshness(1004000000LL).live);
+  session.commitApplied(recovery);
+  EXPECT_TRUE(session.freshness(1004000000LL).live);
+}
+
+TEST(PicoTeleopSession, PublisherRestartRequiresANewReceiverGeneration) {
+  PicoTeleopSession session(0.050);
+  session.setEnabled(true);
+  session.commitApplied(frameAt(9U, 50U, 1000000000LL));
+  auto restarted = frameAt(1U, 1U, 1002000000LL);
+  EXPECT_EQ(session.classify(restarted, 1002000000LL).action,
+            PicoTeleopAction::kIgnoreAlreadyApplied);
+  // A typed ROS publisher restart can reset both epoch and sequence. The
+  // receiver-local generation survives coalescing of the reset event itself.
+  restarted.resynchronization_generation = 1U;
+  EXPECT_EQ(session.classify(restarted, 1002000000LL).action,
+            PicoTeleopAction::kResetEpochAndApply);
+  session.commitApplied(restarted);
+  EXPECT_EQ(session.classify(restarted, 1003000000LL).action,
+            PicoTeleopAction::kIgnoreAlreadyApplied);
+}
+
 
 }  // namespace
 }  // namespace tianji_qp_ik

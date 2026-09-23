@@ -36,7 +36,7 @@ class DlsWorker:
         key = "pico_ee_dls_kinematics_urdf_path"
         config["controller"][key] = str(display_model_path(Path(config["controller"][key]).name))
         for key in ("input_contract_artifact", "robot_geometry_artifact"):
-            config["spark_shared_root"][key] = str((source.parent / config["spark_shared_root"][key]).resolve())
+            config["shared_root"][key] = str((source.parent / config["shared_root"][key]).resolve())
         # Keep the selected installed profile's parameters; only relocate paths.
         # The ready handshake confirms the native process has loaded the YAML.
         with tempfile.TemporaryDirectory(prefix="pico2-dls-") as directory:

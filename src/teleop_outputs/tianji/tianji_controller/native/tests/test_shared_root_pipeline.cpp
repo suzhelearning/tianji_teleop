@@ -26,8 +26,8 @@ PicoTeleopFrame frame(std::uint64_t n,double z=0,double size=1) {
   }
   return f;
 }
-SparkUpperTargets model() {
-  SparkUpperTargets t;t.valid=true;
+SharedRootTargets model() {
+  SharedRootTargets t;t.valid=true;
   t.left.shoulder={0,.21,1.121};t.right.shoulder={0,-.21,1.121};
   t.left.elbow={.1,.3,1};t.right.elbow={.1,-.3,1};
   t.left.wrist={.2,.3,.9};t.right.wrist={.2,-.3,.9};
@@ -133,7 +133,7 @@ PicoTeleopFrame zhoujieFrame(std::uint64_t n, double bend=0) {
   return f;
 }
 TEST(SharedRootPipeline, ZhoujieSymmetricGeometryUsesCommonScaleWithoutCalibration) {
-  auto config=loadSharedRootOptions(TIANJI_PROJECT_SOURCE_DIR "/config/qp_ik_pico_shared_root.yaml");
+  auto config=loadSharedRootOptions(TIANJI_PROJECT_SOURCE_DIR "/config/qp_ik_pico_shared_root_dls.yaml");
   EXPECT_FALSE(config.enabled); // Offline pipeline test does not enable any entry point.
   SharedRootPipeline p(config);
   for(std::uint64_t n=1;n<=40;++n) {
@@ -147,7 +147,10 @@ TEST(SharedRootPipeline, ZhoujieSymmetricGeometryUsesCommonScaleWithoutCalibrati
   EXPECT_NEAR(p.morphology().lateral_scale,config.morphology.robot_width_m/.4,1e-12);
   const auto& target=p.candidate();
   ASSERT_TRUE(target.valid);
-  EXPECT_NEAR(target.raw.left.palm.position.x(),config.morphology.robot_reach_m,1e-12);
+  // Morphology scales the preference; the active DLS profile then applies a
+  // separately bounded reachable projection to the final palm targets.
+  EXPECT_NEAR(target.raw_preference.left.palm.position.x()-config.builder.o_B.x(),
+              config.morphology.robot_reach_m,1e-12);
   EXPECT_NEAR(target.raw.right.palm.position.x(),target.raw.left.palm.position.x(),1e-12);
   EXPECT_NEAR(target.raw.left.palm.position.z(),1.121,1e-12);
   EXPECT_NEAR((target.raw.left.palm.position-target.raw.right.palm.position).norm(),.423,1e-12);
@@ -155,9 +158,9 @@ TEST(SharedRootPipeline, ZhoujieSymmetricGeometryUsesCommonScaleWithoutCalibrati
   EXPECT_NEAR(target.right_intent_twist.norm(),0,1e-12);
 }
 TEST(SharedRootPipeline, ZhoujieRecoveryAcceptsStationaryNewPoseAndRejectsOldAck) {
-  auto config=loadSharedRootOptions(TIANJI_PROJECT_SOURCE_DIR "/config/qp_ik_pico_shared_root.yaml");
+  auto config=loadSharedRootOptions(TIANJI_PROJECT_SOURCE_DIR "/config/qp_ik_pico_shared_root_dls.yaml");
   SharedRootPipeline p(config);
-  SparkUpperTargets recovery_model;
+  SharedRootTargets recovery_model;
   for(std::uint64_t n=1;n<=40;++n) {
     auto f=zhoujieFrame(n);ASSERT_TRUE(p.observe(f,f.receive_monotonic_ns));
     if(n==1)recovery_model=p.candidate().filtered;

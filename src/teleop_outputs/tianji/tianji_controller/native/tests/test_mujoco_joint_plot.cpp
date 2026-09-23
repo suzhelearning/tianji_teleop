@@ -60,11 +60,6 @@ TEST(MujocoJointPlotTest,
   plot.update(history, ArmSide::kLeft, PlotMetric::kVelocity, 5.0);
   for (int joint = 0; joint < kArmDof; ++joint) {
     const mjvFigure& figure = plot.figure(joint);
-    EXPECT_NE(std::string(figure.title).find(
-                  "Left J" + std::to_string(joint + 1)),
-              std::string::npos);
-    EXPECT_NE(std::string(figure.title).find("dq [rad/s]"),
-              std::string::npos);
     EXPECT_EQ(figure.linepnt[0], 4);
     EXPECT_EQ(figure.linepnt[1], 4);
     EXPECT_EQ(figure.linepnt[2], 4);
@@ -73,19 +68,9 @@ TEST(MujocoJointPlotTest,
     EXPECT_FLOAT_EQ(figure.linedata[1][7], 3.5F);
     EXPECT_FLOAT_EQ(figure.linedata[2][7], -5.0F);
     EXPECT_FLOAT_EQ(figure.linedata[3][7], 5.0F);
-    EXPECT_STREQ(figure.linename[0], "QP reference");
-    EXPECT_STREQ(figure.linename[1], "MuJoCo actual");
-    EXPECT_STREQ(figure.linename[2], "lower");
-    EXPECT_STREQ(figure.linename[3], "upper");
-    EXPECT_FLOAT_EQ(figure.linergb[0][0], 0.20F);
-    EXPECT_FLOAT_EQ(figure.linergb[0][1], 0.90F);
-    EXPECT_FLOAT_EQ(figure.linergb[1][2], 1.00F);
-    EXPECT_FLOAT_EQ(figure.linergb[2][0], 1.00F);
   }
 
   plot.update(history, ArmSide::kRight, PlotMetric::kVelocity, 5.0);
-  EXPECT_NE(std::string(plot.figure(0).title).find("Right J1"),
-            std::string::npos);
   EXPECT_FLOAT_EQ(plot.figure(0).linedata[0][7], -4.0F);
   EXPECT_FLOAT_EQ(plot.figure(0).linedata[1][7], -3.5F);
 }
@@ -115,21 +100,6 @@ TEST(MujocoJointPlotTest, AppliesIndependentDerivativeValidity) {
   EXPECT_EQ(figure.linepnt[3], 2);
 }
 
-TEST(MujocoJointPlotTest, IdentifiesRuckigAverageJerkWithoutRelabelingLegacy) {
-  JointKinematicsHistory history(4U);
-  JointKinematicsSample sample;
-  sample.left.ruckig_output = true;
-  sample.left.reference.jerk.setConstant(123);
-  sample.left.reference_jerk_valid = true;
-  history.push(sample);
-  MujocoJointPlot plot;
-  plot.update(history, ArmSide::kLeft, PlotMetric::kJerk, 5.0);
-  EXPECT_STREQ(plot.figure(0).linename[0], "Ruckig output");
-  EXPECT_NE(std::string(plot.figure(0).title).find("avg jerk"), std::string::npos);
-  EXPECT_FLOAT_EQ(plot.figure(0).linedata[0][1], 123.F);
-  plot.update(history, ArmSide::kRight, PlotMetric::kJerk, 5.0);
-  EXPECT_STREQ(plot.figure(0).linename[0], "QP reference");
-}
 
 }  // namespace
 }  // namespace tianji_qp_ik

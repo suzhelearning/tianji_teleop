@@ -54,8 +54,8 @@ TEST(PicoSkeletonOverlay, HidesInvalidSkeletonAndHonorsCapacity) {
   EXPECT_EQ(scene.ngeom, 1);
 }
 
-TEST(PicoSkeletonOverlay, ConvertsAndDrawsProcessedSparkSkeletonDistinctly) {
-  SparkUpperTargets targets;
+TEST(PicoSkeletonOverlay, ConvertsAndDrawsProcessedSharedRootSkeletonDistinctly) {
+  SharedRootTargets targets;
   targets.valid = true;
   targets.left.shoulder = {0.0, 0.2, 1.0};
   targets.left.elbow = {0.1, 0.4, 0.8};
@@ -65,19 +65,19 @@ TEST(PicoSkeletonOverlay, ConvertsAndDrawsProcessedSparkSkeletonDistinctly) {
   targets.right.elbow = {0.1, -0.4, 0.8};
   targets.right.wrist = {0.2, -0.5, 0.7};
   targets.right.hand = {0.3, -0.6, 0.65};
-  const PicoUpperLimbSkeleton spark = sparkUpperLimbSkeleton(targets);
-  ASSERT_TRUE(spark.valid);
-  EXPECT_TRUE(spark.points[kPicoLeftElbowPoint].isApprox(targets.left.elbow));
-  EXPECT_TRUE(spark.points[kPicoRightHandPoint].isApprox(targets.right.hand));
+  const PicoUpperLimbSkeleton shared = sharedRootUpperLimbSkeleton(targets);
+  ASSERT_TRUE(shared.valid);
+  EXPECT_TRUE(shared.points[kPicoLeftElbowPoint].isApprox(targets.left.elbow));
+  EXPECT_TRUE(shared.points[kPicoRightHandPoint].isApprox(targets.right.hand));
 
-  PicoUpperLimbSkeleton pico = spark;
+  PicoUpperLimbSkeleton pico = shared;
   std::array<mjvGeom, 32> storage{};
   mjvScene scene;
   mjv_defaultScene(&scene);
   scene.maxgeom = static_cast<int>(storage.size());
   scene.geoms = storage.data();
   appendPicoUpperLimbSkeleton(pico, &scene, SkeletonOverlayStyle::kPico);
-  appendPicoUpperLimbSkeleton(spark, &scene, SkeletonOverlayStyle::kSpark);
+  appendPicoUpperLimbSkeleton(shared, &scene, SkeletonOverlayStyle::kSharedRoot);
 
   ASSERT_EQ(scene.ngeom, 30);
   EXPECT_NE(scene.geoms[0].rgba[0], scene.geoms[15].rgba[0]);

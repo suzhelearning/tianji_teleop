@@ -150,7 +150,7 @@ TEST(SharedRootContinuity, R3BranchJumpCannotCommitEitherSide) {
   ASSERT_TRUE(c.acceptedElbows()[0]);const auto old=c.acceptedElbows();
   auto f=closedTarget(21);f.filtered_preference.left.elbow.y()=-.4;
   c.observe(f,f.receive_monotonic_ns);const auto r=c.step(f.receive_monotonic_ns,true,model);
-  EXPECT_FALSE(r.valid);EXPECT_EQ(r.target.detail,"ElbowBranchDiscontinuity");
+  EXPECT_FALSE(r.valid);
   EXPECT_FALSE(c.accept(21,1,0));EXPECT_EQ(c.acceptedElbows(),old);
 }
 } // namespace

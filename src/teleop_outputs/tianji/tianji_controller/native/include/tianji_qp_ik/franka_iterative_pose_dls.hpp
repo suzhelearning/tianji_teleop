@@ -33,9 +33,6 @@ class FrankaIterativePoseDlsIk7 {
  public:
   FrankaIterativePoseDlsIk7(IterativeDlsConfig config, double margin_rad);
   PoseDlsResult solve(const FrankaPoseDlsInput& input) const;
-  double goalStepLimitRad() const noexcept {
-    return config_.maximum_goal_step_rad;
-  }
 
  private:
   IterativeDlsConfig config_;

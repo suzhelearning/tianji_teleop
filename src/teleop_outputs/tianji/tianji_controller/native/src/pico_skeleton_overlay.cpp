@@ -30,7 +30,7 @@ std::array<mjtNum, 3> pointArray(const Eigen::Vector3d& point) {
 
 std::array<float, 4> pointColor(std::size_t index,
                                 SkeletonOverlayStyle style) {
-  if (style == SkeletonOverlayStyle::kSpark) {
+  if (style == SkeletonOverlayStyle::kSharedRoot) {
     if (index <= kPicoLeftHandPoint) {
       return {1.00F, 0.55F, 0.05F, 0.92F};
     }
@@ -44,8 +44,8 @@ std::array<float, 4> pointColor(std::size_t index,
 
 }  // namespace
 
-PicoUpperLimbSkeleton sparkUpperLimbSkeleton(
-    const SparkUpperTargets& targets) noexcept {
+PicoUpperLimbSkeleton sharedRootUpperLimbSkeleton(
+    const SharedRootTargets& targets) noexcept {
   PicoUpperLimbSkeleton result;
   if (!targets.valid) {
     return result;
@@ -92,7 +92,7 @@ void appendPicoUpperLimbSkeleton(const PicoUpperLimbSkeleton& skeleton,
     const std::array<float, 4> color =
         begin_index == kPicoLeftShoulderPoint &&
                 end_index == kPicoRightShoulderPoint
-            ? (style == SkeletonOverlayStyle::kSpark
+            ? (style == SkeletonOverlayStyle::kSharedRoot
                    ? std::array<float, 4>{1.00F, 0.90F, 0.10F, 0.88F}
                    : std::array<float, 4>{0.95F, 0.95F, 0.95F, 0.68F})
             : pointColor(end_index, style);

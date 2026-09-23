@@ -44,7 +44,7 @@ TEST(SharedRootClosure, NoProjectionNoStretchAndNonfiniteRejected) {
   EXPECT_EQ(closeSharedRootArm(g,p,{0,1,0}).status,ClosureStatus::kInvalidInput);
 }
 TEST(SharedRootClosure, FrozenRobotFkPosesReconstructBothSides) {
-  const auto o=loadSharedRootOptions(TIANJI_PROJECT_SOURCE_DIR "/config/qp_ik_pico_shared_root.yaml");
+  const auto o=loadSharedRootOptions(TIANJI_PROJECT_SOURCE_DIR "/config/qp_ik_pico_shared_root_dls.yaml");
   MujocoRobot robot(o.mujoco_path);
   double max_elbow_projection=0;
   for(int side=0;side<2;++side) {
