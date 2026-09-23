@@ -11,8 +11,8 @@ if [[ "${CONDA_PREFIX:-}" != "$root/.pixi/envs/spd" ]]; then
     pixi run --locked --manifest-path "$root/pixi.toml" -e spd \
     bash "$root/bash/run_pico_hand_sim.sh" "$@"
 fi
-export TIANJI_PIXI_ACTIVE=1 TIANJI_ENVIRONMENT=spd
+export TIANJI_WORKSPACE="$root" TIANJI_ENVIRONMENT=spd
 export TIANJI_PYTHON="$CONDA_PREFIX/bin/python"
-source "$root/bash/pixi.bash" "$@"
+cd -- "$root"
 source "$root/bash/environment.sh"
 exec "$TIANJI_PYTHON" -m pico2_hands.run_sim "$@"

@@ -1,6 +1,6 @@
 robot_geometry:
   contract_version: 2
-  tjvr_input_contract_sha256: 58ac3886d81ebf735300c47304ae791b8e84f9267d34a3d76f7ee6e27df5cbd6
+  tjvr_input_contract_sha256: a408ab5102a7fe305abe37e7f28c21166ec34a7d6af206ace8bc551cfbb7e099
   model_id: marvin_m6_wuji2_shared_root_ceres_source_limits_palm_tcp_1615
   b_frame: Mujoco_world_equal_Pinocchio_universe
   reference_q_rad: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]

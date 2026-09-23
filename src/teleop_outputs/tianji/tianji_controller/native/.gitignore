@@ -1,7 +1,6 @@
 .worktrees/
 .pixi/
 build/
-build-ceres/
 Testing/
 *.log
 *.csv
@@ -9,4 +8,3 @@ Testing/
 compile_commands.json
 __pycache__/
 *.py[cod]
-/build-mapped-palm/

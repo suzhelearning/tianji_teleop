@@ -2,10 +2,8 @@
 
 Both the source checkout and an installed layout are supported:
 
-* ``TIANJI_WORKSPACE`` (injected by Pixi) locates ``config/``, ``profiles/``,
-  ``vendor/``, ``logs/`` and the default dataset;
-* ament packages are found either in the workspace overlay
-  (``install/<environment>/``) or through ``AMENT_PREFIX_PATH``.
+* ``TIANJI_WORKSPACE`` (injected by Pixi) locates the source checkout;
+* ament packages and native artifacts are located in ``install/spd``.
 
 Nothing here guesses through ``parents[n]`` or trusts the process cwd, so an
 entry point keeps working from any directory.
@@ -38,29 +36,9 @@ def workspace() -> Path:
     return root.resolve()
 
 
-def environment_name() -> str:
-    """Name of the active Pixi environment (used to find its install prefix)."""
-    return os.environ.get("TIANJI_ENVIRONMENT", "default")
-
-
 def install_prefix() -> Path:
-    """colcon install prefix for the active environment."""
-    return workspace() / "install" / environment_name()
-
-
-def control_prefix() -> Path:
-    """Install prefix of the native `control` environment.
-
-    The native CMake projects install here rather than into the ament overlay:
-    they have their own pinned dependency set and are built by
-    ``bash/build_native.sh`` instead of colcon.
-    """
-    return workspace() / "install" / "control"
-
-
-def _native_prefix() -> Path:
-    """SPD owns its native artifacts; other routes keep the control prefix."""
-    return install_prefix() if environment_name() == "spd" else control_prefix()
+    """SPD's colcon and native install prefix."""
+    return workspace() / "install" / "spd"
 
 
 def ampp_prefixes() -> list[Path]:
@@ -91,40 +69,9 @@ def package_share(name: str, *relative: str) -> Path:
             return target
         raise ResourceNotFound(f"{name} is built but does not contain {Path(*relative)}")
     raise ResourceNotFound(
-        f"ament package {name!r} is not built for environment {environment_name()!r}; "
-        f"run 'pixi run build' (looked in {', '.join(str(p) for p in prefixes)})"
+        f"ament package {name!r} is not built for SPD; "
+        f"run 'pixi run --locked -e spd build' (looked in {', '.join(str(p) for p in prefixes)})"
     )
-
-
-def config_path(*relative: str) -> Path:
-    """Locate a file under the checkout's ``config/`` directory."""
-    target = workspace() / "config" / Path(*relative)
-    if not target.exists():
-        raise ResourceNotFound(f"missing workspace configuration: {target}")
-    return target
-
-
-def profiles_dir() -> Path:
-    """Personnel calibration profiles directory."""
-    return workspace() / "profiles"
-
-
-def dataset_dir() -> Path:
-    """Raw schema-v1 dataset root (``TIANJI_DATASET`` overrides)."""
-    declared = os.environ.get("TIANJI_DATASET")
-    if declared:
-        return Path(declared).expanduser().resolve()
-    return Path("/data/TianjiData/raw")
-
-
-def compressed_dir() -> Path:
-    """Compressed dataset root, a sibling of the raw root."""
-    return dataset_dir().parent / "compressed"
-
-
-def vendor_path(*relative: str) -> Path:
-    """Locate a vendored SDK path under the checkout's ``vendor/``."""
-    return workspace() / "vendor" / Path(*relative)
 
 
 def native_executable(name: str) -> Path:
@@ -137,7 +84,7 @@ def native_executable(name: str) -> Path:
         raise ValueError("native_executable expects a non-empty basename")
     if os.sep in name or (os.altsep and os.altsep in name):
         raise ValueError(f"native_executable expects a basename, got {name!r}")
-    install = _native_prefix()
+    install = install_prefix()
     candidates = (
         install / "bin" / name,
         install / "lib" / name,
@@ -145,9 +92,8 @@ def native_executable(name: str) -> Path:
     for candidate in candidates:
         if candidate.is_file() and os.access(candidate, os.X_OK):
             return candidate
-    build = "pixi run -e spd build" if environment_name() == "spd" else "pixi run build"
     raise ResourceNotFound(
-        f"native executable {name!r} is not built; run '{build}' "
+        f"native executable {name!r} is not built; run 'pixi run --locked -e spd build' "
         f"(looked in {install})"
     )
 
@@ -166,7 +112,7 @@ def controller_profile(name: str) -> Path:
     """
     if not name or os.sep in name or (os.altsep and os.altsep in name):
         raise ValueError(f"controller_profile expects a basename, got {name!r}")
-    installed = _native_prefix() / "share" / "tianji_controller" / "config" / name
+    installed = install_prefix() / "share" / "tianji_controller" / "config" / name
     if installed.is_file():
         return installed
     source = (workspace() / "src" / "teleop_outputs" / "tianji" / "tianji_controller"
@@ -174,7 +120,7 @@ def controller_profile(name: str) -> Path:
     if source.is_file():
         return source
     raise ResourceNotFound(
-        f"controller profile {name!r} is not installed; run 'pixi run build-workspace' "
+        f"controller profile {name!r} is not installed; run 'pixi run --locked -e spd build' "
         f"(looked in {installed.parent})")
 
 

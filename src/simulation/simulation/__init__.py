@@ -1,1 +1,1 @@
-"""Hardware-free actuator-driven teleoperation simulation."""
+"""MuJoCo model shared by the PICO bare-hand -> SPD route and its display."""

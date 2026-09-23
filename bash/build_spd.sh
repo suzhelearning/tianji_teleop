@@ -14,7 +14,7 @@ export TIANJI_PYTHON="$CONDA_PREFIX/bin/python"
 source "$root/bash/environment.sh" --build
 cd -- "$root"
 
-# Reuse the reviewed native ABI, not the default/policy runtime or overlay.
+# Keep the reviewed native ABI isolated from the ROS runtime.
 pixi install --locked --manifest-path "$root/pixi.toml" -e control
 native="$root/src/teleop_outputs/tianji/tianji_controller/native"
 core_build="$root/build/spd/core"
@@ -26,7 +26,7 @@ printf '== SPD DLS worker and auxiliary viewer ==\n'
 "${control[@]}" cmake -S "$native" -B "$core_build" -G Ninja \
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$install_prefix" \
   -DCMAKE_PREFIX_PATH="$root/.pixi/envs/control" \
-  -DBUILD_TESTING=OFF -DTIANJI_BUILD_ROS=OFF
+  -DBUILD_TESTING=OFF
 "${control[@]}" cmake --build "$core_build" --parallel "${TIANJI_BUILD_JOBS:-4}" \
   --target pico2_dls_worker tianji_qp_ik_viewer
 "${control[@]}" cmake --install "$core_build" --component spd

@@ -4,18 +4,19 @@
   <name>simulation</name>
   <version>0.3.0</version>
   <description>
-    Franka DLS/Ruckig arm simulation and offline joint-state replay helpers.
-    Provides no hardware access or joint-command export from interactive simulation.
+    MuJoCo model of the dual arm plus both Hand2 hands for the PICO bare-hand
+    route: ``physics`` builds the simulated model and applies TJRC command
+    frames, ``direct_state`` assigns the target joint state for display. It
+    opens no hardware and exports no joint commands.
   </description>
   <maintainer email="ops@example.com">Tianji operators</maintainer>
   <license>Apache-2.0</license>
 
-  <exec_depend>tianji_interfaces</exec_depend>
-  <exec_depend>tianji_description</exec_depend>
   <exec_depend>tianji_controller</exec_depend>
+  <exec_depend>tianji_description</exec_depend>
   <exec_depend>python3-numpy</exec_depend>
-  <exec_depend>python3-yaml</exec_depend>
 
+  <test_depend>tianji_interfaces</test_depend>
   <test_depend>python3-pytest</test_depend>
 
   <export>

@@ -14,6 +14,6 @@ setup(
     zip_safe=True,
     maintainer="Tianji operators",
     maintainer_email="ops@example.com",
-    description="Franka DLS/Ruckig simulation and offline joint-state replay",
+    description="MuJoCo dual-arm and Hand2 model for the PICO bare-hand SPD route",
     license="Apache-2.0",
 )

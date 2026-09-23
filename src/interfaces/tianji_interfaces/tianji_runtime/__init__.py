@@ -1,74 +1,38 @@
-"""Lightweight contracts shared by the Tianji hardware adapters.
+"""Resource-location contracts shared by the PICO bare-hand -> SPD route.
 
 This package deliberately has **no** third-party imports beyond the standard
 library, and never imports rclpy or a business package:
 
-* it is imported by ``tianji_controller`` (executor) and by
-  ``wuji_controller`` (hand adapter), so importing either one from here would
+* it is imported by ``tianji_description`` (model/home resources),
+  ``pico2_hands`` and ``simulation``, so importing any of them from here would
   create a dependency cycle;
-* the offline tools (compression, dataset validation, config checks) import
-  :mod:`tianji_runtime` and must not need a ROS runtime.
+* the offline checks import :mod:`tianji_runtime` and must not need a ROS
+  runtime.
 
-ROS message types live in ``tianji_interfaces``; conversion between these
-contracts and those messages happens in the nodes, not here.
+Only resource location remains here. The hardware device/feedback, operator
+keyboard, camera-stream and dataset-layout contracts lived for the acquisition
+routes that this branch no longer contains.
+
+ROS message types live in ``tianji_spd_interfaces``; conversion is owned by
+the SPD publisher, not by this resource package.
 """
 
-from .device import Feedback, LockedDevice, advances, positions, fresh
-from .keyboard import OperatorKeyboard
 from .resources import (
     ResourceNotFound,
-    compressed_dir,
-    config_path,
-    control_prefix,
     controller_profile,
-    dataset_dir,
+    controller_resource,
     install_prefix,
     native_executable,
     package_share,
-    profiles_dir,
-    vendor_path,
     workspace,
-)
-from .constants import (
-    ARMS_COUNT,
-    CAMERA_FPS,
-    CAMERA_ROLES,
-    DEVICES,
-    HAND_COUNT,
-    IMAGE_HEIGHT,
-    IMAGE_WIDTH,
-    RGB_SHAPE,
-    STATE_DIM,
-    STATE_RATE_HZ,
 )
 
 __all__ = [
-    "Feedback",
-    "LockedDevice",
-    "OperatorKeyboard",
     "ResourceNotFound",
-    "compressed_dir",
-    "config_path",
-    "control_prefix",
     "controller_profile",
-    "dataset_dir",
+    "controller_resource",
     "install_prefix",
     "native_executable",
     "package_share",
-    "profiles_dir",
-    "vendor_path",
     "workspace",
-    "positions",
-    "advances",
-    "fresh",
-    "ARMS_COUNT",
-    "CAMERA_FPS",
-    "CAMERA_ROLES",
-    "DEVICES",
-    "HAND_COUNT",
-    "IMAGE_HEIGHT",
-    "IMAGE_WIDTH",
-    "RGB_SHAPE",
-    "STATE_DIM",
-    "STATE_RATE_HZ",
 ]

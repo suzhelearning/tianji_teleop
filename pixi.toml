@@ -1,185 +1,12 @@
 [workspace]
 name = "tianji-teleop"
 version = "0.3.0"
-# robostack-jazzy carries the ROS 2 Jazzy packages; conda-forge carries every
-# C/C++ dependency they link against and the camera SDK.
+# ROS 2 Jazzy for SPD commands; the native control ABI stays isolated.
 channels = ["https://prefix.dev/robostack-jazzy", "conda-forge"]
-# Official Hand2 RetargetSession wheels require manylinux_2_34.
 platforms = [{ name = "linux-x64-glibc234", platform = "linux-64", glibc = "2.34" }]
 
-[activation.env]
-# Fast DDS on the supported default same-host transport. `ROS_LOCALHOST_ONLY`
-# is a Humble-era variable that conflicts with Jazzy's discovery range and is
-# cleared by scripts/environment.sh.
-# Vendored drivers with ROS1/ROS2 dual support auto-detect the version; without
-# this they fall back to ROS1 and try to find catkin.
-ROS_VERSION = "2"
-RMW_IMPLEMENTATION = "rmw_fastrtps_cpp"
-ROS_DOMAIN_ID = "120"
-ROS_AUTOMATIC_DISCOVERY_RANGE = "LOCALHOST"
-# Model simulation keeps its own internal clock; do not fake a real capture clock.
-ROS_USE_SIM_TIME = "false"
-# Source-checkout root: config/, profiles/, vendor/, logs/ and the default
-# dataset location are resolved from this, never from cwd or parents[n].
-TIANJI_WORKSPACE = "$PIXI_PROJECT_ROOT"
-
-# ---------------------------------------------------------------------------
-# default: ROS 2 Jazzy (Fast DDS), executor/collector/inference, MuJoCo.
-#
-# `ros-jazzy-realsense2-camera` is deliberately NOT here; see
-# [feature.cameras]. It is the only package that pulls in
-# `ros2-distro-mutex >=0.16.0`, whose `libprotobuf 7.35.*` constrain forces
-# `libabseil 20260526.0`, which is ABI-incompatible with
-# `mujoco-python ==3.10.0` (`libabseil 20260107.1`). Keeping the driver in its
-# own environment lets this one satisfy both pins.
-# ---------------------------------------------------------------------------
-[dependencies]
-python = "3.12.*"
-pip = "*"
-setuptools = ">=68,<80"
-wheel = "*"
-numpy = "*"
-h5py = "*"
-pyyaml = ">=6,<7"
-matplotlib = ">=3.10,<4"
-scipy = ">=1.11,<2"
-pytest = ">=8,<9"
-# `eigen`, `libopencv` and `yaml-cpp` are intentionally NOT pinned here: the
-# Jazzy packages determine their own ABI generation (eigen-abi 5.x,
-# libopencv 4.13) and an explicit pin only fights that. `py-opencv` IS pinned:
-# its bare name resolves to pre-4.13 builds linked against libprotobuf 5.x.
-py-opencv = "==4.13.0"
-# PICO video framing uses the existing software H.264 encoder, without PyAV.
-ffmpeg = { version = "==8.1.2", build = "gpl_*" }
-
-# Native toolchain for the ament/colcon packages in src/.
-cmake = ">=3.24,<4"
-ninja = ">=1.11"
-cxx-compiler = ">=1.9"
-compilers = "*"
-pkg-config = "*"
-make = "*"
-tmux = ">=3.4,<4"
-empy = ">=3.3.4,<4"
-pybind11 = ">=2.13,<4"
-
-# Simulation / kinematics, pinned to the versions validated in the legacy tree.
-libmujoco = "==3.10.0"
-mujoco-python = "==3.10.0"
-
-# ROS 2 Jazzy.
-#
-# Keep the required ROS packages explicit rather than pulling in ros-jazzy-desktop.
-# The retained input and RGB collection routes do not require PCL.
-ros-jazzy-rmw-fastrtps-cpp = "*"
-# `rosidl-typesupport-c` provides the framework; a concrete implementation is
-# still required or `get_used_typesupports` finds nothing to select.
-ros-jazzy-rosidl-typesupport-fastrtps-c = "*"
-ros-jazzy-rosidl-typesupport-fastrtps-cpp = "*"
-ros-jazzy-rosidl-typesupport-introspection-c = "*"
-ros-jazzy-rosidl-typesupport-introspection-cpp = "*"
-ros-jazzy-rclcpp = "*"
-ros-jazzy-rclpy = "*"
-ros-jazzy-rviz2 = "*"
-ros-jazzy-rosidl-default-generators = "*"
-ros-jazzy-rosidl-default-runtime = "*"
-ros-jazzy-ament-cmake = "*"
-ros-jazzy-ament-cmake-gtest = "*"
-ros-jazzy-ament-cmake-python = "*"
-ros-jazzy-ament-index-python = "*"
-ros-jazzy-ament-index-cpp = "*"
-ros-jazzy-launch = "*"
-ros-jazzy-launch-ros = "*"
-ros-jazzy-launch-xml = "*"
-ros-jazzy-sensor-msgs = "*"
-ros-jazzy-geometry-msgs = "*"
-ros-jazzy-nav-msgs = "*"
-ros-jazzy-visualization-msgs = "*"
-ros-jazzy-std-msgs = "*"
-ros-jazzy-std-srvs = "*"
-ros-jazzy-builtin-interfaces = "*"
-ros-jazzy-image-transport = "*"
-ros-jazzy-camera-info-manager = "*"
-ros-jazzy-tf2 = "*"
-ros-jazzy-tf2-ros = "*"
-ros-jazzy-tf2-geometry-msgs = "*"
-ros-jazzy-message-filters = "*"
-ros-jazzy-ros2bag = "*"
-ros-jazzy-ros2launch = "*"
-ros-jazzy-ros2run = "*"
-ros-jazzy-ros2node = "*"
-ros-jazzy-ros2topic = "*"
-ros-jazzy-ros2service = "*"
-ros-jazzy-ros2param = "*"
-ros-jazzy-rosbag2-cpp = "*"
-colcon-common-extensions = "*"
-
-# RealSense SDK. Device enumeration/stream validation only: the RGB pipeline
-# itself belongs to the official driver in the `cameras` environment.
-pyrealsense2 = "==2.58.3"
-
-[tasks]
-install = "bash bash/install.sh"
-check-env = "python bash/check_env.py"
-build-workspace = "bash bash/build.sh"
-build = "bash bash/build.sh"
-build-arm-ros = "bash bash/build_arm_ros.sh"
-test-native = "bash bash/test_native.sh"
-test-native-core = "ctest --test-dir build/control/core --output-on-failure"
-test-sim = "bash bash/test_python.sh simulation"
-test-collection = "bash bash/test_python.sh collection"
-test-controller = "bash bash/test_python.sh controller"
-test-interfaces = "bash bash/test_python.sh interfaces"
-test-pico = "bash bash/test_python.sh pico"
-test-pico2 = "pixi run --locked -e spd test-pico2"
-test-pico-simple = "bash bash/test_python.sh pico -k 'setup_pico or pico_simple or pico_startup_safety'"
-test-sim-user = "bash bash/test_python.sh pico -k sim_user"
-test-ros = "bash bash/test_python.sh ros"
-test-retargeting = "env TIANJI_ENVIRONMENT=default pixi run --locked -e manus bash bash/test_python.sh retargeting"
-test-manus = "bash bash/test_python.sh manus"
-inspect-cameras = "bash bash/inspect_cameras.sh"
-preview = "bash bash/preview_cameras.sh"
-cameras = "bash bash/run_cameras.sh"
-pico-camera = "bash bash/run_pico_camera.sh"
-collect = "bash bash/run_data_collector.sh"
-setup-pico = "bash bash/run_setup_pico.sh"
-stop-pico = "bash bash/run_stop_pico.sh"
-pico = "bash bash/run_pico.sh"
-# Manus ROS acquisition and SDK Hand2 target publication run in default.
-# The ROS-free manus environment is retained only for separate offline tools.
-manus = "bash bash/run_manus.sh"
-prepare-manus = "bash bash/build_manus.sh"
-sim = "bash bash/run_sim.sh"
-real = "bash bash/run_teleop.sh --real"
-home = "bash bash/run_home.sh"
-h5_sim = "bash bash/run_mocap.sh h5-sim"
-h5_real = "bash bash/run_mocap.sh h5-real"
-rl_infer = "bash bash/run_mocap.sh infer"
-rl_live_infer = "bash bash/run_mocap.sh live"
-regrind_real = "bash bash/run_mocap.sh regrind-real"
-regrind_hand_sim = "bash bash/run_mocap.sh regrind-hand-sim"
-
-# ---------------------------------------------------------------------------
-# cameras: the official RealSense ROS driver. Isolated because it is the only
-# consumer of ros2-distro-mutex >=0.16.0 (libprotobuf 7.35.*/libabseil
-# 20260526.0). It talks to the rest of the workspace over DDS only.
-# ---------------------------------------------------------------------------
-[feature.cameras.dependencies]
-ros-jazzy-realsense2-camera = "==4.58.3"
-ros-jazzy-image-transport = "*"
-ros-jazzy-camera-info-manager = "*"
-ros-jazzy-rclpy = "*"
-ros-jazzy-rclcpp = "*"
-ros-jazzy-launch-ros = "*"
-ros-jazzy-launch = "*"
-ros-jazzy-ament-index-python = "*"
-
-# ---------------------------------------------------------------------------
-# control: the retained C++/Pinocchio/Franka DLS/Ruckig toolchain, no ROS.
-# ---------------------------------------------------------------------------
 [feature.control.dependencies]
-# Build toolchain. Declared here rather than inherited: this environment is
-# `no-default-feature`, so without these the native builds have no compiler.
+# Native DLS/Ruckig worker and display-only viewer toolchain.
 cmake = ">=3.24,<4"
 ninja = ">=1.11"
 cxx-compiler = ">=1.9"
@@ -188,15 +15,14 @@ pkg-config = "*"
 make = "*"
 eigen = ">=3.4,<4"
 libpinocchio = ">=3.8,<4"
-# control/CMakeLists.txt does `find_package(mujoco 3.10.0 EXACT CONFIG REQUIRED)`
-# and `find_package(glfw3 CONFIG REQUIRED)` for the viewer.
+# Pinned MuJoCo API and GLFW for the auxiliary viewer.
 libmujoco = "==3.10.0"
 glfw = ">=3.4,<4"
 yaml-cpp = ">=0.8,<1"
 gtest = ">=1.15,<2"
 
-# ROS boundary for the unchanged native core; never borrow default's Eigen ABI.
-[feature.arm-ros.dependencies]
+# Message generation and DDS transport for the SPD Python publisher.
+[feature.ros.dependencies]
 python = "3.12.*"
 numpy = "*"
 colcon-common-extensions = "*"
@@ -214,44 +40,6 @@ ros-jazzy-std-msgs = "*"
 ros-jazzy-geometry-msgs = "*"
 ros-jazzy-builtin-interfaces = "*"
 
-# ---------------------------------------------------------------------------
-# manus: Python 3.12 + Pinocchio/nlopt hand retargeting.
-#
-# Deliberately ROS-free. `manus.sh` runs in the `default` (Jazzy) environment
-# and reaches this one over the existing UDP/TJH2 boundary, so there is no
-# cross-ABI rclpy import and no second ROS prefix to source. The python pin is
-# explicit because `no-default-feature = true` removes the default feature's.
-# ---------------------------------------------------------------------------
-[feature.manus.dependencies]
-python = "3.12.*"
-pip = "*"
-setuptools = ">=68,<80"
-wheel = "*"
-numpy = "*"
-pyyaml = ">=6,<7"
-scipy = ">=1.11,<2"
-pytest = ">=8,<9"
-pybind11 = ">=2.13,<4"
-cxx-compiler = ">=1.9"
-pinocchio = "==3.8.0"
-nlopt = ">=2.9,<3"
-mujoco-python = "==3.10.0"
-libmujoco = "==3.10.0"
-
-[feature.policy.activation.env]
-TIANJI_ENVIRONMENT = "policy"
-
-[feature.policy.tasks]
-test-mocap = "bash bash/test_python.sh mocap"
-
-# Optional policy runtime: same Jazzy/Python ABI, separately installed packages.
-# CPU PyTorch is explicit; CUDA inference needs a separately reviewed wheel/lock.
-[feature.policy.pypi-dependencies]
-torch = { version = "==2.10.0", index = "https://download.pytorch.org/whl/cpu" }
-eclipse-zenoh = ">=1.10,<2"
-
-# PICO bare-hand control client for the separate SPD simulator. No default
-# feature: camera, robot executor, Manus SDK and policy dependencies stay out.
 [feature.spd.dependencies]
 python = "3.12.*"
 pip = "*"
@@ -286,16 +74,9 @@ TIANJI_WORKSPACE = "$PIXI_PROJECT_ROOT"
 [feature.spd.tasks]
 build = "bash bash/build_spd.sh"
 test-pico2 = "bash bash/test_python.sh pico2"
+spd-quest-teleop = "bash bash/run_quest_hand_sim.sh"
+spd-quest-receive = "python tools/hand_tracking/quest_hand_tracking_receiver.py"
 
 [environments]
-# Policy has its own overlay; no other environment's site-packages are injected.
-default = { features = [], solve-group = "default" }
-cameras = { features = ["cameras"], no-default-feature = true, solve-group = "cameras" }
 control = { features = ["control"], no-default-feature = true, solve-group = "control" }
-arm-ros = { features = ["control", "arm-ros"], no-default-feature = true, solve-group = "arm-ros" }
-manus = { features = ["manus"], no-default-feature = true, solve-group = "manus" }
-policy = { features = ["policy"], solve-group = "default" }
-spd = { features = ["arm-ros", "spd"], no-default-feature = true, solve-group = "spd" }
-
-[pypi-dependencies]
-wuji-sdk = "==2026.8.31"
+spd = { features = ["ros", "spd"], no-default-feature = true, solve-group = "spd" }

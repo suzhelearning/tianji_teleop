@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Single activation helper for every workspace entry point.
+# Activate the SPD runtime and its isolated workspace overlay.
 #
 # It does NOT build a Python environment: the Pixi environment running this
 # script already *is* the environment. What it does is:
@@ -21,7 +21,7 @@ if [[ -z "${CONDA_PREFIX:-}" ]]; then
 fi
 
 export TIANJI_WORKSPACE="${TIANJI_WORKSPACE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)}"
-# Tested same-host RGB transport; preserve an operator's explicit profile.
+# Same-host DDS transport; preserve an operator's explicit profile.
 export FASTDDS_DEFAULT_PROFILES_FILE="${FASTDDS_DEFAULT_PROFILES_FILE:-${FASTRTPS_DEFAULT_PROFILES_FILE:-$TIANJI_WORKSPACE/config/fastdds.xml}}"
 export FASTRTPS_DEFAULT_PROFILES_FILE="${FASTRTPS_DEFAULT_PROFILES_FILE:-$FASTDDS_DEFAULT_PROFILES_FILE}"
 
@@ -103,10 +103,8 @@ if [[ -r "$overlay" ]]; then
 elif [[ -n "${TIANJI_ALLOW_UNBUILT:-}" ]]; then
   return 0
 else
-  # Not fatal: pure-Python entry points (compression, visualization, config
-  # checks) run without a built workspace. Anything that needs a message
-  # package fails later with an explicit "not built" error from the tool.
   printf '%s\n' \
-    "Note: workspace overlay not built yet (${overlay})." \
-    "      Run 'pixi run build' before using the ROS nodes." >&2
+    "SPD workspace overlay not built yet (${overlay})." \
+    "Run 'pixi run --locked -e spd build' before starting the client." >&2
+  return 2
 fi

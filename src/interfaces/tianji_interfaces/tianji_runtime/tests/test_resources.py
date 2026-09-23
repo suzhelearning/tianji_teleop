@@ -19,12 +19,10 @@ from tianji_runtime import resources  # noqa: E402
 
 @pytest.fixture()
 def workspace(monkeypatch, tmp_path):
-    """A minimal workspace with the marker file and a config directory."""
+    """A minimal explicit checkout with an isolated SPD overlay."""
     (tmp_path / "pixi.toml").write_text("[workspace]\n")
-    (tmp_path / "config").mkdir()
-    (tmp_path / "config" / "robot.json").write_text("{}")
     monkeypatch.setenv("TIANJI_WORKSPACE", str(tmp_path))
-    monkeypatch.setenv("TIANJI_ENVIRONMENT", "default")
+    monkeypatch.setenv("TIANJI_ENVIRONMENT", "spd")
     # package_share also consults the live ament prefix path; clearing it keeps
     # this test from passing because the real workspace happens to be built.
     monkeypatch.setenv("AMENT_PREFIX_PATH", "")
@@ -53,26 +51,6 @@ def test_workspace_rejects_a_directory_without_the_marker(monkeypatch, tmp_path)
     assert "pixi.toml" in str(error.value)
 
 
-def test_config_path_reports_the_missing_file(workspace):
-    assert resources.config_path("robot.json") == workspace / "config" / "robot.json"
-    with pytest.raises(resources.ResourceNotFound) as error:
-        resources.config_path("absent.json")
-    assert "absent.json" in str(error.value)
-
-
-def test_install_prefix_follows_the_active_environment(workspace, monkeypatch):
-    assert resources.install_prefix() == workspace / "install" / "default"
-    monkeypatch.setenv("TIANJI_ENVIRONMENT", "manus")
-    assert resources.install_prefix() == workspace / "install" / "manus"
-
-
-def test_control_prefix_is_separate_from_the_ament_overlay(workspace):
-    # The native projects install outside the colcon overlay; conflating the two
-    # would make native_executable search the wrong tree.
-    assert resources.control_prefix() == workspace / "install" / "control"
-    assert resources.control_prefix() != resources.install_prefix()
-
-
 def test_native_executable_rejects_paths(workspace):
     with pytest.raises(ValueError, match="basename"):
         resources.native_executable("bin/tool")
@@ -83,30 +61,24 @@ def test_native_executable_rejects_paths(workspace):
 
 
 def test_native_executable_finds_an_installed_binary(workspace):
-    target = workspace / "install" / "control" / "bin" / "tianji_qp_ik_viewer"
+    target = workspace / "install" / "spd" / "bin" / "tianji_qp_ik_viewer"
     target.parent.mkdir(parents=True)
     target.write_text("#!/bin/sh\n")
     target.chmod(0o755)
     assert resources.native_executable("tianji_qp_ik_viewer") == target
 
 
-def test_native_executable_explains_that_a_build_is_needed(workspace):
-    with pytest.raises(resources.ResourceNotFound) as error:
-        resources.native_executable("tianji_qp_ik_viewer")
-    assert "pixi run build" in str(error.value)
-
-
 def test_native_executable_requires_the_execute_bit(workspace):
-    target = workspace / "install" / "control" / "bin" / "mocap_tcp_worker"
+    target = workspace / "install" / "spd" / "bin" / "pico2_dls_worker"
     target.parent.mkdir(parents=True)
     target.write_text("not executable\n")
     target.chmod(0o644)
     with pytest.raises(resources.ResourceNotFound):
-        resources.native_executable("mocap_tcp_worker")
+        resources.native_executable("pico2_dls_worker")
 
 
 def test_controller_profile_prefers_the_installed_copy(workspace):
-    installed = (workspace / "install" / "control" / "share" / "tianji_controller"
+    installed = (workspace / "install" / "spd" / "share" / "tianji_controller"
                  / "config" / "qp_ik_pico_shared_root_dls.yaml")
     installed.parent.mkdir(parents=True)
     installed.write_text("controller: {}\n")
@@ -126,37 +98,12 @@ def test_controller_profile_rejects_a_path(workspace):
         resources.controller_profile("config/qp_ik.yaml")
 
 
-def test_controller_profile_reports_an_unbuilt_workspace(workspace):
-    with pytest.raises(resources.ResourceNotFound) as error:
-        resources.controller_profile("qp_ik_pico_shared_root_dls.yaml")
-    assert "build-workspace" in str(error.value)
-
-
-def test_package_share_reports_an_unbuilt_package(workspace):
-    with pytest.raises(resources.ResourceNotFound) as error:
-        resources.package_share("tianji_description", "models")
-    assert "tianji_description" in str(error.value)
-    assert "pixi run build" in str(error.value)
-
-
 def test_package_share_reports_a_missing_member(workspace):
-    share = workspace / "install" / "default" / "share" / "tianji_description"
+    share = workspace / "install" / "spd" / "share" / "tianji_description"
     (share / "models").mkdir(parents=True)
     with pytest.raises(resources.ResourceNotFound) as error:
         resources.package_share("tianji_description", "models", "absent.xml")
     assert "absent.xml" in str(error.value)
-
-
-def test_dataset_root_follows_the_environment_override(monkeypatch, tmp_path):
-    monkeypatch.setenv("TIANJI_DATASET", str(tmp_path / "raw"))
-    assert resources.dataset_dir() == (tmp_path / "raw").resolve()
-    # The compressed dataset is a sibling of the raw root, never inside it.
-    assert resources.compressed_dir() == (tmp_path / "compressed").resolve()
-
-
-def test_profiles_and_vendor_are_workspace_relative(workspace):
-    assert resources.profiles_dir() == workspace / "profiles"
-    assert resources.vendor_path("wuji-sdk", "lib") == workspace / "vendor" / "wuji-sdk" / "lib"
 
 
 def test_controller_resource_preserves_custom_and_explicit_paths(workspace):
@@ -182,7 +129,7 @@ def test_controller_resource_uses_local_description_before_installed(workspace):
     local.unlink()
     with pytest.raises(resources.ResourceNotFound):
         resources.controller_resource(profile, reference)
-    installed = workspace / "install/default/share/tianji_description/models/custom.urdf"
+    installed = workspace / "install/spd/share/tianji_description/models/custom.urdf"
     installed.parent.mkdir(parents=True)
     installed.write_text("installed description")
     assert resources.controller_resource(profile, reference) == installed

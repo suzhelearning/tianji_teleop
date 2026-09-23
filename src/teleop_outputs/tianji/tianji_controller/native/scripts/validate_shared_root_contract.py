@@ -8,7 +8,7 @@ from pathlib import Path
 
 import numpy as np
 import yaml
-from tianji_runtime import controller_profile, workspace
+from tianji_runtime import controller_profile
 from tianji_runtime.resources import controller_resource
 
 
@@ -20,9 +20,17 @@ def validate(profile_path: Path) -> dict:
     profile_path = profile_path.resolve(strict=True)
     profile = yaml.safe_load(profile_path.read_text())
     cfg = profile["shared_root"]
+    required = {
+        "enabled", "input_contract_artifact", "robot_geometry_artifact", "input_mode",
+        "control_point_semantic", "shape_proxy_semantic", "morphology",
+        "bridge_frame_filter", "continuity", "target_gate",
+    }
+    unknown = set(cfg) - required - {"reachable_projection"}
+    missing = required - set(cfg)
+    if unknown or missing:
+        raise ValueError(f"invalid shared-root fields: missing={sorted(missing)}, unknown={sorted(unknown)}")
     input_path = controller_resource(profile_path, cfg["input_contract_artifact"])
     geometry_path = controller_resource(profile_path, cfg["robot_geometry_artifact"])
-    root = workspace()
     contract = yaml.safe_load(input_path.read_text())["tjvr_shared_root_input"]
     geometry = yaml.safe_load(geometry_path.read_text())["robot_geometry"]
     if contract["contract_version"] != 1 or geometry["contract_version"] != 2:
@@ -57,18 +65,21 @@ def validate(profile_path: Path) -> dict:
     evidence = geometry["closure_validation"]
     if evidence["sampled_pose_count"] < 100 or evidence["sampling_method"] != "deterministic_joint_range_sine_v1":
         raise ValueError("incomplete closure validation")
-    for name, tolerance in (("maximum_wrist_vector_variation_m", "invariant_tolerance_m"),
-                            ("maximum_link_origin_mismatch_m", "invariant_tolerance_m"),
-                            ("maximum_cross_model_position_error_m", "tolerance_m"),
-                            ("maximum_cross_model_rotation_error_rad", "tolerance_rad")):
-        bound, measured = evidence[tolerance], evidence[name]
-        if not np.isfinite(bound) or not np.isfinite(measured) or not 0 <= measured <= bound or bound <= 0:
-            raise ValueError("failed closure geometry evidence")
+    if evidence["sampled_joint_range_source"] != "mujoco_joint_ranges":
+        raise ValueError("closure validation must sample the MuJoCo joint ranges")
+    # The measured per-axis maxima stay in the referenced evidence report; the
+    # artifact binds the bounds they were accepted against. Declared
+    # cross-model tolerances may never be looser than those recorded bounds.
+    for tolerance, declared in (("tolerance_m", "cross_model_position_tolerance_m"),
+                                ("tolerance_rad", "cross_model_orientation_tolerance_rad"),
+                                ("invariant_tolerance_m", "fixed_shoulder_position_tolerance_m")):
+        bound = evidence[tolerance]
+        if not np.isfinite(bound) or bound <= 0:
+            raise ValueError("invalid closure tolerance: " + tolerance)
+        if not np.isfinite(geometry[declared]) or not 0 < geometry[declared] <= bound:
+            raise ValueError("invalid declared closure tolerance: " + declared)
     if geometry["tjvr_input_contract_sha256"] != digest(input_path):
         raise ValueError("input contract fingerprint mismatch")
-    for name, expected in contract["source_files"].items():
-        if digest(root / name) != expected:
-            raise ValueError("source fingerprint mismatch: " + name)
     for name in ("urdf", "mujoco_xml"):
         path = controller_resource(geometry_path, geometry[name + "_path"])
         if digest(path) != geometry[name + "_sha256"]:

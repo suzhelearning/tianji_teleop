@@ -1,117 +1,83 @@
-# Tianji 双臂原生控制核心
+# Tianji SPD 原生 DLS 求解与显示
 
-本目录只保留一条控制链：**共享根掌心映射 → Franka DLS → Ruckig**。
-唯一算法标识为 `pico_ee_franka_dls`，唯一控制 profile 为
-`config/qp_ik_pico_shared_root_dls.yaml`。共享根映射和形状参数分别使用
-`shared_root`、`shared_root_shape`，不提供运行时算法切换。
+本目录只服务一条链路：**PICO 裸手 → Python 共享根映射 → 原生 Franka DLS + Ruckig →
+SPD 关节命令**。原生进程不再拥有 PICO 网络输入、真机输出或 ROS 边界：
 
-Pinocchio 提供双臂运动学，Franka DLS 求关节目标，Ruckig 按关节速度、加速度和
-jerk 约束生成参考。MuJoCo 用于模型状态和显示；模型参考不等于机器人实测状态。
-无新鲜输入时保持／制动，不用脚本轨迹替代现场输入。
+| 目标 | 角色 |
+|---|---|
+| `pico2_dls_worker` | 私有 stdin/stdout 协议的双臂 DLS/Ruckig 求解器，只做模型参考 |
+| `tianji_qp_ik_viewer` | `--external-display` 专用辅助窗口，只显示父进程传入的 54 维关节 |
+
+唯一算法标识为 `pico_ee_franka_dls`，唯一 profile 为
+`config/qp_ik_pico_shared_root_dls.yaml`。Pinocchio 提供双臂运动学，Franka DLS 求
+关节目标，Ruckig 按速度、加速度和 jerk 约束生成参考；MuJoCo 提供模型状态与显示。
+模型参考不等于机器人实测状态。无新鲜输入时保持／制动，不用脚本轨迹替代现场输入。
 
 ## 构建
 
-以下命令从工作区根目录执行，依赖由 Pixi 的独立环境提供：
-
 ```bash
-# 原生模型 Viewer、输入录制器和 DLS worker。
-pixi run -e control bash bash/build_native.sh
-
-# 生产 ROS 边界；脚本自行进入独立 arm-ros 环境。
-bash bash/build_arm_ros.sh
+# 工作区根目录：编译并安装两个 SPD 原生命令到 install/spd/bin。
+bash bash/build_spd.sh
 ```
 
-核心构建目录为 `build/control/core`，ROS 构建目录为 `build/arm-ros/core`，
-安装前缀为 `install/control`。不要混用 default 环境与 control／arm-ros 的数值库 ABI。
-核心依赖为 C++20、CMake、Eigen、MuJoCo、Pinocchio、yaml-cpp、GLFW 和 Ruckig；
-ROS 入口另依赖 rclcpp 与 `tianji_interfaces`。
-Ruckig Community 源码和 MIT 许可证位于 `third_party/ruckig/`，
-只使用本地在线轨迹生成，不需要云端服务。
+构建使用独立 `control` 环境（CMake 3.24、Eigen、MuJoCo、Pinocchio、yaml-cpp、
+GLFW、Ruckig）；`bash/build_spd.sh` 以 `-DBUILD_TESTING=OFF` 配置，只构建并安装
+`pico2_dls_worker` 与 `tianji_qp_ik_viewer`（安装组件 `spd`）。Ruckig Community
+源码与 MIT 许可证位于 `third_party/ruckig/`，只使用本地在线轨迹生成。
 
-## 生产 ROS 入口
+需要单元测试时用 `control` 环境自行配置 `-DBUILD_TESTING=ON`；测试覆盖被两个
+目标实际链接的库代码，不再包含已删除的 ROS、UDP 录制与交互标记路线。
 
-`tianji_arm_ros` 接收 `tianji_interfaces/msg/PicoArmInput`，输出
-`tianji_interfaces/msg/ControllerJointTargets`。工作区生产话题由根
-`config/robot.json` 指定，通常为 `/pico/arm_input` 和
-`/tianji/controller/joint_targets`；此入口不使用双臂业务 UDP 15000／17000。
+## `pico2_dls_worker`：私有管道求解器
 
-下面是**不导出关节目标**的无窗口运行方式：
+启动参数：`<profile.yaml> <model.xml> [--continuous-follow]`。
 
-```bash
-pixi run -e arm-ros install/control/bin/tianji_arm_ros \
-  --config src/teleop_outputs/tianji/tianji_controller/native/config/qp_ik_pico_shared_root_dls.yaml \
-  --pico-topic /pico/arm_input \
-  --joint-target-topic '' \
-  --headless --continuous
-```
+- 启动后先输出一行握手：
+  `{"schema_version":1,"kind":"pico2_dls_ready","simulation_only":true}`。
+- 请求固定 272 字节（magic `P2IQ`，版本 1），响应固定 432 字节（magic `P2IR`）；
+  单进程单所有者，序列号与 epoch 必须单调，时钟必须非负且 `received <= now`。
+- 操作码：`1` 复位（epoch+1）、`2` 求解（唯一产生运动参考的路径）、`3` 前向运动学、
+  `4` 软启动跟随、`5`/`6` 有界停止、`7` 恢复状态推进、`8` 连续跟随恢复。
+  `--continuous-follow` 只影响 `8` 的可用性。
+- 求解前必须先复位；求解种子必须等于本进程参考，超出关节限位、非有限数、四元数
+  退化、时钟回退与越权操作都会拒绝并进入保持。
+- 响应包含每侧接受标志、参考关节、TCP 位姿、跟踪误差与恢复阶段名。
 
-ROS domain 与发现范围应和上游发布端一致。生产仿真禁用目标导出；真机／dry-run
-由 Python 执行器启动本入口，并显式同时传入 `--franka-dls-executor` 和非空
-`--joint-target-topic`。该开关只允许受限 DLS/Ruckig 目标导出，**不是电机使能授权**。
-设备连接、会话授权、硬件 SDK、输入／反馈时效检查仍归 Python 执行器所有。
-不要将直接启动原生程序当作真机启动流程。
+进程不监听任何 socket，不打开设备，不导出关节命令；退出码非零表示求解器故障，
+调用方必须显式重建 worker。
 
-## 原生 Viewer 与独立显示
-
-`tianji_qp_ik_viewer` 保留本地 TJVR 输入与模型参考显示，用于脱离 ROS 的输入观察。
-从工作区根目录启动：
+## `tianji_qp_ik_viewer`：显示专用窗口
 
 ```bash
-pixi run -e control install/control/bin/tianji_qp_ik_viewer \
-  --config src/teleop_outputs/tianji/tianji_controller/native/config/qp_ik_pico_shared_root_dls.yaml \
-  --pico-teleop --pico-bind 127.0.0.1 --pico-port 15000
+install/spd/bin/tianji_qp_ik_viewer --external-display \
+  --model <marvin_m6_wuji2_shared_root_ceres.xml> --config <profile.yaml>
 ```
 
-默认不导出关节命令。录制器与 Viewer 不能同时绑定相同接收端口。
-`--headless --duration 10` 可用于有界无窗口会话；`--continuous` 持续运行。
-`--telemetry FILE` 和 `--joint-telemetry FILE` 保存控制与关节诊断。
-非 ROS 入口的受限目标导出同样要求 `--franka-dls-executor`，并限定 loopback。
+父进程（`pico2_hands`）通过私有 stdin 管道写帧：
+`<timestamp_ns> <54 关节弧度> <状态文本>\n`。时间戳必须单调；帧必须整行且
+54 维有限；状态文本中的 `|` 显示为换行。省略 `--model` 时使用 profile 冻结的
+共享根模型。
 
-`--external-display` 保留为 Python 仿真／执行器的私有 stdin 显示入口，
-只显示调用方传入的关节状态，不运行控制循环、输入接收、录制或目标导出。
-`--continuous-follow` 仅可配合该显示模式使用；不要用它代替生产 ROS 控制入口。
+输出行：`DISPLAY_READY`（窗口/管道就绪）、`DISPLAY_KEY <GLFW 键码>`
+（控制键与退出转发给父状态机）、`display_complete frames=<N>`（结束）。
+按键：`C` 标定（`--continuous-follow` 下为 `R`）、`S` 跟随、`P`/`Space` 保持、
+`H` Home、`Q`/`Escape`/关窗退出、`F1` 帮助、`F2` 曲线、`F3` 指标、`F4` 锁手臂、
+`F5` 跟随选中、`L` 选择左臂、`R` 选择右臂（仅非连续跟随），鼠标旋转／平移／缩放。
 
-## 输入录制、回放与 artifact 工具
+该窗口没有控制循环、没有第二个求解器、没有网络输入、没有录制与关节导出；
+`--headless` 保留同一帧契约但不开窗口，便于无显示服务器的自检。
 
-以下脚本位于 `src/teleop_outputs/tianji/tianji_controller/native/scripts/`，
-在已安装工作区 Python 包的环境运行；它们不连接硬件 SDK，不授予运动权限。
-
-| 工具 | 用途 |
-|---|---|
-| `record_shared_root_actions.py` | 调用 `tianji_record_action_trace`，录制 50 秒原始 TJVR 输入、提示事件与配置快照 |
-| `replay_pico_udp_trace.py` | 按录制接收时间间隔发送 TJVT 内的原始 TJVR 报文 |
-| `audit_shared_root_trace.py` | 只读检查简化标定与 TJVR 有效骨长、坐标及报文一致性 |
-| `validate_shared_root_contract.py` | 只读检查 DLS profile、输入来源哈希与冻结机器人几何 |
-| `repin_shared_root.py` | artifact 维护工具：更新输入契约引用哈希与原生几何允许哈希；`--check` 不写文件 |
-
-例如，以下命令均从工作区根目录执行：
-
-```bash
-native=src/teleop_outputs/tianji/tianji_controller/native
-
-python "$native/scripts/record_shared_root_actions.py" plan
-python "$native/scripts/record_shared_root_actions.py" record \
-  --output recordings/shared_root/session-new \
-  --participant PARTICIPANT --calibration-dir /path/to/pico-simple/revision
-
-python "$native/scripts/replay_pico_udp_trace.py" \
-  --input recordings/shared_root/session-new/input.tjvr --port 15000
-
-python "$native/scripts/validate_shared_root_contract.py"
-```
-
-录制目录必须不存在；现场录制必须指定参与者和标定目录。
-动作提示只是待确认区间，不能证明佩戴者实际完成动作；只有观察者核对后才可运行
-`confirm-prompts --session DIR --reviewer NAME`，并且确认不构成运动授权。
-回放不重写源时间戳或 CRC，不能冒充新鲜现场输入驱动真机。
-
-## 冻结几何与边界
+## 冻结几何与 artifact
 
 共享根输入来源、坐标系和连续性所有权见
-[输入契约](docs/shared_root_input_contract.md)。
-`config/shared_root_robot_geometry_dls.yaml` 固定模型路径、标识与 SHA256；
-模型文件名 `marvin_m6_ceres_source.urdf` 和
+[输入契约](docs/shared_root_input_contract.md)。`config/shared_root_robot_geometry_dls.yaml`
+固定模型路径、标识与 SHA256；`config/shared_root_tjvr_input_contract.yaml` 记录
+输入语义。模型文件名 `marvin_m6_ceres_source.urdf` 和
 `marvin_m6_wuji2_shared_root_ceres.xml` 是保留的冻结来源名称，不是运行时后端选项。
 来源几何数据见 [冻结模型几何证据](docs/verification/shared_root_dls_geometry.md)。
 
-离线 artifact 一致性、模型显示和录制回放都不能替代真实输入、动力学或真机验收。
+两个 artifact 内容寻址：改动其内容会同时改变 profile 引用、几何文件的指向和
+`src/shared_root_options.cpp` 中的冻结哈希。使用
+`scripts/repin_shared_root.py` 重新固定几何哈希，并用
+`scripts/validate_shared_root_contract.py` 只读核对 profile、artifact 与模型指纹；
+两者都不授予运动权限。

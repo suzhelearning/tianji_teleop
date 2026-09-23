@@ -25,10 +25,10 @@ bridge 利用双肩及 spine2 构造轴，再平移到高度 1.121 m；此契约
 报文的 `left/right` 是另一条目标构造支路，可能包含 reach scale / X offset，不能
 当成 skeleton 掌姿态的备用字段。
 
-bridge 的状态配对要求同源时间戳、合法 epoch、`stream_valid=true` 和 `ik_frame_valid=true`。
-左右侧 `corrected` 标志不再作为拒绝条件；raw/hold 回退若仍满足其余检查，可以通过此门。
-因此不能把 bridge 的有效输出解释为双侧校正均成功。这也不是对任意外部发布者的身份认证；
-artifact 哈希不能证明现场正在运行的远端程序版本。
+bridge 的状态配对要求同源时间戳、合法 epoch、`stream_valid=true` 和
+`ik_frame_valid=true`。左右侧 `corrected` 标志不再作为拒绝条件；raw/hold 回退若仍
+满足其余检查，可以通过此门。因此不能把 bridge 的有效输出解释为双侧校正均成功。
+这也不是对任意外部发布者的身份认证。
 
 ## 对称骨架
 
@@ -50,22 +50,22 @@ artifact 中局部向量只是 reference q 的 shape 参考，不得当作固定
 
 ## 当前接线状态
 
-唯一控制链为共享根掌心映射 → Franka DLS → Ruckig。
+SPD 运行时的唯一控制链为：Python 侧共享根掌心映射（`pico2_hands`）→
+`pico2_dls_worker` 的 Franka DLS + Ruckig → SPD 关节命令。原生进程只接受
+私有管道传入的双臂 TCP 目标，不再接收 PICO 报文、不再持有会话状态。
+
+本目录的 C++ adapter、尺度估计、目标构造／滤波和连续性模块保留为**启动期契约
+校验**：`src/shared_root_options.cpp` 在加载 profile 时按 artifact 校验几何、
+模型指纹与参数窗口，但运行时不再由本进程消费 PICO 帧，因此不存在本地
+`accept(sequence, epoch, generation)` 参考接受路径。
+
 配置使用 `shared_root` 和 `shared_root_shape`，
 唯一 profile 为 `config/qp_ik_pico_shared_root_dls.yaml`。
-纯 C++ adapter、尺度估计、目标构造/滤波、连续性管理和 guidance
-为 DLS 提供目标；不提供会话内算法选择。
-
-生产入口 `tianji_arm_ros` 使用 ROS 输入/输出。关节目标导出要求执行器显式
-启用 `--franka-dls-executor`；硬件授权与 SDK 属于 Python 执行器。
-离线 validator 仅验证工作区 artifact 与配置一致性，不授予运动权限。
-入口和传输边界见 [原生控制器说明](../README.md)；
+原生入口没有 ROS 边界、没有硬件授权、也没有关节导出；
+离线 validator 与 `scripts/repin_shared_root.py` 只核对工作区 artifact 与配置
+一致性，不授予运动权限。
+入口和协议见 [原生控制器说明](../README.md)；
 冻结模型来源见 [几何证据](verification/shared_root_dls_geometry.md)。
-
-连续性模块的 `accept(sequence, epoch, generation)` 只能由最终控制参考接受路径调用，
-不能仅因为生成目标、IK 成功或 guidance 返回 `accepted` 就调用。
-guidance 消费恢复期间普通 stationary hold 的抑制和历史重置信号；
-安全保持、stale、Home、失能和故障仍然优先。
 
 ## 简化对称配置
 
@@ -74,7 +74,5 @@ guidance 消费恢复期间普通 stationary hold 的抑制和历史重置信号
 双侧臂长由身高模板生成。简化 bundle v2 的腕掌距离也由身高估计，v1 才使用左腕实测；
 它是有效模型几何，不是双侧独立实测。
 控制端仍只消费 M0/bridge 输出，不再镜像 TCP、不再生成一次骨长，也不读取个人文件热更新。
-
-启动时必须验证参与者的 `pico-simple/active.json` 指针。
-历史录制与文件存在不等于当前配置已发布；原生合成输入不能证明
-右侧物理轴、SDK 输出或换人后的现场跟踪效果。
+历史录制与文件存在不等于当前配置已发布；原生合成输入不能证明右侧物理轴、
+SDK 输出或换人后的现场跟踪效果。

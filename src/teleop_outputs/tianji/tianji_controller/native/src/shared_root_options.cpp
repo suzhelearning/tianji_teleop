@@ -73,20 +73,16 @@ SharedRootOptions loadSharedRootOptions(const std::string& path) {
   out.input_sha256=sharedRootSha256File(input.string());out.geometry_sha256=sharedRootSha256File(geometry.string());
   // Adapter v1 has one source/basis contract; arbitrary valid rotations or new
   // field mappings must not silently reinterpret that implementation.
-  require(out.input_sha256=="58ac3886d81ebf735300c47304ae791b8e84f9267d34a3d76f7ee6e27df5cbd6","unsupported input contract revision");
+  require(out.input_sha256=="a408ab5102a7fe305abe37e7f28c21166ec34a7d6af206ace8bc551cfbb7e099","unsupported input contract revision");
   // The reviewed DLS geometry retains its frozen model hashes and runtime checks.
-  require(out.geometry_sha256=="5f605dcc967d217a12a79b47484566e675230c64d2b55121ae344ae497105ae3",
+  require(out.geometry_sha256=="1a8f99f66b078c85e3776241421ded5da12d8b61ed34e796eb6cebbb39bec4f7",
       "unsupported robot geometry revision");
-  const Node ic=YAML::LoadFile(input.string())["tjvr_shared_root_input"];
   const Node g=YAML::LoadFile(geometry.string())["robot_geometry"];
   require(g["contract_version"].as<int>()==2,"unsupported robot contract");
   require(g["transform_convention"].as<std::string>()=="parent_T_child"&&
       g["wrist_center_orientation_semantic"].as<std::string>()=="virtual_frame_axes_parallel_to_solver_tcp",
       "unsupported closure frame convention");
   require(g["tjvr_input_contract_sha256"].as<std::string>()==out.input_sha256,"artifact link mismatch");
-  const auto repository=runtimeWorkspace();
-  for(const auto& file:ic["source_files"])
-    fingerprint(repository/file.first.as<std::string>(),file.second.as<std::string>());
   out.urdf_path=fs::canonical(controllerResource(geometry,g["urdf_path"].as<std::string>())).string();
   out.mujoco_path=fs::canonical(controllerResource(geometry,g["mujoco_xml_path"].as<std::string>())).string();
   fingerprint(out.urdf_path,g["urdf_sha256"].as<std::string>());

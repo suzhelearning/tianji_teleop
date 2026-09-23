@@ -27,7 +27,7 @@ class SharedRootMapping:
         self.forearm = self.height * .152941
         self.palm_distance = self.height * .037037
         self.reach = self.upper + self.forearm + self.palm_distance
-        artifact = controller_profile("shared_root_robot_geometry_ceres.yaml")
+        artifact = controller_profile("shared_root_robot_geometry_dls.yaml")
         geometry = yaml.safe_load(artifact.read_text())["robot_geometry"]
         self.geometry_sha256 = hashlib.sha256(artifact.read_bytes()).hexdigest()
         for path_key, hash_key in (("urdf_path", "urdf_sha256"), ("mujoco_xml_path", "mujoco_xml_sha256")):

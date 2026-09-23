@@ -1,4 +1,4 @@
 # SCM syntax highlighting & preventing 3-way merges
 pixi.lock merge=binary linguist-language=YAML linguist-generated=true -diff
-vendor/manus_sdk/lib/libManusSDK_Integrated.so filter=lfs diff=lfs merge=lfs -text
 apps/pico/*.apk filter=lfs diff=lfs merge=lfs -text
+apps/quest/*.apk filter=lfs diff=lfs merge=lfs -text

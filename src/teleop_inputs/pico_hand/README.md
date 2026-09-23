@@ -1,27 +1,29 @@
-# PICO 裸手 → SPD：共享根 DLS／Ruckig 与 ROS 关节命令
+# PICO / Quest 裸手 → SPD：共享根 DLS／Ruckig 与 ROS 关节命令
 
 裸手仿真只保留这一条双臂主线：`pico_ee_franka_dls`，配置
 `qp_ik_pico_shared_root_dls.yaml`，`post_smoothing.mode=ruckig`。
 旧 V131 求解器、模型、构建目标和旧映射分支已移除，不提供回退或兼容入口。
 
 入口为 **`bash bash/run_pico_hand_sim.sh --height-m HEIGHT`**，脚本自行进入独立的
-**`spd`** Pixi 环境，不读取 default／policy overlay。
+**`spd`** Pixi 环境，不读取其他工作空间的 overlay。
 身高必须显式给出，单位米、范围 `[1.0, 2.4]`；不猜默认人员或身高。
 不再接受 `--mapping-mode` 或旧 `--arm-control-mode`。
 Python／ROS 包名仍为 `pico2_hands`，录制 schema 不改名。
+Quest 入口为 `bash bash/run_quest_hand_sim.sh --height-m HEIGHT`，使用同一 v1 FLU/OpenXR
+解码协议与控制链；APK 和独立诊断工具见[项目首页](../../../README.md#quest-3s-接入)。
 
 **本入口默认向 SPD 仿真发布 ROS 关节命令；不连接机器人，不发布真机 TJRC／遥操 UDP。**
 手腕／掌心位姿经共享根映射和 DLS/Ruckig 生成双臂目标，手骨架经独立 Hand2 重定向
 生成双手目标。原生 Viewer 只辅助观察同一份目标，不是命令来源。
-Manus／外骨骼＋PICO 手柄的真机入口、授权和输出完全独立，本功能不修改它们。
+本分支不包含其他手部输入、手柄遥操或真机执行器。
 手势分类只是观察标签，不会自动使能、暂停或代替急停；合成验证不代表现场跟踪质量合格。
 
 ## 构建与环境
 
 本入口固定使用根 `pixi.toml` 的独立 **`spd`** 环境（`no-default-feature`）：Python 3.12、
 Jazzy ROS 构建工具、numpy／scipy／h5py／pyyaml／MuJoCo，以及编译原生目标所需的
-CMake／Ninja／编译器。default 与 policy 的 `pixi run build` 已跳过 `pico2_hands` 和
-`tianji_spd_interfaces`，两条链路不共用运行时。SPD 仿真本身不在这里安装：
+CMake／Ninja／编译器。原生控制库与 Hand2 采用各自的隔离 ABI 环境，
+只服务此 SPD 控制端。SPD 仿真本身不在这里安装：
 它属于独立 checkout `/home/current/syz/spd-syz`，关节目标经 ROS 发往该项目。
 
 从工作区根目录执行：
@@ -46,8 +48,8 @@ pixi run --locked -e spd build
 3. 只构建这条路线需要的 ROS 包：`tianji_interfaces`、`tianji_spd_interfaces`、
    `pico2_hands`、`tianji_description`、`tianji_controller`、`simulation`。
 
-构建产物只写入 `build/spd`、`install/spd` 和 `log/spd`，不写入 default／policy 的
-overlay，也不从它们借用 site-packages。模型和配置经 `tianji_description`／
+构建产物只写入 `build/spd`、`install/spd` 和 `log/spd`，
+不借用其他 overlay 的 site-packages。模型和配置经 `tianji_description`／
 `controller_profile()` 解析；Hand2 独立环境的 site-packages 与动态库不注入 spd；
 不依赖外部源码 checkout，也不回退到旧程序。
 消息包 `tianji_spd_interfaces` 由本环境构建生成，不能靠源码路径代替生成消息包。
@@ -57,9 +59,9 @@ overlay，也不从它们借用 site-packages。模型和配置经 `tianji_descr
 
 ## 真实裸手输入启动
 
-先停止占用同一输入的旧会话。头显运行**裸手跟踪 APK**，不是 VR whole-body／
-手柄 APK。这条路线不启动 `run_pico.sh`、Manus 或外骨骼，不读取 VR 人员档案或
-手柄 TCP 标定。USB 连接头显并授权调试后，入口自动检查默认裸手 ADB 转发。
+先停止占用同一输入的旧会话。头显运行对应设备的**裸手跟踪 APK**，不是手柄 APK。
+不读取 VR 人员档案或手柄 TCP 标定；USB 连接头显并授权调试后，
+入口自动检查默认裸手 ADB 转发。PICO 与 Quest 二选一，诊断接收器与遥操不要同时运行。
 
 ```bash
 # 1.75 仅为示例，必须替换为实际佩戴者身高
@@ -68,7 +70,7 @@ bash bash/run_pico_hand_sim.sh --height-m 1.75
 
 入口按实际 `CONDA_PREFIX` 判断环境：不在 `<工作区>/.pixi/envs/spd` 时，清除继承的
 `PYTHONPATH`／ROS／overlay 变量后用 `pixi run --locked -e spd` 重新执行自身。
-不需要先手动 `pixi shell -e spd`；在 default／policy 环境里直接执行会被切换到 spd，
+不需要先手动 `pixi shell -e spd`；在其他环境里直接执行会被切换到 spd，
 且不借用原环境的 overlay。改过 Python／原生代码后须先重跑 `pixi run --locked -e spd build`，
 运行中的进程不会热加载新代码。
 
@@ -233,9 +235,9 @@ R 用头显水平朝向固定根轴，以前伸双掌和估计臂展建立虚拟
 姿态修正。参考姿态只通过 FK 查询，不直接执行。虚拟根随头显平移、不随转头旋转；
 转身或明显弯腰后应恢复标定姿态，按 R 重新标定。
 
-位置复用共享根仿射映射，读取冻结的 `shared_root_robot_geometry_ceres.yaml` 并校验
-模型指纹；文件名含 `ceres` 不代表选择 Ceres 求解器。它不包含 VR M0 的实测肩肘、
-完整骨架重建或 shape guidance，不能把身高模板称作完整人体追踪。
+位置复用共享根仿射映射，读取冻结的 `shared_root_robot_geometry_dls.yaml` 并校验
+模型指纹。它不包含 VR M0 的实测肩肘、完整骨架重建或 shape guidance，
+不能把身高模板称作完整人体追踪。
 
 `DlsWorker` 通过有界本地管道调用本路线构建的原生 DLS worker（Pinocchio、Ruckig 和
 `SimulationRecovery`）。目标是世界坐标掌心 TCP；启动时与显示模型实际 FK 对照。
@@ -288,21 +290,9 @@ pixi run --locked -e spd test-pico2 -q
 `test-pico2` 里的 Hand2 用例会真正启动 `install/spd` 中的原生 worker（未构建时跳过）；
 离线对照脚本 `pico2_hands.scripts.compare_hand_worker` 保留，需要比对官方参考时手动运行。
 
-## 历史证据说明
+## 来源与验证边界
 
-旧 V131 实现已经删除，以下仅保留以前记录的数字，不是当前可运行路线或当前测试数量：
-
-| 历史阶段 | 当时记录 |
-|---|---|
-| 初始接收参考接入（2026-09-16） | 284 passed |
-| 旧可选高度标定适配 | 296 passed |
-| 旧原生 IK 通信阶段 | 302 passed，另有 IK 专项 6 passed |
-| 旧完整仿真接线 | 312 passed；4151 周期、8313 条录制完整处理 |
-| 旧原生移植阶段 | 289 passed；V131 CTest 3/3、Hand2 scheduler 1/1；16 帧手部对照最大差 0 rad |
-| 后续回归（2026-09-17） | 316 passed；另一次自测 4128 周期 |
-
-旧 V131 参考版本为 `3cfa5108b12d21232ce13a1f0d84831ad525d294`，当时有限轨迹对照
-的参考二进制 SHA256 为 `cd8bab2e555fc296fea671d642b22cde31cc6db2aa9551782f6c565ae67349b9`；
-这些来源信息不再构成运行或构建依赖。保留代码的来源及指纹见 `source_manifest.json`
-和 `native_source_manifest.json`。当前迁移验收统一见
-[迁移验证状态](../../../docs/migration-verification-status.md)。
+保留代码的来源及指纹见 `source_manifest.json` 和 `native_source_manifest.json`。
+当前分支的验证入口为 `pixi run --locked -e spd test-pico2` 与
+`bash bash/run_pico_hand_sim.sh --height-m 1.75 --self-test`。
+历史路线的测试数量不作为本分支当前验收证据；真实 PICO / Quest 跟踪和 SPD 物理执行需现场验证。

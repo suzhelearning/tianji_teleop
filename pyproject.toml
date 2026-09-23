@@ -1,22 +1,12 @@
-# Workspace metadata and development/test configuration only.
-#
-# This file used to build every business module from the workspace root with
-# setuptools. It no longer does: each component is a real ament package under
-# src/ that `pixi run build` builds with colcon, and Pixi owns every runtime
-# dependency. The workspace root therefore ships no importable Python package,
-# no console script (the `tianji` entry point belongs to src/tools/tianji_tools)
-# and no extension module (the retargeting extension belongs to
-# src/teleop_outputs/wuji/wuji_retargeting).
-
+# Packages are installed by colcon; the workspace root is not a Python package.
 [project]
-name = "tianji-teleop"
+name = "tianji-spd"
 version = "0.3.0"
-description = "Collection-centered Tianji teleoperation, calibration and retargeting"
+description = "PICO bare-hand DLS and Hand2 control client for SPD simulation"
 requires-python = ">=3.12"
 
 [tool.setuptools]
-# Explicitly empty: nothing at the workspace root is packaged any more.
 packages = []
 
 [tool.pytest.ini_options]
-testpaths = ["src/data_collector/tests", "src/simulation/simulation/tests"]
+testpaths = ["src/teleop_inputs/pico_hand/python/pico2_hands/tests"]

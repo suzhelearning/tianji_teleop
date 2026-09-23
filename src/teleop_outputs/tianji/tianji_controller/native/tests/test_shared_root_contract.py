@@ -42,7 +42,7 @@ def test_rejects_invalid_contract(tmp_path, mutation):
     if mutation == "closure_frame":
         geometry["robot_geometry"]["right"]["elbow_center_frame"] = "Link4_L"
     if mutation == "closure_evidence":
-        geometry["robot_geometry"]["closure_validation"]["maximum_wrist_vector_variation_m"] = 1
+        geometry["robot_geometry"]["closure_validation"]["tolerance_rad"] = 1e-9
     cp = tmp_path / "shared_root_tjvr_input_contract.yaml"
     cp.write_text(yaml.safe_dump(contract))
     geometry["robot_geometry"]["tjvr_input_contract_sha256"] = validator.digest(cp)

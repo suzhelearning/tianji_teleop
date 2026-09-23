@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Same-host transport: 128 MiB per participant, 4 MiB messages accommodate
-     schema-v1 640x480 RGB8 without UDP fragmentation. Not zero-copy. -->
+<!-- Same-host shared-memory transport for the SPD target publisher. Not zero-copy.
+     Keep the existing transport capacity; only the 54-joint contract is published. -->
 <profiles xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
   <transport_descriptors>
     <transport_descriptor>
