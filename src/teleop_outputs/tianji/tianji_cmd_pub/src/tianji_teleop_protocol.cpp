@@ -151,22 +151,6 @@ CorrectedIkStatus parse_corrected_ik_status(std::string_view json_text)
     return rejectedStatus("ik_frame_invalid");
   }
 
-  try {
-    if (!root["left"]["corrected"].as<bool>()) {
-      return rejectedStatus("left_not_corrected");
-    }
-  } catch (const YAML::Exception &) {
-    return rejectedStatus("left_not_corrected");
-  }
-
-  try {
-    if (!root["right"]["corrected"].as<bool>()) {
-      return rejectedStatus("right_not_corrected");
-    }
-  } catch (const YAML::Exception &) {
-    return rejectedStatus("right_not_corrected");
-  }
-
   status.valid = true;
   return status;
 }

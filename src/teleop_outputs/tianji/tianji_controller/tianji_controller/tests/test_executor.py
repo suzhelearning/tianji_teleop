@@ -154,6 +154,95 @@ class ExecutorTests(unittest.TestCase):
             # An unselected left channel must not block a right-only session.
             self.assertEqual(load_configuration(path, "right_hand")[1], ("right_hand",))
 
+    def test_selected_manus_topic_errors_fail_before_hardware_or_collection(self):
+        config, _ = load_configuration(ROOT / "config/robot.json")
+        invalid_topics = (
+            None,
+            {"left_hand": "/hand/left"},
+            {"left_hand": "relative", "right_hand": "/hand/right"},
+            {"left_hand": "/hand/left", "right_hand": "/hand/left"},
+            {"left_hand": config["joint_command_topic"], "right_hand": "/hand/right"},
+            {"left_hand": "/hand/left", "right_hand": config["pico_input_topic"]},
+        )
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "robot.json"
+            for topics in invalid_topics:
+                with self.subTest(topics=topics):
+                    config["hand_command_topics"] = topics
+                    path.write_text(json.dumps(config))
+                    with patch("tianji_controller.run_teleop.make_hardware") as hardware, \
+                            patch("tianji_controller.run_teleop.CollectionSupervisor") as collection, \
+                            patch("tianji_controller.run_teleop.sys.stdin.isatty", return_value=True), \
+                            redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as raised:
+                        main(["--config", str(path), "--confirm-real", "--devices", "all",
+                              "--collection", "--dataset", folder, "--task", "topic safety"])
+                    self.assertEqual(raised.exception.code, 2)
+                    hardware.assert_not_called()
+                    collection.assert_not_called()
+
+    def test_only_selected_hand_transport_configuration_can_block_startup(self):
+        config, _ = load_configuration(ROOT / "config/robot.json")
+        config["hand_command_topics"]["left_hand"] = "invalid unused topic"
+        config["hand_port"] = 0
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "robot.json"
+            path.write_text(json.dumps(config))
+            # The unselected left stream and unused TJH2 transport are irrelevant.
+            load_configuration(path, "right_hand")
+            with self.assertRaisesRegex(ValueError, "hand_command_topics.left_hand"):
+                load_configuration(path, "hands")
+            with self.assertRaisesRegex(ValueError, "hand_port"):
+                load_configuration(path, "right_hand", hand_source="exoskeleton")
+            config["hand_port"] = 16000
+            config["hand_command_topics"] = None
+            path.write_text(json.dumps(config))
+            # Explicit exoskeleton still works without any Manus configuration.
+            load_configuration(path, "hands", hand_source="exoskeleton")
+            load_configuration(path, "arms")
+
+    def test_manus_hands_run_without_native_core_pico_or_tjh2(self):
+        config, _ = load_configuration(ROOT / "config/robot.json")
+        for field in ("pico_input_topic", "joint_command_topic", "hand_port"):
+            config.pop(field)
+        clock = SimpleNamespace(now=NOW)
+        receiver = Mock(count=1)
+        receiver.drain.side_effect = lambda *args: frame(stamp=clock.now)
+        output = io.StringIO()
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "robot.json"
+            path.write_text(json.dumps(config))
+            with patch("tianji_controller.run_teleop.native_executable",
+                       side_effect=ResourceNotFound("no native core installed")) as native, \
+                    patch("tianji_controller.run_teleop.subprocess.Popen") as spawn, \
+                    patch("tianji_controller.run_teleop.controller_configuration") as profile, \
+                    patch("tianji_controller.run_teleop.CommandReceiver", return_value=receiver), \
+                    patch("tianji_controller.run_teleop.SessionLog.from_environment", return_value=None), \
+                    patch("tianji_controller.run_teleop.make_hardware") as hardware, \
+                    patch("tianji_controller.run_teleop.time.monotonic_ns", side_effect=lambda: clock.now), \
+                    patch("tianji_controller.run_teleop.time.monotonic", side_effect=lambda: clock.now / 1e9), \
+                    patch("tianji_controller.run_teleop.time.sleep",
+                          side_effect=lambda delay: setattr(clock, "now", clock.now + round(delay * 1e9))), \
+                    redirect_stdout(output), redirect_stderr(output):
+                result = main(["--config", str(path), "--devices", "hands", "--duration", ".02"])
+        self.assertEqual(result, 0, output.getvalue())
+        self.assertIn("target bounds and input freshness valid", output.getvalue())
+        native.assert_not_called()
+        spawn.assert_not_called()
+        profile.assert_not_called()
+        hardware.assert_not_called()
+        receiver.close.assert_called_once()
+
+    def test_exoskeleton_hands_still_require_native_core_before_hardware(self):
+        with patch("tianji_controller.run_teleop.native_executable",
+                   side_effect=ResourceNotFound("no native core installed")), \
+                patch("tianji_controller.run_teleop.make_hardware") as hardware, \
+                patch("tianji_controller.run_teleop.sys.stdin.isatty", return_value=True), \
+                patch("tianji_controller.run_teleop.SessionLog.from_environment", return_value=None), \
+                redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            result = main(["--devices", "hands", "--hand-source", "exoskeleton", "--confirm-real"])
+        self.assertEqual(result, 1)
+        hardware.assert_not_called()
+
     def test_real_mode_refuses_noninteractive_invocation_before_sdk_load(self):
         result = subprocess.run([sys.executable, "-m", "tianji_controller.run_teleop",
                                  "--confirm-real", "--config", "/nonexistent-config.json"],
@@ -306,6 +395,65 @@ class ExecutorTests(unittest.TestCase):
             viewer_factory.assert_not_called()
             hardware_factory.assert_not_called()
 
+    def test_execution_bounds_override_wider_source_profile_without_rewriting_it(self):
+        config, _ = load_configuration(ROOT / "config/robot.json")
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            source = controller_configuration(config, ROOT, {}, folder / "source.yaml")
+            candidate = yaml.safe_load(source.read_text())
+            candidate["joint_limits"]["position_lower_rad"] = [-10.0] * 14
+            candidate["joint_limits"]["position_upper_rad"] = [10.0] * 14
+            source.write_text(yaml.safe_dump(candidate))
+            original = source.read_bytes()
+            config["controller_config"] = str(source)
+            config_path = folder / "robot.json"
+            config_path.write_text(json.dumps(config))
+            # Native arm solving is also present in exoskeleton hands-only mode.
+            for hand_source, devices in (("manus", "all"), ("exoskeleton", "hands")):
+                with self.subTest(hand_source=hand_source, devices=devices):
+                    loaded, _ = load_configuration(config_path, devices, hand_source=hand_source)
+                    runtime = controller_configuration(loaded, ROOT, {}, folder / "runtime.yaml")
+                    limits = yaml.safe_load(runtime.read_text())["joint_limits"]
+                    self.assertEqual(limits["position_lower_rad"], config["safety"]["arms"]["lower_rad"])
+                    self.assertEqual(limits["position_upper_rad"], config["safety"]["arms"]["upper_rad"])
+                    self.assertEqual(source.read_bytes(), original)
+
+    def test_invalid_execution_bounds_fail_before_collection_or_hardware(self):
+        config, _ = load_configuration(ROOT / "config/robot.json")
+        arms = config["safety"]["arms"]
+        cases = (
+            ("lower_rad", arms["lower_rad"][:-1]),
+            ("upper_rad", arms["upper_rad"] + [1.0]),
+            ("lower_rad", [False] + arms["lower_rad"][1:]),
+            ("upper_rad", ["3.0"] + arms["upper_rad"][1:]),
+            ("lower_rad", [float("-inf")] + arms["lower_rad"][1:]),
+            ("upper_rad", [float("nan")] + arms["upper_rad"][1:]),
+            ("upper_rad", [arms["lower_rad"][0]] + arms["upper_rad"][1:]),
+            ("lower_rad", None),
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            path = folder / "robot.json"
+            for field, values in cases:
+                with self.subTest(field=field, values=values):
+                    candidate = json.loads(json.dumps(config))
+                    candidate["safety"]["arms"][field] = values
+                    path.write_text(json.dumps(candidate))
+                    # Even without arm output, a native solve needs valid bounds.
+                    with self.assertRaises(ValueError):
+                        load_configuration(path, "hands", hand_source="exoskeleton")
+                    with patch("tianji_controller.run_teleop.CollectionSupervisor") as collection, \
+                            patch("tianji_controller.run_teleop.make_hardware") as hardware, \
+                            patch("tianji_controller.run_teleop.native_executable") as native, \
+                            patch("tianji_controller.run_teleop.sys.stdin.isatty", return_value=True), \
+                            redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as raised:
+                        main(["--config", str(path), "--devices", "all", "--confirm-real",
+                              "--collection", "--dataset", str(folder / "dataset"), "--task", "safety"])
+                    self.assertEqual(raised.exception.code, 2)
+                    collection.assert_not_called()
+                    hardware.assert_not_called()
+                    native.assert_not_called()
+
     def test_invalid_dls_profiles_fail_before_collection_or_hardware(self):
         config, _ = load_configuration(ROOT / "config/robot.json")
         with tempfile.TemporaryDirectory() as temporary:
@@ -428,9 +576,23 @@ class ExecutorTests(unittest.TestCase):
                 for interval in intervals:
                     self.assertAlmostEqual(interval / 1e9, expected_s, places=8)
 
+    def test_slow_sdk_enable_does_not_consume_motion_watchdog(self):
+        result, state, home, output = self._staged_session(enable_delay_s=.4)
+        self.assertEqual(result, 0, output)
+        self.assertEqual(state.gates[-1].phase, "HOME_REACHED", output)
+        self.assertEqual(state.actual, home)
+        self.assertTrue(state.stopped)
+
+    def test_runtime_stall_still_stops_after_slow_enable(self):
+        result, state, _, output = self._staged_session(enable_delay_s=.4, cycle_work_s=.2)
+        self.assertEqual(result, 1, output)
+        self.assertEqual(len(state.sends), 1, output)
+        self.assertTrue(state.stopped)
+        self.assertIsNotNone(state.gates[-1].fault)
+
 
     def _staged_session(self, *, close_during=None, abort_during=None, log_dir=None,
-                        cleanup_failure=False, cycle_work_s=0):
+                        cleanup_failure=False, cycle_work_s=0, enable_delay_s=0):
         config, _ = load_configuration(ROOT / "config/robot.json")
         home = tuple(config["staged_motion"]["home_left_rad"] + config["staged_motion"]["home_right_rad"])
         state = SimpleNamespace(now=NOW, actual=home, enabled=False, first_enter=False,
@@ -481,6 +643,8 @@ class ExecutorTests(unittest.TestCase):
             return gate.phase == "TELEOP" and any(phase == "TELEOP" for phase, _ in state.sends)
 
         def enable(guard):
+            guard()
+            state.now += round(enable_delay_s * 1e9)
             guard()
             state.enabled = True
 

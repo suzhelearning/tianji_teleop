@@ -9,6 +9,10 @@
   "controller_velocity_scale": 1.0,
   "joint_command_topic": "/tianji/controller/joint_targets",
   "pico_input_topic": "/pico/arm_input",
+  "hand_command_topics": {
+    "left_hand": "/wuji/left_hand/joint_commands",
+    "right_hand": "/wuji/right_hand/joint_commands"
+  },
   "hand_port": 16000,
   "startup_timeout_s": 30.0,
   "safety": {
@@ -160,10 +164,14 @@
   "staged_motion": {
     "settle_speed_rad_s": 0.03,
     "home_config": "src/teleop_outputs/tianji/tianji_description/config/home.yaml",
-    "maximum_speed_rad_s": 0.1,
+    "maximum_speed_rad_s": 0.2,
     "maximum_acceleration_rad_s2": 0.2,
     "timeout_s": 60.0,
-    "settle_time_s": 0.2
+    "settle_time_s": 0.2,
+    "episode": {
+      "hand_ready_tolerance_rad": 0.15,
+      "hand_open_rad": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    }
   },
   "arms": {
     "ip": "192.168.1.190",

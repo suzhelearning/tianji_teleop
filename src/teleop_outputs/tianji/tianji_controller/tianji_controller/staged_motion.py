@@ -8,10 +8,10 @@ staged gate instead authorizes an explicit operator sequence:
                                               start_homing()  v
                                     HOMING --settled--> HOME_REACHED
 
-    WAITING --arm_home()--> HOMING --> HOME_REACHED --align_episode()--> ALIGNING
+    WAITING --arm_home()--> HOMING --> HOME_REACHED --start_collection_alignment()--> ALIGNING
 
-Data episodes stay armed at Home. TELEOP can commit to a bounded brake and hold
-while recording services complete, without following changed live targets.
+Data episodes stay armed at Home, opening hands only after measured arm rest.
+TELEOP can commit to a bounded brake and hold while recording services complete.
 
 Every inherited source/feedback/bounds/epoch guard stays active in every armed
 phase; this module only changes where setpoints come from and when the operator
@@ -93,6 +93,7 @@ class StagedMotionGate(MotionGate):
         # single operator-visible phase lives here instead.
         self._staged_phase = WAITING
         self._settle_since_ns = None
+        self._execution_started = False
         self._targets = {}
         self.paused = False
         self._trajectories = {}
@@ -103,6 +104,35 @@ class StagedMotionGate(MotionGate):
         self._teleop_held = False
         self._teleop_velocities = {}
         self._teleop_brakes = {}
+        self._episode_settings = settings.get("episode", {})
+        self._collection = False
+        self._opening_hands = False
+        self._configure_episode()
+
+    def _configure_episode(self):
+        settings = self._episode_settings
+        if not isinstance(settings, dict):
+            raise ValueError("staged_motion episode must be a mapping")
+        value = settings.get("hand_ready_tolerance_rad", .15)
+        if type(value) not in (int, float) or not math.isfinite(value) or value <= 0:
+            raise ValueError("staged_motion episode hand_ready_tolerance_rad must be positive and finite")
+        self._hand_ready_tolerance_rad = float(value)
+        try:
+            self._hand_open = _finite_vector(
+                settings.get("hand_open_rad", [0.0] * 20), 20, "episode hand_open_rad")
+        except (SafetyFault, TypeError) as error:
+            raise ValueError(str(error)) from error
+        for device in self.devices:
+            if device == "arms":
+                continue
+            if any(not lo <= value <= hi for value, lo, hi in zip(
+                    self._hand_open, self.configuration[device]["lower_rad"],
+                    self.configuration[device]["upper_rad"])):
+                raise ValueError(f"episode hand_open_rad outside {device} bounds")
+
+    @property
+    def opening_hands(self):
+        return self._collection and self.phase == HOMING and self._opening_hands
 
     @property
     def phase(self) -> str:
@@ -222,13 +252,15 @@ class StagedMotionGate(MotionGate):
         else:
             return {device: path.advance(dt) for device, path in self._trajectories.items()}
         stationary = []
-        settling_devices = ("arms",) if self.phase in (HOMING, HOME_REACHED) else self.devices
+        settling_devices = (("arms",) if self.phase in (HOMING, HOME_REACHED)
+                            and not (self._collection and self._opening_hands) else self.devices)
         for device in settling_devices:
             near_hold = max(abs(a - b) for a, b in zip(measured[device], result[device])) <= (
                 self.configuration[device]["alignment_rad"])
             stationary.append(self._hold_rest[device].observe(
                 measured[device], feedback[device].received_monotonic_ns,
-                self.staged_stopped and near_hold))
+                self.staged_stopped and (near_hold or (
+                    self._collection and self.phase == HOMING and device != "arms"))))
         if not self.paused and all(stationary):
             # A new rest-to-rest path starts on the NEXT tick from this command,
             # not from lagging feedback. All groups finish braking first.
@@ -244,9 +276,9 @@ class StagedMotionGate(MotionGate):
         """Snapshot of the active target per device.
 
         Alignment/READY report the frozen goal, TELEOP the latest input target
-        (or committed stopping pose while held), HOMING/HOME_REACHED the locked
-        Home and the held hand poses, and WAITING
-        an empty mapping (no target is active yet). The returned dict and its
+        (or committed stopping pose while held), HOMING/HOME_REACHED the arm Home
+        hold and held/opening hand goals, and WAITING an empty mapping.
+        The returned dict and its
         tuples are fresh copies: mutating them cannot change gate state.
         """
         return {device: tuple(self._targets[device]) for device in self.devices
@@ -281,8 +313,10 @@ class StagedMotionGate(MotionGate):
                 f"(maximum joint error {error:.4f} rad); return Home separately first")
 
     def arm_home(self, frame, feedback, now_ns):
-        """Authorize collection at verified arm Home, holding measured hands."""
+        """Authorize hand opening at verified Home, without moving the arms."""
         self.check_home_enable_ready(frame, feedback, now_ns)
+        self._collection = True
+        self._opening_hands = False
         self._arm(frame, feedback, now_ns, HOMING)
 
     def _arm(self, frame, feedback, now_ns, phase):
@@ -299,18 +333,39 @@ class StagedMotionGate(MotionGate):
             self._last_commands[device] = tuple(float(value) for value in feedback[device].position_rad)
         if phase == HOMING:
             self._targets = dict(self._last_commands)
-            self._targets["arms"] = self._home
+            if not self._collection:
+                self._targets["arms"] = self._home
         self.armed = True
         self._enter_phase(phase, now_ns)
 
-    def align_episode(self, frame, feedback, now_ns):
-        """Freeze a new episode target from armed Home, without re-enabling."""
+    def complete_enable(self, frame, feedback, now_ns):
+        """Start motion timing once, after SDK enable and fresh measured feedback."""
         if self.fault:
             raise SafetyFault(self.fault)
-        if not self.armed or self.phase != HOME_REACHED:
-            raise SafetyFault("episode alignment requires armed HOME_REACHED")
-        if self.paused or self._awaiting_rest or not self.staged_stopped:
-            raise SafetyFault("episode alignment requires an unpaused stationary Home")
+        if not self.armed or self._execution_started or self.phase not in (ALIGNING, HOMING):
+            raise SafetyFault("enable completion requires an armed session before its first motion step")
+        try:
+            self.observe_source(frame, now_ns)
+            measured = {
+                device: self.check_feedback(device, feedback[device], now_ns, require_enabled=True)
+                for device in self.devices}
+            # No motion command has been sent. Seed from the post-enable measured
+            # pose, keeping the operator-authorized alignment target frozen.
+            if self._collection:
+                error = max(abs(q - home) for q, home in zip(measured["arms"], self._home))
+                if error > self.configuration["arms"]["alignment_rad"]:
+                    raise SafetyFault("collection Home was lost during device enable")
+                self._targets = dict(measured)
+            self._last_commands = measured
+            self._last_step_ns = now_ns
+            self._enter_phase(self.phase, now_ns)
+            self._execution_started = True
+        except SafetyFault as error:
+            self.fault = str(error)
+            raise
+
+    def _episode_feedback(self, frame, feedback, now_ns):
+        """Run armed safety guards even when a readiness request cannot succeed."""
         try:
             self.observe_source(frame, now_ns)
             measured = {
@@ -319,18 +374,45 @@ class StagedMotionGate(MotionGate):
             for device in self.devices:
                 self._check_tracking(device, self._last_commands[device], measured[device], now_ns,
                                      feedback[device].received_monotonic_ns)
+            return measured
         except SafetyFault as error:
             self.fault = str(error)
             raise
-        self._rest["arms"].observe(
-            measured["arms"], feedback["arms"].received_monotonic_ns,
-            self._device_settled("arms", self._last_commands["arms"], measured["arms"]))
-        if not self._rest["arms"].resting:
-            raise SafetyFault("episode alignment requires stationary measured Home feedback")
-        self._targets = {device: tuple(float(value) for value in frame.positions(device))
-                         for device in self.devices}
-        self._enter_phase(ALIGNING, now_ns)
 
+    def _require_episode_home(self, measured, feedback):
+        for device in self.devices:
+            goal = self._home if device == "arms" else self._hand_open
+            tolerance = (self.configuration["arms"]["alignment_rad"] if device == "arms"
+                         else min(self.configuration[device]["alignment_rad"],
+                                  self._hand_ready_tolerance_rad))
+            near_home = max(abs(q - target) for q, target in zip(measured[device], goal)) <= tolerance
+            near_command = max(abs(q - target) for q, target in zip(
+                measured[device], self._last_commands[device])) <= self.configuration[device]["alignment_rad"]
+            self._rest[device].observe(
+                measured[device], feedback[device].received_monotonic_ns, near_home and near_command)
+            if not near_home or not self._rest[device].resting:
+                raise ValueError(f"{device}: episode requires stationary measured Home and open hands")
+
+    def start_collection_alignment(self, frame, feedback, now_ns):
+        """Freeze all live targets from stationary actual Home with open hands.
+
+        A healthy but non-ready robot pose is retryable; source, epoch, device
+        health, bounds and tracking violations latch the normal hardware fault.
+        The operator's arm and hand poses are targets, not readiness conditions.
+        """
+        if self.fault:
+            raise SafetyFault(self.fault)
+        if not self.armed or not self._collection:
+            raise ValueError("collection alignment requires an armed collection session")
+        measured = self._episode_feedback(frame, feedback, now_ns)
+        if self.phase != HOME_REACHED or self.paused or self._awaiting_rest or not self.staged_stopped:
+            raise ValueError("collection alignment requires stationary HOME_REACHED")
+        self._require_episode_home(measured, feedback)
+        self._targets = {
+            device: tuple(float(value) for value in frame.positions(device))
+            for device in self.devices}
+        self._opening_hands = False
+        self._enter_phase(ALIGNING, now_ns)
 
     def start_teleop(self, frame, feedback, now_ns):
         """Switch a settled READY alignment to continuous teleop without a jump."""
@@ -374,7 +456,7 @@ class StagedMotionGate(MotionGate):
             device: (0.0,) * len(self._last_commands[device]) for device in self.devices}
 
     def start_homing(self, frame, feedback, now_ns):
-        """Lock the configured Home for the arms and hold the hands where they are."""
+        """Return arms Home with hands held; collection then opens at measured rest."""
         if self.fault:
             raise SafetyFault(self.fault)
         if not self.armed or self._staged_phase != TELEOP:
@@ -387,8 +469,8 @@ class StagedMotionGate(MotionGate):
         except SafetyFault as error:
             self.fault = str(error)
             raise
-        # Live following has no acceleration law. Never invent zero velocity for
-        # that handoff: the operator must first hold the live target stationary.
+        # Never invent zero velocity at the handoff from live following:
+        # The emitted commands and actual arms must first come to rest.
         for device in ("arms",):
             near_hold = max(abs(a - b) for a, b in zip(
                 measured[device], self._last_commands[device])) <= self.configuration[device]["alignment_rad"]
@@ -403,18 +485,27 @@ class StagedMotionGate(MotionGate):
             if device != "arms":
                 # Hold the exact last commanded hand pose; no open/zero shortcut.
                 self._targets[device] = self._last_commands[device]
+        self._opening_hands = False
         self._enter_phase(HOMING, now_ns)
 
     def step(self, frame, feedback, now_ns):
         if not self.armed or self.fault:
             raise SafetyFault(self.fault or "hardware output requires explicit arming")
+        self._execution_started = True
         try:
             self.observe_source(frame, now_ns)
             phase = self._staged_phase
             elapsed_ns = now_ns - self._last_step_ns
-            if elapsed_ns <= 0 or ((phase in _SLOW_PHASES or self._teleop_held)
-                                   and elapsed_ns > self.command_timeout_ns):
-                raise SafetyFault("execution monotonic clock stalled or did not advance")
+            if elapsed_ns <= 0:
+                raise SafetyFault(
+                    f"execution monotonic clock did not advance: phase={phase} "
+                    f"elapsed_ms={elapsed_ns / 1e6:.3f}")
+            if ((phase in _SLOW_PHASES or self._teleop_held or self._collection)
+                    and elapsed_ns > self.command_timeout_ns):
+                raise SafetyFault(
+                    f"execution cycle exceeded watchdog: phase={phase} "
+                    f"elapsed_ms={elapsed_ns / 1e6:.3f} "
+                    f"limit_ms={self.command_timeout_ns / 1e6:.3f}")
             # Keep legacy capped live slew. Slow trajectories use real elapsed
             # time: abruptly capping it would itself jump commanded velocity.
             dt = elapsed_ns / 1e9
@@ -438,8 +529,9 @@ class StagedMotionGate(MotionGate):
                         previous = self._last_commands[device]
                         target = frame.positions(device)
                         self._targets[device] = tuple(float(value) for value in target)
-                        result[device] = _slew(previous, target,
-                                               self.configuration[device]["maximum_speed_rad_s"] * dt)
+                        result[device] = _slew(
+                            previous, target,
+                            self.configuration[device]["maximum_speed_rad_s"] * dt)
                         self._teleop_velocities[device] = tuple(
                             (value - old) / (elapsed_ns / 1e9)
                             for value, old in zip(result[device], previous))
@@ -493,9 +585,10 @@ class StagedMotionGate(MotionGate):
         if phase not in _SLOW_PHASES:
             self._settle_since_ns = None
             return
-        # HOME is an arm destination. Hands keep their commanded grip and all
-        # health/tracking guards, but contact need not satisfy a new pose match.
-        settling_devices = ("arms",) if phase in (HOMING, HOME_REACHED) else self.devices
+        # Legacy Home holds fingers, allowing contact. Collection first settles
+        # arms under the same rule, then explicitly opens and settles all groups.
+        settling_devices = (("arms",) if phase in (HOMING, HOME_REACHED)
+                            and not (self._collection and self._opening_hands) else self.devices)
         results = [self._rest[device].observe(
             measured[device], feedback[device].received_monotonic_ns,
             self._device_settled(device, commands[device], measured[device]))
@@ -506,6 +599,18 @@ class StagedMotionGate(MotionGate):
             settled = False
         if phase in (ALIGNING, HOMING):
             if settled:
+                if phase == HOMING and self._collection and not self._opening_hands:
+                    self._opening_hands = True
+                    for device in self.devices:
+                        if device != "arms":
+                            self._targets[device] = self._hand_open
+                    self._rest = {
+                        device: FeedbackRest(self._rest_speed, self._settle_ns, self.feedback_timeout_ns)
+                        for device in self.devices}
+                    self.reset_staged_motion()
+                    self._check_approach_duration(
+                        self._timeout_ns - (now_ns - self._phase_start_ns), 2)
+                    return
                 self._enter_phase(READY if phase == ALIGNING else HOME_REACHED, now_ns)
                 return
             else:

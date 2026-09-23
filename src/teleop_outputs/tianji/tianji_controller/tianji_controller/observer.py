@@ -67,21 +67,23 @@ class ExecutorObserver:
         _, queued = self._enqueue_recording(command)
         return queued
 
-    def submit_recording(self, command: str) -> Future:
+    def submit_recording(self, command: str, *, cutoff_monotonic_ns=0) -> Future:
         """Enqueue without RPC/wait; resolve to a completed start/stop response.
 
         A rejected RPC returns success=False. Unknown outcomes raise and never
         release motion. One UUID is retained for the lifetime of each request.
         """
-        result, _ = self._enqueue_recording(command)
+        result, _ = self._enqueue_recording(command, cutoff_monotonic_ns)
         return result
 
-    def _enqueue_recording(self, command):
+    def _enqueue_recording(self, command, cutoff_monotonic_ns=0):
         result = Future()
         with self._lock:
             phase, revision, faulted, _, _ = self._state
             if command not in ("start", "save", "discard"):
                 error = ValueError(f"unsupported recording command: {command}")
+            elif type(cutoff_monotonic_ns) is not int or cutoff_monotonic_ns < 0:
+                error = ValueError("recording cutoff must be a nonnegative monotonic timestamp")
             elif self._stop.is_set() or self._error:
                 error = RuntimeError(self._error or "executor DDS stopped")
             elif (not self.collection or self._draining or self._abort.is_set()
@@ -91,7 +93,7 @@ class ExecutorObserver:
                 try:
                     self._commands.put_nowait((
                         command, self.session_id, revision, result,
-                        str(uuid.uuid4()), self._episode_id))
+                        str(uuid.uuid4()), self._episode_id, cutoff_monotonic_ns))
                 except queue.Full:
                     self._dropped += 1
                     error = RuntimeError("recording command queue full")
@@ -317,7 +319,7 @@ class ExecutorObserver:
                             recording_requests.pop(future, None)
                             future.cancel()
                     request = ("abort", self.session_id, revision, None,
-                               str(uuid.uuid4()), self._episode_id)
+                               str(uuid.uuid4()), self._episode_id, 0)
                 elif not any(command_revision is not None for _, _, _, _, command_revision in pending):
                     try:
                         request = self._commands.get_nowait()
@@ -326,7 +328,7 @@ class ExecutorObserver:
                 else:
                     request = None
                 if request is not None:
-                    command, session, command_revision, receipt, request_id, episode_id = request
+                    command, session, command_revision, receipt, request_id, episode_id, cutoff_ns = request
                     try:
                         if self._status_gid is None:
                             raise RuntimeError("collector has not been verified")
@@ -355,7 +357,8 @@ class ExecutorObserver:
                             message = StopCollect.Request(
                                 request_id=request_id, session_id=session,
                                 phase_revision=command_revision, episode_id=episode_id,
-                                save=command == "save", abort=command == "abort")
+                                save=command == "save", abort=command == "abort",
+                                cutoff_monotonic_ns=cutoff_ns)
                         future = client.call_async(message)
                         recording_requests[future] = (request_id, session, episode_id)
                         pending.append((future, now + 300, receipt, command, command_revision))
@@ -454,7 +457,8 @@ class ExecutorObserver:
                                 print(f"COLLECTION {label}: success={response.success} "
                                       f"state={response.state} {response.message}", flush=True)
                         else:
-                            result.set_result(response)
+                            if not result.done():
+                                result.set_result(response)
                     except Exception as error:
                         if recording:
                             if result is not None:

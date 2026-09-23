@@ -103,14 +103,6 @@ TEST(TianjiTeleopProtocol, RejectsMalformedAndIncompleteStatus)
      "\"source_frame_id\":\"pico\",\"source_stamp_ns\":11,"
      "\"ik_frame_valid\":false,\"left\":{\"corrected\":true},"
      "\"right\":{\"corrected\":true}}", "ik_frame_invalid"},
-    {"{\"tracking_epoch\":9,\"stream_valid\":true,"
-     "\"source_frame_id\":\"pico\",\"source_stamp_ns\":11,"
-     "\"ik_frame_valid\":true,\"left\":{\"corrected\":false},"
-     "\"right\":{\"corrected\":true}}", "left_not_corrected"},
-    {"{\"tracking_epoch\":9,\"stream_valid\":true,"
-     "\"source_frame_id\":\"pico\",\"source_stamp_ns\":11,"
-     "\"ik_frame_valid\":true,\"left\":{\"corrected\":true},"
-     "\"right\":{\"corrected\":false}}", "right_not_corrected"},
   };
 
   for (const auto & test_case : cases) {

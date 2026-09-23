@@ -25,9 +25,10 @@ bridge 利用双肩及 spine2 构造轴，再平移到高度 1.121 m；此契约
 报文的 `left/right` 是另一条目标构造支路，可能包含 reach scale / X offset，不能
 当成 skeleton 掌姿态的备用字段。
 
-bridge 的状态配对要求同源时间戳、合法 epoch、双侧 `corrected=true`。
-M0 的 raw/hold 回退不会通过该状态门。这是仓库发布端实现保证，不是报文对任意
-外部发布者的身份认证；artifact 哈希不能证明现场正在运行的远端程序版本。
+bridge 的状态配对要求同源时间戳、合法 epoch、`stream_valid=true` 和 `ik_frame_valid=true`。
+左右侧 `corrected` 标志不再作为拒绝条件；raw/hold 回退若仍满足其余检查，可以通过此门。
+因此不能把 bridge 的有效输出解释为双侧校正均成功。这也不是对任意外部发布者的身份认证；
+artifact 哈希不能证明现场正在运行的远端程序版本。
 
 ## 对称骨架
 

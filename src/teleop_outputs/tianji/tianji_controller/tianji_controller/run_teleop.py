@@ -16,6 +16,7 @@ from pathlib import Path
 import select
 import signal
 import shutil
+import re
 import subprocess
 import sys
 import tempfile
@@ -182,6 +183,19 @@ def executor_profile(config, base):
     scale = limits.get("velocity_scale", 1.0) if isinstance(limits, dict) else None
     if type(scale) not in (int, float) or not math.isfinite(scale) or not 0 < scale <= 1:
         raise ValueError("joint_limits.velocity_scale must be in (0, 1]")
+    arms = config["safety"]["arms"]
+    for field in ("lower_rad", "upper_rad"):
+        values = arms.get(field)
+        if (not isinstance(values, list) or len(values) != 14
+                or any(type(value) not in (int, float) or not math.isfinite(value)
+                       for value in values)):
+            raise ValueError(f"safety.arms.{field} must contain fourteen finite numeric limits")
+    if any(lower >= upper for lower, upper in zip(arms["lower_rad"], arms["upper_rad"])):
+        raise ValueError("safety.arms: lower limits must be strictly below upper limits")
+    # The solve/reference domain must honor the execution gate, never a wider
+    # source-profile envelope. Only this runtime copy is changed.
+    limits["position_lower_rad"] = list(arms["lower_rad"])
+    limits["position_upper_rad"] = list(arms["upper_rad"])
     references = [
         (data["controller"], "pico_ee_dls_kinematics_urdf_path"),
         (shared, "input_contract_artifact"),
@@ -203,7 +217,7 @@ def executor_profile(config, base):
     return data
 
 
-def load_configuration(path, device_selection=None):
+def load_configuration(path, device_selection=None, *, hand_source="manus"):
     """Load and fully validate the executor configuration.
 
     Built-in description assets and controller profiles use the installed
@@ -213,6 +227,10 @@ def load_configuration(path, device_selection=None):
     base = workspace()
     config = json.loads(path.read_text())
     devices = tuple(config["active_devices"]) if device_selection is None else DEVICE_SELECTIONS[device_selection]
+    if hand_source not in ("manus", "exoskeleton"):
+        raise ValueError("hand_source must be manus or exoskeleton")
+    hands = tuple(device for device in devices if device != "arms")
+    needs_controller = "arms" in devices or (hand_source == "exoskeleton" and bool(hands))
     # Bare names select installed profiles; explicit paths are never replaced
     # by the default profile, even when their contents are invalid.
     profile = config.get("controller_config")
@@ -224,7 +242,8 @@ def load_configuration(path, device_selection=None):
         resolve(base, profile_path) if profile_path.is_absolute() or "/" in profile
         else controller_profile(profile))
     config["controller_model"] = str(description_resource(base, config["controller_model"]))
-    executor_profile(config, base)
+    if needs_controller:
+        executor_profile(config, base)
     staged = config.get("staged_motion")
     if isinstance(staged, dict) and "home_config" in staged:
         home_path = staged.pop("home_config")
@@ -238,14 +257,25 @@ def load_configuration(path, device_selection=None):
         StagedMotionGate(config["safety"], devices, config["staged_motion"])
     else:
         MotionGate(config["safety"], devices)
-    if type(config["hand_port"]) is not int or not 1 <= config["hand_port"] <= 65535:
-        raise ValueError("hand_port must be an integer in [1, 65535]")
-    for field in ("pico_input_topic", "joint_command_topic"):
-        topic = config[field]
-        if not isinstance(topic, str) or not topic.startswith("/") or not topic.strip("/"):
-            raise ValueError(f"{field} must be an absolute nonempty ROS topic")
-    if config["pico_input_topic"] == config["joint_command_topic"]:
-        raise ValueError("PICO input and joint command topics must be distinct")
+    if hand_source == "exoskeleton" and hands:
+        if type(config["hand_port"]) is not int or not 1 <= config["hand_port"] <= 65535:
+            raise ValueError("hand_port must be an integer in [1, 65535]")
+    topics = {}
+    if needs_controller:
+        topics["joint_command_topic"] = config["joint_command_topic"]
+    if "arms" in devices:
+        topics["pico_input_topic"] = config["pico_input_topic"]
+    if hand_source == "manus" and hands:
+        hand_topics = config.get("hand_command_topics")
+        if not isinstance(hand_topics, dict):
+            raise ValueError("hand_command_topics must map selected hands to ROS topics")
+        for hand in hands:
+            topics[f"hand_command_topics.{hand}"] = hand_topics.get(hand)
+    for field, topic in topics.items():
+        if not isinstance(topic, str) or re.fullmatch(r"(?:/[A-Za-z_][A-Za-z_0-9]*)+", topic) is None:
+            raise ValueError(f"{field} must be an absolute nonempty ROS topic with valid names")
+    if len(set(topics.values())) != len(topics):
+        raise ValueError("selected input and command topics must be distinct")
     if not math.isfinite(config["startup_timeout_s"]) or config["startup_timeout_s"] <= 0:
         raise ValueError("startup_timeout_s must be positive and finite")
     if not 0 < config["controller_velocity_scale"] <= 1:
@@ -370,12 +400,14 @@ def main(argv=None):
     parser.add_argument("--ik-backend", choices=("franka-dls",), default="franka-dls")
     parser.add_argument("--devices", choices=tuple(DEVICE_SELECTIONS),
                         help="default from config; hands=left+right, all=arms+left+right")
+    parser.add_argument("--hand-source", choices=("manus", "exoskeleton"), default="manus",
+                        help="Manus ROS hand commands (default), or explicit legacy TJH2 exoskeleton input")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--inspect", action="store_true", help="read hardware feedback/identity only, then exit")
     mode.add_argument("--confirm-real", action="store_true", help="allow real enable after typed confirmation and preflight")
     parser.add_argument("--duration", type=float, default=0, help="stop after N seconds (0: until Ctrl+C)")
     parser.add_argument("--collection", action="store_true",
-                        help="start owned cameras/collector and gate SDK connect on preparation")
+                        help="require independent camera_views and manage the collector before SDK connection")
     parser.add_argument("--dataset", type=Path, help="record operator-triggered schema-v1 observation episodes here")
     parser.add_argument("--task", help="operator task label for the recorded episode")
     parser.add_argument("--collection-config", type=Path,
@@ -392,7 +424,7 @@ def main(argv=None):
     configuration_path = args.config.resolve()
     base = workspace()
     try:
-        config, devices = load_configuration(configuration_path, args.devices)
+        config, devices = load_configuration(configuration_path, args.devices, hand_source=args.hand_source)
     except (OSError, KeyError, TypeError, ValueError, SafetyFault, ResourceNotFound, yaml.YAMLError) as error:
         parser.error(str(error))
     if args.dataset is not None and (not args.confirm_real or set(devices) != {"arms", "left_hand", "right_hand"}):
@@ -401,6 +433,9 @@ def main(argv=None):
         parser.error("dataset collection requires --task")
     if args.task is not None and args.dataset is None:
         parser.error("--task requires --dataset")
+    hand_topics = ({name: config["hand_command_topics"][name] for name in devices if name != "arms"}
+                   if args.hand_source == "manus" and any(name != "arms" for name in devices) else None)
+    needs_controller = "arms" in devices or args.hand_source == "exoskeleton"
     run_mode = "inspect" if args.inspect else ("real" if args.confirm_real else "dry-run")
     try:
         session_log = SessionLog.from_environment(
@@ -442,15 +477,16 @@ def main(argv=None):
         measured = {}
         if not args.inspect:
             # Refuse static startup failures before opening cameras or SDK sessions.
-            # The native controller is addressed through the single resource
-            # authority, so a missing build fails here with an explicit hint.
-            try:
-                viewer = native_executable("tianji_arm_ros")
-            except ResourceNotFound as error:
-                raise RuntimeError(
-                    f"build the current arm controller before starting the real executor: {error}"
-                ) from error
-            receiver = CommandReceiver(config["joint_command_topic"], config["safety"], devices)
+            # Independent Manus hands do not require the arm controller or PICO.
+            if needs_controller:
+                try:
+                    viewer = native_executable("tianji_arm_ros")
+                except ResourceNotFound as error:
+                    raise RuntimeError(
+                        f"build the current arm controller before starting the real executor: {error}"
+                    ) from error
+            receiver = CommandReceiver(config.get("joint_command_topic"), config["safety"], devices,
+                                       hand_topics=hand_topics)
         # Rendering failures also precede sensor workers and device sessions.
         if staged:
             # Fail before connecting devices if the required monitor cannot open.
@@ -505,14 +541,16 @@ def main(argv=None):
         if collection is not None:
             from tianji_runtime import OperatorKeyboard
             from .collection_episode import CollectionEpisodes
-            episodes = CollectionEpisodes(gate, observer, notify=lambda text: print(text, flush=True))
+            episodes = CollectionEpisodes(
+                gate, observer, notify=lambda text: print(text, flush=True))
             keyboard = OperatorKeyboard(episodes.on_key, on_finish=lambda: episodes.on_key("q"))
             enter_pressed = keyboard.poll_enter
-            print("COLLECTION EPISODES: measured Home is required before initial Enter enables the run. "
-                  "At Home r=align/start a new episode; s=save then Home; "
-                  "d=discard then Home; q=finish the entire run and disable. "
-                  "Between episodes devices remain enabled but do not follow inputs. "
-                  "Use one-shot pedal keys without Enter.", flush=True)
+            print("采集模式：机器人实测 Home 后，首次 r 使能并缓慢张开双手；请确认空手。\n"
+                  "r：冻结当前双臂和双手目标虚影，缓慢靠近；到位停稳、录制确认后开始跟随。\n"
+                  "s/d：按键时刻截止保存/丢弃数据，立即停止跟随并限速制动。\n"
+                  "实测停稳、数据操作确认后自动缓慢回 Home、张手；无需人先靠近 Home。\n"
+                  "q：结束本场（录制中先保存并按相同流程回位）。脚踏单次按键，不加回车。",
+                  flush=True)
         enabled_devices = set()
         confirmation_prompted = False
         next_visual = 0.0
@@ -534,22 +572,23 @@ def main(argv=None):
                 if value.healthy and 0 <= now_ns - value.received_monotonic_ns
                 <= config["safety"]["feedback_timeout_s"] * 1e9
             }
-            target = (gate.display_targets if gate.armed else {
+            preview = episodes is not None and episodes.state in ("WAITING", "HOME_READY")
+            target = (gate.display_targets if gate.armed and not preview else {
                 name: packet.positions(name) for name in devices
                 if packet is not None and packet.flags & DEVICE_READY_FLAGS[name]
                 and -5_000_000 <= now_ns - packet.timestamp_ns
                 <= config["safety"]["command_timeout_s"] * 1e9
             })
-            real_viewer.publish(actual, target, gate.phase)
+            real_viewer.publish(actual, target, "PREVIEW" if preview else gate.phase)
             next_visual = now_ns / 1e9 + 1.0 / 30.0
 
         if staged:
             update_monitor(None, measured, force=True)
             if episodes is not None:
-                print("One enable for the collection run; Home and alignment are not task recordings. "
-                      "Enter while enabled, Ctrl+C, or closing the window stops immediately "
-                      "without Home. q is normal completion at Home or during RECORDING. "
-                      "Keep the physical emergency stop reachable.", flush=True)
+                print("靠近目标、结束后的制动、回 Home 和张手不进入数据。\n"
+                      "r 前请确认目标和运动空间安全；慢速对齐不保证路径无碰撞。\n"
+                      "使能后 Enter、Ctrl+C 或关闭监视窗口：立即停止，不自动 Home。\n"
+                      "s/d 不是急停；请保持物理急停可及。", flush=True)
             else:
                 print("Enter 1: slow alignment; READY then Enter 2: teleop; "
                       "Enter 3 during teleop: slow HOME then disable.\n"
@@ -572,33 +611,35 @@ def main(argv=None):
                                     require_enabled=True)
 
         with tempfile.TemporaryDirectory(prefix="tianji-real-control-") as temporary:
-            controller_config = controller_configuration(config, base, measured, Path(temporary) / "controller.yaml")
-            if session_log is not None:
-                session_log.persist_controller_configuration(
-                    controller_config, source=str(resolve(base, config["controller_config"])))
-            pico_topic = config["pico_input_topic"]
-            if "arms" not in devices:
-                # A hand-only session has no subscription to the operator's arm input.
-                pico_topic = f"/tianji/unused_pico/session_{uuid.uuid4().hex}"
-            command = [str(viewer), "--franka-dls-executor",
-                       "--config", str(controller_config), "--model", str(resolve(base, config["controller_model"])),
-                       "--headless", "--continuous", "--pico-teleop",
-                       "--pico-topic", pico_topic,
-                       "--joint-target-topic", config["joint_command_topic"]]
-            if any(device != "arms" for device in devices):
-                command += ["--hand-teleop", "--hand-bind", "127.0.0.1",
-                            "--hand-port", str(config["hand_port"])]
-            else:
-                command.append("--no-hand-teleop")
-            controller = subprocess.Popen(command, cwd=str(workspace()), start_new_session=True,
-                                          stdin=subprocess.DEVNULL)
+            if needs_controller:
+                controller_config = controller_configuration(
+                    config, base, measured, Path(temporary) / "controller.yaml")
+                if session_log is not None:
+                    session_log.persist_controller_configuration(
+                        controller_config, source=str(resolve(base, config["controller_config"])))
+                # The legacy hand-only core must not subscribe to operator arm input.
+                pico_topic = (config["pico_input_topic"] if "arms" in devices
+                              else f"/tianji/unused_pico/session_{uuid.uuid4().hex}")
+                command = [str(viewer), "--franka-dls-executor",
+                           "--config", str(controller_config), "--model", str(resolve(base, config["controller_model"])),
+                           "--headless", "--continuous", "--pico-teleop",
+                           "--pico-topic", pico_topic,
+                           "--joint-target-topic", config["joint_command_topic"]]
+                if args.hand_source == "exoskeleton" and any(device != "arms" for device in devices):
+                    command += ["--hand-teleop", "--hand-source", "exoskeleton", "--hand-bind", "127.0.0.1",
+                                "--hand-port", str(config["hand_port"])]
+                else:
+                    command.append("--no-hand-teleop")
+                controller = subprocess.Popen(command, cwd=str(workspace()), start_new_session=True,
+                                              stdin=subprocess.DEVNULL)
             started = time.monotonic()
             next_report = started
-            last_reason = "waiting for controller packets"
+            last_reason = "waiting for selected command sources"
             period_s = 1.0 / config["safety"]["rate_hz"]
             while not stop_requested:
                 cycle_deadline = time.monotonic() + period_s
-                observer.update_state(log_phase(gate, "TELEOP" if gate.armed else "WAITING"))
+                observer.update_state(log_phase(gate, "TELEOP" if gate.armed else "WAITING"),
+                                      detail=episodes.detail if episodes is not None else "")
                 check_monitor()
                 if collection is not None:
                     collection.check()
@@ -610,13 +651,13 @@ def main(argv=None):
                 if args.duration and now - started >= args.duration:
                     final_reason = "session duration expired"
                     break
-                if controller.poll() is not None:
+                if controller is not None and controller.poll() is not None:
                     raise SafetyFault(f"control process exited ({controller.returncode})")
                 packet = receiver.drain(
                     (lambda frame: gate.observe_source(frame, time.monotonic_ns())) if gate.armed else None)
                 if packet is None:
                     if now - started > config["startup_timeout_s"]:
-                        raise SafetyFault("controller did not publish joint commands")
+                        raise SafetyFault("selected sources did not publish joint commands")
                     time.sleep(.005)
                     continue
                 if not args.confirm_real:
@@ -656,7 +697,7 @@ def main(argv=None):
                         time.sleep(.005)
                         continue
                     if staged:
-                        status.update("WAITING | 实测已在 Home，未使能 | Enter: 本场使能并保持"
+                        status.update("WAITING | 实测已在 Home，未使能 | 确认空手后 r：使能并缓慢张手"
                                       if episodes is not None else _STAGED_STATUS["WAITING"])
                         confirmation_prompted = True
                     elif not confirmation_prompted:
@@ -667,7 +708,7 @@ def main(argv=None):
                         confirmation_prompted = True
                     pressed = enter_pressed()
                     if episodes is not None:
-                        episodes.tick(packet, measured, now_ns)
+                        pressed = episodes.tick(packet, measured, now_ns)
                         if episodes.done:
                             final_reason = "operator finished before enable"
                             break
@@ -690,15 +731,27 @@ def main(argv=None):
                         episodes.enabled()
                     else:
                         gate.arm(packet, measured, now_ns)
-                    observer.update_state(log_phase(gate, "TELEOP"))
+                    observer.update_state(log_phase(gate, "TELEOP"),
+                                          detail=episodes.detail if episodes is not None else "")
                     for name, device in hardware.items():
                         check_source()
                         device.enable(guard=check_source)
                         enabled_devices.add(name)
                         check_source()
                     if staged:
-                        status.update(_STAGED_STATUS[gate.phase])
+                        status.update(f"EPISODE {episodes.state} | {episodes.detail}"
+                                      if episodes is not None else _STAGED_STATUS[gate.phase])
                         update_monitor(packet, measured, force=True)
+                        # SDK enable is a guarded startup transaction, not a
+                        # motion period. Start its clock only after all devices
+                        # enabled and the post-enable snapshot was validated.
+                        measured = {name: device.read_feedback() for name, device in hardware.items()}
+                        packet = receiver.drain(
+                            lambda frame: gate.observe_source(frame, time.monotonic_ns()))
+                        if packet is None:
+                            raise SafetyFault("controller source disappeared after enable")
+                        gate.complete_enable(packet, measured, time.monotonic_ns())
+                        cycle_deadline = time.monotonic() + period_s
                     else:
                         print("REAL OUTPUT ARMED: returning to zero, then ramping to the current input pose; "
                               "ENTER stops and disables; stale input, reset or feedback fault also stops this session",
@@ -733,10 +786,11 @@ def main(argv=None):
                         # check stays in the ring with the exact state it saw.
                         session_log.sample(packet, measured, log_phase(gate, "LIVE"), now_ns)
                     outputs = gate.step(packet, measured, now_ns)
-                    observer.update_state(log_phase(gate, "TELEOP"))
+                    observer.update_state(log_phase(gate, "TELEOP"),
+                                          detail=episodes.detail if episodes is not None else "")
                     if staged:
                         status.update(
-                            f"EPISODE {episodes.state} | {gate.phase} | enabled, no queued start"
+                            f"EPISODE {episodes.state} | {episodes.detail.replace(chr(10), ' | ')}"
                             if episodes is not None else _STAGED_STATUS[gate.phase])
                         update_monitor(packet, measured)
                         if episodes is not None and episodes.done:

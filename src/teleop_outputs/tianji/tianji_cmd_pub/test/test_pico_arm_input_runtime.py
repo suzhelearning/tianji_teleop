@@ -282,11 +282,19 @@ def test_corrected_skeleton_is_published_once_as_atomic_ros_frame():
         assert len(frames) == 1 and not frames[0].user_button_pressed
         frames.clear()
 
-        invalid_cases = []
-        uncorrected_stamp = stamp_ns + 1
-        invalid_cases.append(
-            (_skeleton(uncorrected_stamp), _status(uncorrected_stamp, corrected_left=False))
+        # Per-side correction flags no longer revoke an otherwise valid IK pair.
+        uncorrected_stamp = button_stamp + 3
+        _publish_pair(
+            node, skeleton_publisher, status_publisher,
+            _skeleton(uncorrected_stamp),
+            _status(uncorrected_stamp, corrected_left=False, corrected_right=False),
         )
+        assert len(frames) == 1 and frames[0].valid
+        assert frames[0].source_timestamp_ns == uncorrected_stamp
+        assert frames[0].revocation_generation == first_generation
+        frames.clear()
+
+        invalid_cases = []
         wrong_frame_stamp = stamp_ns + 2
         invalid_cases.append(
             (_skeleton(wrong_frame_stamp, frame_id="world"), _status(wrong_frame_stamp))

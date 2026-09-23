@@ -274,6 +274,8 @@ def _target_label(phase: str, has_target: bool) -> str:
     """Which target the cyan ghost is showing, per the gate's phase."""
     if not has_target:
         return "nothing published"
+    if phase == "PREVIEW":
+        return "live PICO + Manus target (r: freeze and approach)"
     if phase == "WAITING":
         return "measured hold"
     if phase == "PLANNING":

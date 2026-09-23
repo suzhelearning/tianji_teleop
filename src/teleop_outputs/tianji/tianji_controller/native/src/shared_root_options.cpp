@@ -73,9 +73,9 @@ SharedRootOptions loadSharedRootOptions(const std::string& path) {
   out.input_sha256=sharedRootSha256File(input.string());out.geometry_sha256=sharedRootSha256File(geometry.string());
   // Adapter v1 has one source/basis contract; arbitrary valid rotations or new
   // field mappings must not silently reinterpret that implementation.
-  require(out.input_sha256=="2aaa8c26ff6927605fce09d3f0ca8b726f224291d3740a8232865a08384ce818","unsupported input contract revision");
+  require(out.input_sha256=="58ac3886d81ebf735300c47304ae791b8e84f9267d34a3d76f7ee6e27df5cbd6","unsupported input contract revision");
   // The reviewed DLS geometry retains its frozen model hashes and runtime checks.
-  require(out.geometry_sha256=="73dc52b787e17af9610e0dfc2c0f06c96a79d1bc529c47fadee6f33995ca999f",
+  require(out.geometry_sha256=="5f605dcc967d217a12a79b47484566e675230c64d2b55121ae344ae497105ae3",
       "unsupported robot geometry revision");
   const Node ic=YAML::LoadFile(input.string())["tjvr_shared_root_input"];
   const Node g=YAML::LoadFile(geometry.string())["robot_geometry"];

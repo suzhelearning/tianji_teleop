@@ -74,6 +74,51 @@ def held(value=0.0):
     return {device: (value,)*count for device, count in (("arms", 14), ("left_hand", 20), ("right_hand", 20))}
 
 
+def episode_frame(arms, stamp, hand=0.0, epoch=7):
+    arms = tuple(arms)
+    return CommandFrame(1, stamp, epoch, 7, arms[:7], arms[7:], (hand,) * 20, (hand,) * 20)
+
+
+def collection_home(motion, positions=None):
+    command = held() if positions is None else dict(positions)
+    command.setdefault("arms", HOME_LEFT + HOME_RIGHT)
+    if positions is None:
+        command["arms"] = HOME_LEFT + HOME_RIGHT
+    motion.arm_home(frame(value=.8), feedback(values=command), NOW)
+    now = NOW
+    for _ in range(6000):
+        now += TICK
+        command = motion.step(frame(value=.8, stamp=now),
+                              feedback(enabled=True, stamp=now, values=command), now)
+        if motion.phase == "HOME_REACHED":
+            return now, command
+    raise AssertionError("collection did not reach measured open-hand Home")
+
+
+def collection_teleop(motion, arms=None, hand=0.0):
+    now, command = collection_home(motion)
+    arms = command["arms"] if arms is None else arms
+    motion.start_collection_alignment(
+        episode_frame(arms, now, hand), feedback(enabled=True, stamp=now, values=command), now)
+    for _ in range(6000):
+        now += TICK
+        source = episode_frame(arms, now, hand)
+        command = motion.step(source, feedback(enabled=True, stamp=now, values=command), now)
+        if motion.phase == "READY":
+            break
+    else:
+        raise AssertionError("collection alignment did not settle")
+    motion.start_teleop(source, feedback(enabled=True, stamp=now, values=command), now)
+    motion.hold_teleop()
+    for _ in range(100):
+        now += TICK
+        command = motion.step(episode_frame(arms, now, hand),
+                              feedback(enabled=True, stamp=now, values=command), now)
+        if motion.teleop_stopped:
+            return now, command
+    raise AssertionError("aligned collection did not reach stationary TELEOP hold")
+
+
 class StagedMotionGateTests(unittest.TestCase):
     def test_tracking_fault_identifies_worst_joint_and_previous_setpoint(self):
         motion = gate()
@@ -504,50 +549,219 @@ class StagedMotionGateTests(unittest.TestCase):
         with self.assertRaises(SafetyFault):
             motion.check_home_enable_ready(target, feedback(), NOW)
 
-    def test_home_first_and_repeated_episodes_keep_hands_and_frozen_targets(self):
+    def test_collection_entry_holds_actual_arms_and_opens_only_after_rest(self):
         motion = gate(settle_time_s=.05)
-        command = held()
-        command["left_hand"] = (.15,) * 20
-        command["right_hand"] = (.25,) * 20
-        command["arms"] = HOME_LEFT + HOME_RIGHT
+        command = held(.25)
+        command["arms"] = tuple(q + .02 for q in HOME_LEFT + HOME_RIGHT)
+        actual_home = command["arms"]
         motion.arm_home(frame(value=.8), feedback(values=command), NOW)
-        self.assertEqual(motion.phase, "HOMING")
-        self.assertEqual(motion.display_targets["left_hand"], command["left_hand"])
-        self.assertEqual(motion.display_targets["right_hand"], command["right_hand"])
         now = NOW
-        for target in (.1, .2):
-            grip = {device: command[device] for device in ALL if device != "arms"}
-            for _ in range(6000):
-                now += TICK
-                command = motion.step(frame(value=.8, stamp=now),
-                                      feedback(enabled=True, stamp=now, values=command), now)
-                for device, pose in grip.items():
-                    self.assertEqual(command[device], pose)
-                if motion.phase == "HOME_REACHED":
-                    break
-            self.assertEqual(motion.phase, "HOME_REACHED")
-            home_command = command
+        opened = False
+        for index in range(3000):
             now += TICK
-            command = motion.step(frame(value=-.5, stamp=now),
+            previous = command
+            command = motion.step(frame(value=.8, stamp=now),
+                                  feedback(enabled=True, stamp=now, values=previous), now)
+            self.assertEqual(command["arms"], actual_home)
+            if index < 10:
+                self.assertEqual(command["left_hand"], (.25,) * 20)
+            opened |= command["left_hand"][0] < .25
+            self.assertLessEqual(abs(command["left_hand"][0] - previous["left_hand"][0]),
+                                 .1 * TICK / 1e9 + 1e-12)
+            if motion.phase == "HOME_REACHED":
+                break
+        self.assertTrue(opened)
+        self.assertEqual(motion.phase, "HOME_REACHED")
+        self.assertEqual(command["left_hand"], (0.0,) * 20)
+        self.assertEqual(command["right_hand"], (0.0,) * 20)
+
+    def test_collection_alignment_freezes_arms_and_nonzero_hands_until_stationary(self):
+        motion = gate(settle_time_s=.05)
+        now, command = collection_home(motion)
+        frozen = dict(arms=(.2,) * 14, left_hand=(.3,) * 20, right_hand=(-.2,) * 20)
+        source = CommandFrame(1, now, 7, 7, frozen["arms"][:7], frozen["arms"][7:],
+                              frozen["left_hand"], frozen["right_hand"])
+        motion.start_collection_alignment(source, feedback(enabled=True, stamp=now, values=command), now)
+        self.assertEqual(motion.phase, "ALIGNING")
+        self.assertEqual(motion.display_targets, frozen)
+        with self.assertRaises(SafetyFault):
+            motion.start_teleop(source, feedback(enabled=True, stamp=now, values=command), now)
+        for _ in range(6000):
+            now += TICK
+            previous = command
+            command = motion.step(frame(value=.8, stamp=now),
+                                  feedback(enabled=True, stamp=now, values=previous), now)
+            self.assertEqual(motion.display_targets, frozen)
+            for device in ALL:
+                self.assertLessEqual(max(abs(q - old) for q, old in zip(command[device], previous[device])),
+                                     .1 * TICK / 1e9 + 1e-12)
+            if motion.phase == "READY":
+                break
+        self.assertEqual(motion.phase, "READY")
+        self.assertEqual(command, frozen)
+        self.assertTrue(motion.staged_stopped)
+        motion.start_teleop(frame(value=.8, stamp=now),
+                            feedback(enabled=True, stamp=now, values=command), now)
+        motion.hold_teleop()
+        self.assertFalse(motion.teleop_stopped)
+        for _ in range(30):
+            now += TICK
+            command = motion.step(frame(value=-.8, stamp=now),
                                   feedback(enabled=True, stamp=now, values=command), now)
-            self.assertEqual(command, home_command)
-            motion.align_episode(frame(value=target, stamp=now),
-                                 feedback(enabled=True, stamp=now, values=command), now)
-            now, command = settle(motion, .8, command, now)
-            self.assertEqual(command, held(target))
-            motion.start_teleop(frame(value=target, stamp=now),
-                                feedback(enabled=True, stamp=now, values=command), now)
-            motion.hold_teleop()
-            for _ in range(30):
+            self.assertEqual(command, frozen)
+        self.assertTrue(motion.teleop_stopped)
+
+    def test_collection_homing_opens_hands_only_after_actual_arms_settle(self):
+        motion = gate(settle_time_s=.05)
+        now, command = collection_teleop(motion)
+        motion.release_teleop_hold()
+        for _ in range(120):
+            now += TICK
+            arms = tuple(q + .001 for q in command["arms"])
+            command = motion.step(episode_frame(arms, now, hand=.3),
+                                  feedback(enabled=True, stamp=now, values=command), now)
+        motion.hold_teleop()
+        for _ in range(500):
+            now += TICK
+            command = motion.step(episode_frame(command["arms"], now, hand=.3),
+                                  feedback(enabled=True, stamp=now, values=command), now)
+            if motion.teleop_stopped:
+                break
+        self.assertTrue(motion.teleop_stopped)
+        grip = command["left_hand"]
+        motion.start_homing(episode_frame(command["arms"], now, hand=.3),
+                            feedback(enabled=True, stamp=now, values=command), now)
+        arm_home_since = None
+        opened = False
+        for _ in range(6000):
+            now += TICK
+            previous = command
+            command = motion.step(frame(value=.8, stamp=now),
+                                  feedback(enabled=True, stamp=now, values=previous), now)
+            if previous["arms"] == HOME_LEFT + HOME_RIGHT and arm_home_since is None:
+                arm_home_since = now
+            if command["left_hand"] != grip:
+                self.assertIsNotNone(arm_home_since)
+                self.assertGreaterEqual(now - arm_home_since, 50_000_000)
+                opened = True
+            if motion.phase == "HOME_REACHED":
+                break
+        self.assertTrue(opened)
+        self.assertEqual(motion.phase, "HOME_REACHED")
+        self.assertEqual(command["left_hand"], (0.0,) * 20)
+
+    def test_collection_home_waits_for_actual_hand_opening(self):
+        motion = gate(settle_time_s=.05)
+        command = held(.3)
+        command["arms"] = HOME_LEFT + HOME_RIGHT
+        motion.arm_home(frame(), feedback(values=command), NOW)
+        now = NOW
+        for _ in range(1600):
+            now += TICK
+            actual = dict(command, left_hand=(.3,) * 20)
+            command = motion.step(frame(stamp=now),
+                                  feedback(enabled=True, stamp=now, values=actual), now)
+        self.assertEqual(command["left_hand"], (0.0,) * 20)
+        self.assertEqual(motion.phase, "HOMING")
+        for _ in range(30):
+            now += TICK
+            command = motion.step(frame(stamp=now),
+                                  feedback(enabled=True, stamp=now, values=command), now)
+        self.assertEqual(motion.phase, "HOME_REACHED")
+
+    def test_collection_release_slews_all_changed_live_targets_from_alignment_hold(self):
+        motion = gate(settle_time_s=.05)
+        now, command = collection_teleop(
+            motion, tuple(q + .1 for q in HOME_LEFT + HOME_RIGHT), hand=.3)
+        frozen = command
+        now += TICK
+        command = motion.step(frame(value=-.8, stamp=now),
+                              feedback(enabled=True, stamp=now, values=command), now)
+        self.assertEqual(command, frozen)
+        motion.release_teleop_hold()
+        for interval in (2 * TICK, TICK, TICK // 2):
+            now += interval
+            previous = command
+            command = motion.step(frame(value=-.8, stamp=now),
+                                  feedback(enabled=True, stamp=now, values=previous), now)
+            for device in ALL:
+                maximum_step = configuration()[device]["maximum_speed_rad_s"] * min(interval, TICK) / 1e9
+                for q, old in zip(command[device], previous[device]):
+                    self.assertAlmostEqual(q, old - maximum_step)
+        self.assertIsNone(motion.fault)
+
+    def test_collection_live_execution_watchdog_remains_active(self):
+        motion = gate(settle_time_s=.05)
+        now, command = collection_teleop(motion)
+        motion.release_teleop_hold()
+        now += 155_000_000
+        with self.assertRaises(SafetyFault):
+            motion.step(episode_frame(command["arms"], now),
+                        feedback(enabled=True, stamp=now, values=command), now)
+        self.assertIsNotNone(motion.fault)
+
+    def test_collection_alignment_requires_actual_home_open_hands_and_measured_rest(self):
+        for device, displacement in (("arms", .06), ("left_hand", .12), ("right_hand", .01)):
+            with self.subTest(device=device, displacement=displacement):
+                motion = gate(settle_time_s=.05)
+                now, command = collection_home(motion)
                 now += TICK
-                command = motion.step(frame(value=.8, stamp=now),
-                                      feedback(enabled=True, stamp=now, values=command), now)
-                self.assertEqual(command, held(target))
-            self.assertTrue(motion.teleop_stopped)
-            motion.start_homing(frame(value=.8, stamp=now),
-                                feedback(enabled=True, stamp=now, values=command), now)
-            self.assertTrue(motion.armed)
-            self.assertEqual(motion.phase, "HOMING")
+                actual = dict(command)
+                actual[device] = tuple(q + displacement for q in command[device])
+                with self.assertRaises(ValueError):
+                    motion.start_collection_alignment(
+                        frame(value=.8, stamp=now), feedback(enabled=True, stamp=now, values=actual), now)
+                self.assertEqual(motion.phase, "HOME_REACHED")
+                self.assertIsNone(motion.fault)
+                # Once actual Home/open rest is restored, a closed operator
+                # hand is a valid alignment target without any reference reset.
+                for _ in range(30):
+                    now += TICK
+                    command = motion.step(frame(value=.8, stamp=now),
+                                          feedback(enabled=True, stamp=now, values=command), now)
+                motion.start_collection_alignment(
+                    frame(value=.8, stamp=now), feedback(enabled=True, stamp=now, values=command), now)
+                self.assertEqual(motion.phase, "ALIGNING")
+
+    def test_collection_readiness_faults_on_unhealthy_feedback_not_human_pose(self):
+        motion = gate(settle_time_s=.05)
+        now, command = collection_home(motion)
+        unhealthy = feedback(enabled=True, stamp=now, values=command)
+        unhealthy["left_hand"].healthy = False
+        with self.assertRaises(SafetyFault):
+            motion.start_collection_alignment(frame(value=.8, stamp=now), unhealthy, now)
+        self.assertIsNotNone(motion.fault)
+
+    def test_collection_alignment_keeps_source_finiteness_bounds_freshness_and_epoch_guards(self):
+        for failure in ("nonfinite", "bounds", "stale", "epoch", "missing_hand"):
+            with self.subTest(failure=failure):
+                motion = gate(settle_time_s=.05)
+                now, command = collection_home(motion)
+                source = frame(value={"nonfinite": math.nan, "bounds": 3.0}.get(failure, .8),
+                               stamp=now - 200_000_000 if failure == "stale" else now,
+                               epoch=8 if failure == "epoch" else 7,
+                               flags=3 if failure == "missing_hand" else 7)
+                with self.assertRaises(SafetyFault):
+                    motion.start_collection_alignment(
+                        source, feedback(enabled=True, stamp=now, values=command), now)
+                self.assertIsNotNone(motion.fault)
+
+    def test_collection_held_alignment_still_faults_on_tracking_epoch_change(self):
+        motion = gate(settle_time_s=.05)
+        now, command = collection_teleop(motion, hand=.3)
+        now += TICK
+        with self.assertRaises(SafetyFault):
+            motion.step(episode_frame(command["arms"], now, hand=.8, epoch=8),
+                        feedback(enabled=True, stamp=now, values=command), now)
+        self.assertIsNotNone(motion.fault)
+
+    def test_collection_open_pose_configuration_is_validated_before_enable(self):
+        for episode in ({"hand_open_rad": [3.0] * 20}, {"hand_open_rad": [0.0]},
+                        {"hand_ready_tolerance_rad": math.nan}):
+            with self.subTest(episode=episode):
+                with self.assertRaises(ValueError):
+                    motion = gate(episode=episode)
+                    motion.arm_home(frame(), feedback(values={"arms": HOME_LEFT + HOME_RIGHT}), NOW)
 
     def test_teleop_hold_brakes_continuously_and_never_chases_changed_input(self):
         motion = gate(settle_time_s=.05, maximum_acceleration_rad_s2=2)
