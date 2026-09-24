@@ -29,6 +29,7 @@ struct JointCommandFrame {
   std::uint64_t pico_tracking_epoch{0U};
   // Local metadata only; intentionally absent from the historical TJRC codec.
   std::int64_t input_monotonic_ns{0};
+  std::uint64_t reference_id{0U};
   // Left arm 7, right arm 7, left hand 20, right hand 20 in TJH2 joint order.
   std::array<double, 54U> position_rad{};
 };
@@ -71,6 +72,7 @@ class HandCommandFreshness {
  private:
   const ArmSide side_;
   std::uint64_t sequence_{0U};
+  std::uint64_t revocation_generation_{0U};
   std::int64_t source_timestamp_ns_{0};
   std::int64_t publication_timestamp_ns_{0};
   std::int64_t receive_monotonic_ns_{0};

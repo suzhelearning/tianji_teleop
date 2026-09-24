@@ -123,6 +123,9 @@ class HomeTests(unittest.TestCase):
         self.assertFalse(state.enabled)
 
     def test_home_uses_synchronized_bounded_trajectory_from_stationary_hold(self):
+        # Exercise explicit limits, independently of the site's configured speed.
+        self.config["staged_motion"]["maximum_speed_rad_s"] = .1
+        self.config["staged_motion"]["maximum_acceleration_rad_s2"] = .2
         gate = return_home.ArmHomeGate(self.config)
         start = list(self.home)
         start[0] += .1

@@ -1,4 +1,5 @@
 #include "tianji_qp_ik/controller.hpp"
+#include "tianji_qp_ik/episode_relative.hpp"
 #include "tianji_qp_ik/interactive_marker.hpp"
 #include "tianji_qp_ik/joint_kinematics_plot.hpp"
 #include "tianji_qp_ik/joint_command.hpp"
@@ -79,6 +80,9 @@ struct Options {
 #ifdef TIANJI_ROS_TRANSPORT
   std::string pico_topic{"/pico/arm_input"};
   std::string joint_target_topic;
+  std::string hand_source{"manus"};
+  std::string left_hand_topic{"/wuji/left_hand/joint_commands"};
+  std::string right_hand_topic{"/wuji/right_hand/joint_commands"};
 #endif
   bool help_requested{false};
   bool continuous{false};
@@ -87,6 +91,7 @@ struct Options {
   bool continuous_follow{false};
   bool franka_dls_executor{false};
   bool simulation_recovery{false};
+  bool episode_relative{false};
   bool sim_allow_pico_jumps{false};
   double duration_seconds{0.0};
   bool pico_teleop{true};
@@ -99,6 +104,14 @@ struct Options {
   double hand_stale_timeout_seconds{0.100};
   std::string pico_record_path;
   std::optional<bool> model_state_only_override;
+  bool handRosEnabled() const noexcept {
+#ifdef TIANJI_ROS_TRANSPORT
+    return hand_teleop && hand_source == "manus";
+#else
+    return false;
+#endif
+  }
+  bool handUdpEnabled() const noexcept { return hand_teleop && !handRosEnabled(); }
   bool outputEnabled() const noexcept {
 #ifdef TIANJI_ROS_TRANSPORT
     return !joint_target_topic.empty();
@@ -155,6 +168,7 @@ Options parseOptions(int argc, char** argv) {
     if (argument == "--help") {
 #ifdef TIANJI_ROS_TRANSPORT
       std::cout << "Usage: tianji_arm_ros [--pico-topic NAME] [--joint-target-topic NAME (empty=disabled)] "
+                   "[--episode-relative (data capture reference service)] "
 #else
       std::cout << "Usage: tianji_qp_ik_viewer "
 #endif
@@ -175,6 +189,10 @@ Options parseOptions(int argc, char** argv) {
                    "[--pico-bind IPV4] [--pico-port PORT] [--pico-record FILE.tjvr] "
 #endif
                    "[--hand-teleop|--no-hand-teleop] "
+#ifdef TIANJI_ROS_TRANSPORT
+                   "[--hand-source manus|exoskeleton (default manus)] "
+                   "[--left-hand-topic NAME] [--right-hand-topic NAME] "
+#endif
                    "[--hand-bind IPV4] [--hand-port PORT] "
                    "[--hand-stale-timeout SECONDS] "
                    "[--algorithm pico_ee_franka_dls] "
@@ -182,6 +200,12 @@ Options parseOptions(int argc, char** argv) {
       options.help_requested = true;
       return options;
     }
+#ifdef TIANJI_ROS_TRANSPORT
+    if (argument == "--episode-relative") {
+      options.episode_relative = true;
+      continue;
+    }
+#endif
     if (argument == "--external-display") {
       options.external_display = true;
       continue;
@@ -284,6 +308,16 @@ Options parseOptions(int argc, char** argv) {
       }
       options.pico_port = static_cast<std::uint16_t>(parsed);
 #endif
+#ifdef TIANJI_ROS_TRANSPORT
+    } else if (argument == "--hand-source") {
+      if (value != "manus" && value != "exoskeleton")
+        throw std::invalid_argument("--hand-source must be manus or exoskeleton");
+      options.hand_source = value;
+    } else if (argument == "--left-hand-topic") {
+      options.left_hand_topic = value;
+    } else if (argument == "--right-hand-topic") {
+      options.right_hand_topic = value;
+#endif
     } else if (argument == "--hand-bind") {
       options.hand_bind = value;
     } else if (argument == "--hand-port") {
@@ -311,7 +345,7 @@ Options parseOptions(int argc, char** argv) {
   }
   if (options.external_display) {
     if (options.headless || options.continuous || options.simulation_recovery ||
-        options.franka_dls_executor || options.outputEnabled() ||
+        options.franka_dls_executor || options.episode_relative || options.outputEnabled() ||
         !options.telemetry_path.empty() || !options.joint_telemetry_path.empty() ||
         !options.pico_record_path.empty() || options.duration_seconds != 0.0) {
       throw std::invalid_argument(
@@ -349,8 +383,12 @@ Options parseOptions(int argc, char** argv) {
     throw std::invalid_argument("--pico-topic must not be empty");
   if (options.outputEnabled() && !options.franka_dls_executor)
     throw std::invalid_argument("--joint-target-topic requires --franka-dls-executor");
+  if (options.handRosEnabled() &&
+      (options.left_hand_topic.empty() || options.right_hand_topic.empty() ||
+       options.left_hand_topic == options.right_hand_topic))
+    throw std::invalid_argument("Manus requires distinct nonempty hand topics");
 #endif
-  if (inet_pton(AF_INET, options.hand_bind.c_str(), &parsed_address) != 1) {
+  if (options.handUdpEnabled() && inet_pton(AF_INET, options.hand_bind.c_str(), &parsed_address) != 1) {
     throw std::invalid_argument("--hand-bind must be a valid IPv4 address");
   }
 #ifndef TIANJI_ROS_TRANSPORT
@@ -371,7 +409,7 @@ Options parseOptions(int argc, char** argv) {
           "joint command output, and no simulation switches");
     }
 #ifdef TIANJI_ROS_TRANSPORT
-    if (options.hand_teleop &&
+    if (options.handUdpEnabled() &&
         (inet_pton(AF_INET, options.hand_bind.c_str(), &parsed_address) != 1 ||
          (ntohl(parsed_address.s_addr) >> 24U) != 127U))
       throw std::invalid_argument("--franka-dls-executor requires loopback hand input");
@@ -386,7 +424,7 @@ Options parseOptions(int argc, char** argv) {
 #endif
   }
 #ifdef TIANJI_ROS_TRANSPORT
-  if (options.hand_teleop && (options.hand_port == 15000U || options.hand_port == 17000U))
+  if (options.handUdpEnabled() && (options.hand_port == 15000U || options.hand_port == 17000U))
     throw std::invalid_argument("retired arm UDP ports are not available to the ROS arm core");
 #endif
   return options;
@@ -425,7 +463,7 @@ void sleepUntil(const timespec& deadline) {
 void setInitialConfiguration(MujocoRobot& robot,
                              const QpIkConfig& config) {
   for (const ArmSide side : {ArmSide::kLeft, ArmSide::kRight}) {
-    const ArmLimits& limits = robot.mapping(side).limits;
+    const ArmLimits limits = effectiveArmLimits(config.joint_limits, robot.mapping(side).limits, side);
     robot.setArmState(
         side,
         configuredInitialPosture(config.controller, limits, side),
@@ -534,10 +572,9 @@ void processCommand(const ViewerCommand& command, MujocoRobot& robot,
   }
 }
 
-void setConfiguredPlotPositionBounds(ArmSide side, const MujocoRobot& robot,
+void setConfiguredPlotPositionBounds(const ArmLimits& limits,
                              const QpIkConfig& config,
                              JointKinematicsBounds& bounds) {
-  const ArmLimits& limits = robot.mapping(side).limits;
   const double margin = config.joint_limits.margin_rad;
   bounds.position_lower = limits.lower_position.array() + margin;
   bounds.position_upper = limits.upper_position.array() - margin;
@@ -567,9 +604,13 @@ void controlLoop(MujocoRobot& robot, QpIkConfig config,
                  PicoInputReceiver* pico_receiver,
                  LatestSpscExchange<WujiHandTeleopFrame>* hand_frames,
                  WujiHandUdpReceiver* hand_receiver,
+#ifdef TIANJI_ROS_TRANSPORT
+                 ArmRosTransport* hand_ros_transport,
+#endif
                  JointCommandSink* joint_command_exporter,
                  bool pico_initially_enabled,
                  bool simulation_recovery,
+                 bool episode_relative,
                  std::atomic<bool>& running) {
   setInitialConfiguration(robot, config);
   const DualArmTargets initial_targets = currentTargets(robot);
@@ -582,8 +623,14 @@ void controlLoop(MujocoRobot& robot, QpIkConfig config,
                                     controller->referenceState(ArmSide::kRight)};
   };
   if(simulation_recovery)
-    recovery.emplace(config,std::array<ArmLimits,2>{robot.mapping(ArmSide::kLeft).limits,
-        robot.mapping(ArmSide::kRight).limits},motionPair(),dt);
+    recovery.emplace(config,std::array<ArmLimits,2>{controller->motionLimits(ArmSide::kLeft),
+        controller->motionLimits(ArmSide::kRight)},motionPair(),dt);
+  std::optional<EpisodeRelativeSession> episode;
+  if (episode_relative) episode.emplace(config.cartesian_servo.target_timeout_seconds);
+#ifdef TIANJI_ROS_TRANSPORT
+  auto* reference_transport = episode ? dynamic_cast<ArmRosTransport*>(pico_receiver) : nullptr;
+  if (episode && !reference_transport) throw std::invalid_argument("relative mode requires ROS transport");
+#endif
   int reported_phase=-1;
   std::unique_ptr<SharedRootGuidance> shared_root_guidance;
   const bool shared_root_mode = !config.shared_root_profile_path.empty();
@@ -599,7 +646,7 @@ void controlLoop(MujocoRobot& robot, QpIkConfig config,
   SharedRootGuidanceDiagnostics shared_root_diagnostics;
   bool pico_paused = false;
   const bool pico_configured = pico_frames != nullptr && pico_receiver != nullptr;
-  const bool hand_configured = hand_frames != nullptr && hand_receiver != nullptr;
+  const bool hand_configured = hand_frames != nullptr;
   PicoTeleopSession pico_session(
       config.cartesian_servo.target_timeout_seconds);
   pico_session.setEnabled(pico_configured && pico_initially_enabled);
@@ -665,6 +712,12 @@ void controlLoop(MujocoRobot& robot, QpIkConfig config,
     bool hand_reset_requested = false;
     ViewerCommand command;
     while (commands.tryPop(command)) {
+      if (episode) {
+        // GUI/controller buttons cannot grant or rebaseline data motion authority.
+        episode->fault();
+        last_processed_command_id = std::max(last_processed_command_id, command.id);
+        continue;
+      }
       if(recovery) {
         bool changed=false;
         if(command.type==ViewerCommandType::kSimulationStart) {
@@ -739,6 +792,18 @@ void controlLoop(MujocoRobot& robot, QpIkConfig config,
       joint_command_epoch = pico_frame.tracking_epoch;
       joint_command_resynchronization_generation =
           pico_frame.resynchronization_generation;
+      if (episode) {
+        const bool accepted = episode->observe(pico_frame, monotonic_now_ns);
+        if (accepted) {
+          pico_session.commitApplied(pico_frame);
+          pico_applied_bridge_send_monotonic_ns = pico_frame.bridge_send_monotonic_ns;
+          pico_applied_receive_monotonic_ns = pico_frame.receive_monotonic_ns;
+          pico_applied_epoch = pico_frame.tracking_epoch;
+          pico_applied_sequence = pico_frame.sequence;
+          pico_left_source_timestamp_ns = pico_right_source_timestamp_ns = pico_frame.source_timestamp_ns;
+          latest_pico_upper_limb_skeleton = pico_frame.upper_limb_skeleton;
+        } else pico_session.invalidate();
+      } else {
       if (!pico_frame.valid) {
         pico_session.invalidate();
         pico_applied_bridge_send_monotonic_ns = 0;
@@ -811,6 +876,17 @@ void controlLoop(MujocoRobot& robot, QpIkConfig config,
         }
       }
       }
+      }
+    }
+    if (episode) {
+      episode->tick(monotonic_now_ns);
+#ifdef TIANJI_ROS_TRANSPORT
+      if (reference_transport->referenceFaulted()) episode->fault();
+      TeleopReferenceCommand request;
+      while (reference_transport->takeReferenceCommand(request))
+        reference_transport->completeReferenceCommand(
+            episode->command(request, *controller, monotonicNowNs()));
+#endif
     }
 
     const PicoTeleopFreshness pico_freshness =
@@ -822,13 +898,15 @@ void controlLoop(MujocoRobot& robot, QpIkConfig config,
 
     const ArmMotionState left_mapping_model = controller->referenceState(ArmSide::kLeft);
     const ArmMotionState right_mapping_model = controller->referenceState(ArmSide::kRight);
-    shared_root_diagnostics = shared_root_guidance->stepSharedRoot(
-        left_mapping_model, right_mapping_model, dt, monotonic_now_ns,
-        !paused && !pico_paused && pico_session.enabled() &&
-            (!recovery || recovery->teleop()),
-        left_mapping_model.q.allFinite() && left_mapping_model.qdot.allFinite() &&
-        left_mapping_model.qddot.allFinite() && right_mapping_model.q.allFinite() &&
-        right_mapping_model.qdot.allFinite() && right_mapping_model.qddot.allFinite());
+    if (!episode) {
+      shared_root_diagnostics = shared_root_guidance->stepSharedRoot(
+          left_mapping_model, right_mapping_model, dt, monotonic_now_ns,
+          !paused && !pico_paused && pico_session.enabled() &&
+              (!recovery || recovery->teleop()),
+          left_mapping_model.q.allFinite() && left_mapping_model.qdot.allFinite() &&
+          left_mapping_model.qddot.allFinite() && right_mapping_model.q.allFinite() &&
+          right_mapping_model.qdot.allFinite() && right_mapping_model.qddot.allFinite());
+    }
     if (shared_root_diagnostics.accepted) {
       last_shared_root_targets = shared_root_diagnostics.cartesian_targets;
     }
@@ -836,6 +914,10 @@ void controlLoop(MujocoRobot& robot, QpIkConfig config,
     desired.left_stale = !pico_freshness.live || !shared_root_diagnostics.accepted ||
                          !shared_root_diagnostics.target_valid;
     desired.right_stale = desired.left_stale;
+    if (episode) {
+      desired = episode->targets();
+      desired.left_stale = desired.right_stale = !episode->active();
+    }
     DualArmReferences references = directReferences(desired);
     if (shared_root_mode && desired.left_stale) {
       // Cached references may have been fresh when accepted. They must not
@@ -847,7 +929,21 @@ void controlLoop(MujocoRobot& robot, QpIkConfig config,
     bool recovery_plot_valid = false;
     const bool recovery_home_sample = recovery &&
         recovery->phase() == SimulationRecovery::Phase::kHoming;
-    if(recovery&&!recovery->teleop()) {
+    if (episode && !episode->active()) {
+      // Preparing, cancelled and preflight states hold q without running IK/OTG.
+      // In particular waiting for recorder ACK must never advance a trajectory.
+      robot.forward();
+      diagnostics.accepted = episode->ready(monotonic_now_ns);
+      diagnostics.hold_reason = diagnostics.accepted ? HoldReason::kNone : HoldReason::kSolverFailure;
+      for (auto side : {ArmSide::kLeft, ArmSide::kRight}) {
+        auto& arm = side == ArmSide::kLeft ? diagnostics.left : diagnostics.right;
+        arm.accepted = diagnostics.accepted; arm.hold_reason = diagnostics.hold_reason;
+        arm.q_ref = controller->reference(side); arm.q_actual = robot.armPosition(side);
+        arm.current = robot.armKinematicsAt(side, arm.q_ref).tcp_pose;
+        arm.tcp_actual = robot.tcpPose(side); arm.target = arm.current;
+        arm.reference.pose = arm.current; arm.ik.status = SolverStatus::kSolved;
+      }
+    } else if(recovery&&!recovery->teleop()) {
       const auto next=recovery->update(motionPair());
       // Recovery validates a bilateral candidate before either arm is applied.
       if(!controller->setReferenceState(ArmSide::kLeft,next[0]) ||
@@ -880,10 +976,11 @@ void controlLoop(MujocoRobot& robot, QpIkConfig config,
           diagnostics.right.dls_posture_ruckig_accepted;
       if (!accepted && !bounded_input_hold) {
         ++control_failures;
+        if (episode) episode->fault();
         if(recovery&&pico_freshness.live&&!desired.left_stale&&!desired.right_stale)
           recovery->stop(motionPair());
       }
-      if (shared_root_mode) {
+      if (shared_root_mode && !episode) {
         const auto commit_time_ns = monotonicNowNs();
         (void)shared_root_guidance->confirmSharedRootReference(
             shared_root_diagnostics.shared_root_cycle,
@@ -999,12 +1096,28 @@ void controlLoop(MujocoRobot& robot, QpIkConfig config,
     snapshot.hand_configured = hand_configured;
     snapshot.hand_stale = hand_stats.stale;
     snapshot.hand_live = hand_configured && !hand_stats.stale;
+    snapshot.hand_left_stale = !left_hand_freshness.live(hand_sample_time_ns);
+    snapshot.hand_right_stale = !right_hand_freshness.live(hand_sample_time_ns);
     snapshot.hand_sequence = hand_stats.sequence;
     snapshot.hand_datagrams = hand_stats.datagrams;
     snapshot.hand_accepted = hand_stats.accepted;
     snapshot.hand_malformed = hand_stats.malformed;
     snapshot.hand_crc_failures = hand_stats.crc_failures;
     snapshot.hand_reordered = hand_stats.reordered;
+#ifdef TIANJI_ROS_TRANSPORT
+    if (hand_ros_transport) {
+      const auto ros_stats = hand_ros_transport->handStats();
+      snapshot.hand_ros = true;
+      snapshot.hand_left_stale = ros_stats.left_stale;
+      snapshot.hand_right_stale = ros_stats.right_stale;
+      snapshot.hand_stale = ros_stats.left_stale && ros_stats.right_stale;
+      snapshot.hand_live = !snapshot.hand_stale;
+      snapshot.hand_sequence = ros_stats.sequence;
+      snapshot.hand_messages = ros_stats.received;
+      snapshot.hand_accepted = ros_stats.accepted;
+      snapshot.hand_rejected = ros_stats.rejected;
+    }
+#endif
     snapshot.left_position_error = diagnostics.left.pose_error.head<3>().norm();
     snapshot.left_orientation_error = diagnostics.left.pose_error.tail<3>().norm();
     snapshot.right_position_error = diagnostics.right.pose_error.head<3>().norm();
@@ -1114,9 +1227,9 @@ void controlLoop(MujocoRobot& robot, QpIkConfig config,
     plot_sample.sequence = sequence;
     plot_sample.time_seconds = control_time;
     plot_sample.reset = plot_reset_requested;
-    setConfiguredPlotPositionBounds(ArmSide::kLeft, robot, config,
+    setConfiguredPlotPositionBounds(controller->motionLimits(ArmSide::kLeft), config,
                             plot_sample.left.bounds);
-    setConfiguredPlotPositionBounds(ArmSide::kRight, robot, config,
+    setConfiguredPlotPositionBounds(controller->motionLimits(ArmSide::kRight), config,
                             plot_sample.right.bounds);
 
     const ArmMotionState left_reference_state = controller->referenceState(ArmSide::kLeft);
@@ -1144,7 +1257,7 @@ void controlLoop(MujocoRobot& robot, QpIkConfig config,
         const ArmSide side = arm == &plot_sample.left ? ArmSide::kLeft : ArmSide::kRight;
         const auto smoothing = recovery && !recovery->teleop()
             ? normal_smoothing : controller->trajectorySampleLimits(side);
-        Vec7 velocity = (smoothing.velocity_scale * robot.mapping(side).limits.velocity)
+        Vec7 velocity = (smoothing.velocity_scale * controller->motionLimits(side).velocity)
                             .cwiseMin(smoothing.max_velocity_rad_s);
         Vec7 acceleration = smoothing.max_acceleration_rad_s2;
         Vec7 jerk = smoothing.max_jerk_rad_s3;
@@ -1257,6 +1370,7 @@ void controlLoop(MujocoRobot& robot, QpIkConfig config,
       output.source_timestamp_ns = monotonicNowNs();
       output.pico_tracking_epoch = joint_command_epoch;
       output.input_monotonic_ns = pico_applied_bridge_send_monotonic_ns;
+      output.reference_id = episode ? episode->referenceId() : 0U;
       // Recheck freshness after the solve, not at tick start: a slow solve must
       // never make an already expired PICO/hand input look live to hardware.
       const auto export_pico_stats =
@@ -1266,7 +1380,7 @@ void controlLoop(MujocoRobot& robot, QpIkConfig config,
           export_pico_stats.tracking_epoch == joint_command_epoch &&
           export_pico_stats.resynchronizations ==
               joint_command_resynchronization_generation;
-      const bool arms_ready =
+      bool arms_ready =
           !stop_requested && running.load(std::memory_order_acquire) &&
           !paused && !pico_paused && !plot_reset_requested &&
           pico_configured && pico_session.enabled() &&
@@ -1282,6 +1396,13 @@ void controlLoop(MujocoRobot& robot, QpIkConfig config,
           snapshot.right_ik.status == SolverStatus::kSolved &&
           !desired.left_stale && !desired.right_stale &&
           shared_root_diagnostics.accepted && shared_root_diagnostics.target_valid;
+      if (episode) {
+        arms_ready = !stop_requested && running.load(std::memory_order_acquire) &&
+            episode->ready(output.source_timestamp_ns) && source_context_current &&
+            jointCommandPicoBridgeFresh(pico_applied_bridge_send_monotonic_ns, output.source_timestamp_ns) &&
+            (!episode->active() || (diagnostics.accepted &&
+                diagnostics.left.dls_posture_ruckig_accepted && diagnostics.right.dls_posture_ruckig_accepted));
+      }
       const bool hands_allowed =
           !stop_requested && running.load(std::memory_order_acquire) &&
           !paused && !pico_paused && !plot_reset_requested &&
@@ -2083,6 +2204,7 @@ void drawOverlay(const ViewerApplication& application, mjrRect viewport) {
       "PICO cfg/en/live/stale %d/%d/%d/%d | epoch/seq %llu/%llu | %.1f Hz | age %.1f ms\n"
       "PICO rx accepted/datagrams %llu/%llu | bad/crc/order/jump/super/epoch/resync/reset %llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu | latency recv/bridge %.1f/%.1f us\n"
       "skeleton overlay: %s | PICO %s | shared-root %s\n"
+      "Hands %s | %s rx/accepted/rejected %llu/%llu/%llu | stale L/R %d/%d\n"
       "safety: %s",
       toString(application.snapshot.algorithm).c_str(),
       toString(application.snapshot.mode).c_str(),
@@ -2123,6 +2245,16 @@ void drawOverlay(const ViewerApplication& application, mjrRect viewport) {
       application.show_pico_skeleton ? "on" : "off",
       application.snapshot.pico_upper_limb_skeleton.valid ? "valid" : "hidden",
       application.snapshot.shared_root_upper_limb_skeleton.valid ? "valid" : "hidden",
+      !application.snapshot.hand_configured ? "disabled" :
+          application.snapshot.hand_ros ? "manus" : "exoskeleton",
+      application.snapshot.hand_ros ? "ROS messages" : "UDP datagrams",
+      static_cast<unsigned long long>(application.snapshot.hand_ros
+          ? application.snapshot.hand_messages : application.snapshot.hand_datagrams),
+      static_cast<unsigned long long>(application.snapshot.hand_accepted),
+      static_cast<unsigned long long>(application.snapshot.hand_ros
+          ? application.snapshot.hand_rejected
+          : application.snapshot.hand_malformed + application.snapshot.hand_reordered),
+      application.snapshot.hand_left_stale, application.snapshot.hand_right_stale,
       toString(application.snapshot.hold_reason).c_str());
   if (application.show_help) {
     std::snprintf(help, sizeof(help),
@@ -2280,6 +2412,12 @@ int runPicoHeadless(const Options& options,
             << " hand_malformed=" << latest.hand_malformed
             << " hand_crc_failures=" << latest.hand_crc_failures
             << " hand_reordered=" << latest.hand_reordered
+            << " hand_source=" << (!latest.hand_configured ? "disabled" :
+                                    latest.hand_ros ? "manus" : "exoskeleton")
+            << " hand_ros_messages=" << latest.hand_messages
+            << " hand_ros_rejected=" << latest.hand_rejected
+            << " hand_left_stale=" << latest.hand_left_stale
+            << " hand_right_stale=" << latest.hand_right_stale
             << " hand_left_q0=" << latest.left_hand_q[0]
             << " hand_right_q0=" << latest.right_hand_q[0]
             << " cycle_p99_us=" << latest.cycle_p99_us
@@ -2303,15 +2441,15 @@ int runPicoHeadless(const Options& options,
 class ExternalDisplayInput {
  public:
   ExternalDisplayInput(const MujocoRobot& robot, const QpIkConfig& config) {
-    setConfiguredPlotPositionBounds(ArmSide::kLeft, robot, config, left_bounds_);
-    setConfiguredPlotPositionBounds(ArmSide::kRight, robot, config, right_bounds_);
     {
       const auto& smoothing = config.pico_ee_franka_dls.post_smoothing;
       for (const ArmSide side : {ArmSide::kLeft, ArmSide::kRight}) {
         JointKinematicsBounds& bounds =
             side == ArmSide::kLeft ? left_bounds_ : right_bounds_;
+        const auto limits = effectiveArmLimits(config.joint_limits, robot.mapping(side).limits, side);
+        setConfiguredPlotPositionBounds(limits, config, bounds);
         const Vec7 velocity =
-            (smoothing.velocity_scale * robot.mapping(side).limits.velocity)
+            (smoothing.velocity_scale * limits.velocity)
                 .cwiseMin(smoothing.max_velocity_rad_s);
         bounds.velocity_lower = -velocity;
         bounds.velocity_upper = velocity;
@@ -2741,6 +2879,10 @@ int run(int argc, char** argv) {
     throw std::invalid_argument(
         "ROS arm core requires shared-root Franka DLS/Ruckig model-reference velocity control");
 #endif
+  if (options.episode_relative &&
+      (!options.franka_dls_executor || !options.outputEnabled() ||
+       options.simulation_recovery || options.external_display || !options.pico_teleop))
+    throw std::invalid_argument("--episode-relative requires ROS DLS export and excludes simulation/display mode");
   if (options.franka_dls_executor &&
       (config.shared_root_profile_path.empty() ||
        config.ik_algorithm != IkAlgorithm::kPicoEeFrankaDls ||
@@ -2783,7 +2925,7 @@ int run(int argc, char** argv) {
   if (options.hand_teleop && options.pico_teleop && options.hand_port == options.pico_port)
     throw std::invalid_argument("hand and PICO ports must differ");
 #endif
-  if (options.simulation_recovery && options.hand_teleop && options.hand_bind != "127.0.0.1")
+  if (options.simulation_recovery && options.handUdpEnabled() && options.hand_bind != "127.0.0.1")
     throw std::invalid_argument("simulation recovery hand input must bind to 127.0.0.1");
   std::cout << (config.controller.model_state_only
                     ? "control_state_source=model_reference"
@@ -2801,12 +2943,17 @@ int run(int argc, char** argv) {
   if (options.pico_teleop) {
     ArmRosTransportOptions transport_options;
     transport_options.pico_topic = options.pico_topic;
+    transport_options.left_hand_topic = options.left_hand_topic;
+    transport_options.right_hand_topic = options.right_hand_topic;
+    transport_options.hand_freshness_seconds = options.hand_stale_timeout_seconds;
     transport_options.joint_target_topic = options.joint_target_topic;
     transport_options.max_position_jump_m = config.pico_teleop.max_position_jump_m;
     transport_options.max_orientation_jump_rad = config.pico_teleop.max_orientation_jump_rad;
     transport_options.freshness_seconds = config.cartesian_servo.target_timeout_seconds;
     transport_options.reject_pose_jumps = !options.sim_allow_pico_jumps;
-    ros_transport = std::make_unique<ArmRosTransport>(std::move(transport_options), pico_frames);
+    transport_options.episode_relative = options.episode_relative;
+    ros_transport = std::make_unique<ArmRosTransport>(
+        std::move(transport_options), pico_frames, options.handRosEnabled() ? &hand_frames : nullptr);
   }
   PicoInputReceiver* pico_receiver = ros_transport.get();
   JointCommandSink* joint_command_exporter =
@@ -2837,6 +2984,8 @@ int run(int argc, char** argv) {
       throw std::invalid_argument(
           "--hand-teleop requires a combined Wuji Hand 2 model");
     }
+  }
+  if (options.handUdpEnabled()) {
     WujiHandUdpReceiverOptions receiver_options;
     receiver_options.bind_address = options.hand_bind;
     receiver_options.port = options.hand_port;
@@ -2877,6 +3026,10 @@ int run(int argc, char** argv) {
       std::cout << "hand_udp_bind=" << options.hand_bind << ':'
                 << hand_receiver->boundPort() << '\n';
     }
+    if (!options.hand_teleop)
+      std::cout << "hand_source=disabled hand_input_state=disabled\n";
+    else if (options.handUdpEnabled())
+      std::cout << "hand_source=exoskeleton hand_transport=udp\n";
 #ifndef TIANJI_ROS_TRANSPORT
     if (joint_command_exporter != nullptr) {
       std::cout << "joint_command_udp=" << options.joint_command_host << ':'
@@ -2918,9 +3071,13 @@ int run(int argc, char** argv) {
                     pico_receiver,
                     options.hand_teleop ? &hand_frames : nullptr,
                     hand_receiver.get(),
+#ifdef TIANJI_ROS_TRANSPORT
+                    options.handRosEnabled() ? ros_transport.get() : nullptr,
+#endif
                     joint_command_exporter,
                     options.pico_teleop,
                     options.simulation_recovery,
+                    options.episode_relative,
                     running);
       } catch (...) {
         control_error = std::current_exception();
@@ -3000,6 +3157,19 @@ int run(int argc, char** argv) {
               << " hand_crc_failures=" << hand_stats.crc_failures
               << " hand_reordered=" << hand_stats.reordered << '\n';
   }
+#ifdef TIANJI_ROS_TRANSPORT
+  if (ros_transport) {
+    if (options.handRosEnabled()) {
+      const auto stats = ros_transport->handStats();
+      std::cout << "hand_record_complete hand_ros_state=stopped hand_source=manus"
+                << " hand_ros_messages=" << stats.received
+                << " hand_accepted=" << stats.accepted
+                << " hand_ros_rejected=" << stats.rejected
+                << " hand_left_stale=" << stats.left_stale
+                << " hand_right_stale=" << stats.right_stale << '\n';
+    }
+  }
+#endif
   if (telemetry_thread.joinable()) {
     telemetry_thread.join();
   }

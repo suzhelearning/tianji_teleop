@@ -6,6 +6,7 @@ import json
 from datetime import datetime
 from itertools import count
 import sys
+import threading
 from pathlib import Path
 
 import h5py
@@ -110,6 +111,110 @@ def test_raw_exact_pixels_without_a_working_jpeg_codec(raw_episode):
         np.testing.assert_array_equal(episode['observations/hands/qpos'][:, 0], [0, 1])
     with pytest.raises(EpisodeValidationError, match='expected exactly'):
         validate_episode(path, {**config, 'image_encoding': 'jpeg', 'jpeg_quality': 50})
+
+@pytest.mark.parametrize('encoding', ['rgb', 'jpeg'])
+def test_delayed_cutoff_trims_written_buffered_and_queued_streams(tmp_path, monkeypatch, encoding):
+    monkeypatch.setattr(dataset, '_STATE_BATCH_ROWS', 2)
+    monkeypatch.setattr(dataset, '_IMAGE_BATCH_ROWS', 2)
+    config = make_config(image_encoding=encoding, jpeg_quality=90 if encoding == 'jpeg' else None,
+                         image_height=4, image_width=6)
+    blocked, release = threading.Event(), threading.Event()
+
+    class DelayedWriter(EpisodeWriter):
+        def _handle(self, item):
+            if item[0] == 'arms' and item[1] == START_NS + 50:
+                blocked.set()
+                if not release.wait(5):
+                    raise RuntimeError('test did not release the writer')
+            super()._handle(item)
+
+    writer = DelayedWriter(tmp_path, config, TASK)
+    images = [np.full((4, 6, 3), row * 30, np.uint8) for row in range(6)]
+
+    def append_row(row):
+        stamp = START_NS + row * 10
+        assert writer.append_arms(stamp, np.full(14, row, np.float32))
+        assert writer.append_hands(stamp + 1, np.full(40, row, np.float32))
+        assert writer.append_rgb('top', stamp + 2, images[row])
+        assert writer.append_rgb('left_wrist', stamp + 3, images[row])
+
+    try:
+        writer.start(START_NS)
+        for row in range(5):
+            append_row(row)
+        # Four state/JPEG rows have reached HDF5; the fifth is buffered.
+        # Raw frames have all reached HDF5. The delayed stop must undo both.
+        writer._queue.join()
+        append_row(5)
+        assert blocked.wait(5)
+        writer.stop(START_NS + 20)
+        assert not writer.append_arms(START_NS + 60, np.zeros(14))
+        release.set()
+        path = writer.finish(True)
+    finally:
+        release.set()
+        writer.abort()
+
+    report = validate_episode(path, config)
+    assert report['counts'] == {'arms': 3, 'hands': 2, 'images': {'top': 2, 'left_wrist': 2}}
+    assert report['duration_s'] == pytest.approx(20 / 1e9)
+    assert report['timestamps_ns'] == {
+        'arms': {'first': 0, 'last': 20}, 'hands': {'first': 1, 'last': 11},
+        'top': {'first': 2, 'last': 12}, 'left_wrist': {'first': 3, 'last': 13}}
+    with h5py.File(path, 'r') as episode:
+        assert episode.attrs['start_monotonic_ns'] == START_NS
+        assert episode.attrs['end_monotonic_ns'] == START_NS + 20
+        for stream, count, offset in [('arms', 3, 0), ('hands', 2, 1)]:
+            group = episode[f'observations/{stream}']
+            np.testing.assert_array_equal(group['timestamp_ns'][:], np.arange(count) * 10 + offset)
+            np.testing.assert_array_equal(group['qpos'][:, 0], np.arange(count))
+        for camera, offset in [('top', 2), ('left_wrist', 3)]:
+            group = episode[f'images/{camera}']
+            np.testing.assert_array_equal(group['timestamp_ns'][:], [offset, 10 + offset])
+            for row in range(2):
+                image = group[encoding][row]
+                if encoding == 'jpeg':
+                    image = dataset.cv2.imdecode(image, dataset.cv2.IMREAD_COLOR)
+                np.testing.assert_array_equal(image, images[row])
+
+
+def test_cutoff_before_first_samples_cannot_publish_an_empty_episode(tmp_path):
+    config = make_config(image_encoding='rgb', jpeg_quality=None,
+                         camera_names=['top'], image_height=4, image_width=6)
+    writer = EpisodeWriter(tmp_path, config, TASK)
+    try:
+        writer.start(START_NS)
+        assert writer.append_arms(START_NS + 1, np.zeros(14))
+        assert writer.append_hands(START_NS + 1, np.zeros(40))
+        assert writer.append_rgb('top', START_NS + 1, np.zeros((4, 6, 3), np.uint8))
+        writer.stop(START_NS)
+        with pytest.raises(EpisodeValidationError, match='empty'):
+            writer.finish(True)
+        assert writer.partial_path.is_file()
+        assert not writer.final_path.exists()
+    finally:
+        writer.abort()
+
+
+@pytest.mark.parametrize('cutoff', [-1, START_NS - 1, START_NS + 5_000_001])
+def test_invalid_cutoff_does_not_stop_recording(tmp_path, monkeypatch, cutoff):
+    monkeypatch.setattr(dataset.time, 'monotonic_ns', lambda: START_NS)
+    config = make_config(image_encoding='rgb', jpeg_quality=None,
+                         camera_names=['top'], image_height=4, image_width=6)
+    writer = EpisodeWriter(tmp_path, config, TASK)
+    try:
+        writer.start(START_NS)
+        with pytest.raises(ValueError, match='cutoff_monotonic_ns'):
+            writer.stop(cutoff)
+        assert writer.append_arms(START_NS, np.zeros(14))
+        assert writer.append_hands(START_NS, np.zeros(40))
+        assert writer.append_rgb('top', START_NS, np.zeros((4, 6, 3), np.uint8))
+        writer.stop(START_NS)
+        path = writer.finish(True)
+        assert validate_episode(path, config)['counts']['arms'] == 1
+    finally:
+        writer.abort()
+
 
 
 @pytest.mark.parametrize('layout', [

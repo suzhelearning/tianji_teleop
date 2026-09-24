@@ -75,7 +75,7 @@ class Harness:
     """One collector process plus one fixture process, torn down together."""
 
     def __init__(self, root: Path, *, session_id: str, fixture: list[str],
-                 expect_shutdown: bool = True, collector_fixture: bool = False):
+                 expect_shutdown: bool = True, collector_fixture: bool = False, initial_control=None):
         self.root = root
         self.session_id = session_id
         self.dataset = root / "dataset"
@@ -88,6 +88,8 @@ class Harness:
         self._collector_fixture = collector_fixture
         self.collector: subprocess.Popen | None = None
         self.fixture: subprocess.Popen | None = None
+        if initial_control is not None:
+            self.control(**initial_control)
 
     def start(self) -> None:
         environment = _environment()
@@ -323,6 +325,23 @@ def _read_episode(path: Path) -> dict:
 def _frame_number(rgb: np.ndarray) -> int:
     first = rgb[0, 0]
     return int(first[0]) | (int(first[1]) << 8)
+
+
+def test_unresolved_camera_graph_waits_then_records_without_collector_restart(node, harness):
+    case = harness([], collector_fixture=True, initial_control={"camera_graph_pending": True})
+    node.session_id = case.session_id
+    node.wait_for_services()
+    # Genuine driver messages arrive while only this collector's DDS graph has
+    # unresolved node metadata. They cannot certify or poison the writer.
+    node.spin_for(2.5)
+    ready, _ = node.check_ready()
+    assert not ready
+    accepted, _, _ = node.command("start")
+    assert not accepted
+    case.control(camera_graph_pending=False)
+    saved = _record(node, case, seconds=.5)
+    assert _read_episode(saved)["success"]
+    assert "unexpected publisher node identity" not in case.collector_log()
 
 
 def test_rejects_start_without_a_fresh_real_teleop_session(node, harness):
@@ -698,9 +717,12 @@ def test_request_replays_do_not_create_or_finalize_another_episode(node, harness
     assert result.state == "RECORDING"
     node.wait_for_state("RECORDING")
     node.spin_for(.5)
+    cutoff = time.monotonic_ns()
+    node.spin_for(.2)  # Samples keep reaching the writer before the stop RPC.
     stop = StopCollect.Request(request_id=str(uuid.uuid4()),
                                session_id=case.session_id, phase_revision=1,
-                               episode_id=result.episode_id, save=True)
+                               episode_id=result.episode_id, save=True,
+                               cutoff_monotonic_ns=cutoff)
     first = node._stop.call_async(stop)
     duplicate = node._stop.call_async(stop)
     node._wait(first, timeout=60)
@@ -708,6 +730,16 @@ def test_request_replays_do_not_create_or_finalize_another_episode(node, harness
     assert first.result().success and duplicate.result().success
     saved = Path(first.result().saved_path)
     assert saved.is_file() and duplicate.result().saved_path == str(saved)
+    with h5py.File(saved, "r") as episode:
+        assert episode.attrs["end_monotonic_ns"] == cutoff
+        duration_ns = cutoff - int(episode.attrs["start_monotonic_ns"])
+        for group in (*episode["observations"].values(), *episode["images"].values()):
+            assert np.all(group["timestamp_ns"][:] <= duration_ns)
+    stop.cutoff_monotonic_ns += 1
+    conflict = node._stop.call_async(stop)
+    node._wait(conflict)
+    assert not conflict.result().success
+    assert not conflict.result().saved_path
     node.wait_for_state("IDLE")
     replay = node._start.call_async(request)
     node._wait(replay)
@@ -715,6 +747,38 @@ def test_request_replays_do_not_create_or_finalize_another_episode(node, harness
     node.spin_for(.2)
     assert node.status.state == "IDLE" and not node.status.episode_id
     assert case.completed_episodes() == [saved] and not case.partial_episodes()
+
+
+def test_invalid_cutoff_does_not_claim_episode_finalization(node, harness):
+    case = harness([])
+    node.session_id = case.session_id
+    node.wait_for_services()
+    node.wait_ready()
+    assert node.command("start")[0]
+    node.wait_for_state("RECORDING")
+    node.spin_for(.5)
+    for cutoff in (-1, 1, time.monotonic_ns() + 10_000_000_000):
+        request = StopCollect.Request(
+            request_id=str(uuid.uuid4()), session_id=case.session_id,
+            phase_revision=1, episode_id=node.episode_id, save=True,
+            cutoff_monotonic_ns=cutoff)
+        rejected = node._stop.call_async(request)
+        node._wait(rejected)
+        assert not rejected.result().success
+        node.spin_for(.05)
+        assert node.status.state == "RECORDING"
+        assert node.status.episode_id == node.episode_id
+    cutoff = time.monotonic_ns()
+    node.spin_for(.1)
+    request = StopCollect.Request(
+        request_id=str(uuid.uuid4()), session_id=case.session_id,
+        phase_revision=1, episode_id=node.episode_id, save=False,
+        cutoff_monotonic_ns=cutoff)
+    discarded = node._stop.call_async(request)
+    node._wait(discarded, timeout=60)
+    assert discarded.result().success
+    node.wait_for_state("IDLE")
+    assert not case.completed_episodes() and not case.partial_episodes()
 
 
 def test_delayed_stop_cannot_close_a_new_episode(node, harness):

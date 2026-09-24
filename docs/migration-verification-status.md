@@ -572,3 +572,34 @@ ADB 只管理视频 reverse/forward，保留裸手 10002 和其他既有映射�
 **现场边界：**本轮设备枚举显示配置中的 top／左右腕相机均未连接，所以没有验证实际 top 画面。
 APK 元数据能看到 OPEN_CAMERA／PicoH264Decoder 相关标识，但未在头显中验收画面显示。
 需要连接相机、启动其官方 ROS 节点并在 PICO 启用 PC 视频源后，另行确认实际画面、延迟与视场。
+
+## 16. 备份四终端配套恢复（2026-09-24）
+
+按用户指定备份 `tianji_teleop-ros2.6S2HXDkc/tianji_teleop-ros2` 恢复相关源码，
+不覆盖整个分支、不复制旧 build/install/.pixi。入口为 PICO 前台、Manus、
+`run_camera_views.sh`（相机＋PICO 视频＋RViz）、`run_teleop.sh --data --task TASK`。
+完整恢复 Manus 仿真 ROS 输入、TeleopReference 原生接口配套、手部撤销代际、
+相机图发现及采集键时刻截止；双臂仍为共享根 DLS／Ruckig。
+`profiles/kj/manus/` 两份标定与备份 SHA256 一致；未加载到真实手套验证。
+
+| 本轮验证 | 结果 |
+|---|---|
+| `pixi run --locked -e default build` | control、arm-ros 和 default 15 个 ROS 包构建通过 |
+| 输入／仿真／相机／接口／执行门控／落盘定向 Python 测试 | **318 passed**；含真实 headless 仿真与合成 FFmpeg 编解码 |
+| domain 121 采集 DDS 定向测试 | **3 passed**；发现未收敛后恢复、请求重放与截止时间、非法截止不夺取终结权 |
+| 原生定向 CTest | **5 passed**；DLS、Ruckig、episode reference、配置与手部协议 |
+| 四入口 CLI smoke | PICO help、Manus 人员列表（含 kj）、camera_views help、teleop help 均退出 0 |
+| 独立真实原生仿真 smoke | domain 121、2 秒、headless；Manus 双手 ROS ready，DLS_SIM WAITING，关节导出 disabled，退出 0 |
+| 中文 HUD 合成帧 | 实际渲染并查看中文提示；原始输入不变，下半幅像素不变 |
+
+当前验证进程没有 DISPLAY/WAYLAND_DISPLAY，未启动实际 RViz 窗口、相机、ADB、
+Manus 手套或机器人。上述结果不代表现场图像、跟随、延迟、碰撞或运动安全验收。
+
+### 终端 4 按备份直接覆盖
+
+用户报告真机启动 `arms: source input is not fresh/ready` 且没有目标虚影后，
+明确要求停止局部修改、直接复制备份。已覆盖并逐字节校验终端 4 的执行器、
+监视窗口、原生控制、仿真、ROS 接口、采集器及构建入口共 194 个源码／资源文件。
+机器人配置、现场进程和原始失败日志未改；没有复制备份 build/install/.pixi。
+重新构建通过（default 15 包），目标显示与 ROS 接收定向测试 71 项通过。
+关键运行源码在此次覆盖前已与备份相同；未重跑真机，不能据复制和测试宣称该次 ready／虚影故障已消失。

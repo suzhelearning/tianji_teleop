@@ -472,21 +472,30 @@ class CollectionRuntime:
             self._episode_started = True
             self._ready.notify_all()
 
-    def end_episode(self) -> bool:
-        """Freeze the current episode. ``False`` when nothing was recording."""
+    def end_episode(self, cutoff_monotonic_ns: int = 0) -> bool:
+        """Freeze capture at the supplied key time, or drain all at zero."""
         with self._ready:
             if not self._recording:
+                if cutoff_monotonic_ns:
+                    raise ValueError("cutoff requires an active recording")
                 return False
             healthy = self._episode_fault is None
+            try:
+                if cutoff_monotonic_ns:
+                    self._writer.stop(cutoff_monotonic_ns)
+                else:
+                    self._writer.stop()
+            except ValueError:
+                # Invalid clock bounds must leave the recording available for
+                # a corrected request, not claim ownership of its finalization.
+                raise
+            except Exception as error:  # noqa: BLE001 - surfaced by check_episode
+                if healthy:
+                    self._episode_fault = f"collection runtime: writer stop failed: {error}"
+                healthy = False
             self._recording = False
             self._ready.notify_all()
-        try:
-            self._writer.stop()
-        except Exception as error:  # noqa: BLE001 - surfaced by check_episode instead
-            if healthy:
-                self._episode_fault = f"collection runtime: writer stop failed: {error}"
-            return False
-        return healthy
+            return healthy
 
     def snapshot(self) -> RuntimeSnapshot:
         with self._ready:

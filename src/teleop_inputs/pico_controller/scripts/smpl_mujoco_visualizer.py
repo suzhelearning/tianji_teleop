@@ -835,7 +835,7 @@ class SmplMujocoVisualizer:
         try:
             import rclpy
             from geometry_msgs.msg import PoseArray, PoseStamped
-            from std_msgs.msg import Float32
+            from std_msgs.msg import Empty, Float32
             from rclpy.node import Node
             from rclpy.executors import ExternalShutdownException
             from rclpy._rclpy_pybind11 import RCLError
@@ -955,6 +955,9 @@ class SmplMujocoVisualizer:
                 )
         self.world_reset_subscription = self.node.create_subscription(
             Float32, "/pico/world_reset", self._world_reset_callback, 10
+        )
+        self.set_ground_subscription = self.node.create_subscription(
+            Empty, "/pico/set_ground", self._world_reset_callback, 10
         )
 
         self.model = mujoco.MjModel.from_xml_string(
@@ -1429,7 +1432,7 @@ class SmplMujocoVisualizer:
         self._floor_source = None
         self._ground_reset_at = time.monotonic()
         self.node.get_logger().info(
-            "PICO world reset received; waiting for 30 stable foot frames to lock ground"
+            "PICO Set Ground/reset event received; waiting for 30 stable foot frames to lock ground"
         )
 
     def _apply_ground_plane(self) -> bool:
@@ -1860,6 +1863,7 @@ class SmplMujocoVisualizer:
                         last_health = time.monotonic()
                         message = String()
                         message.data = json.dumps({"pane": os.environ.get("TMUX_PANE", ""),
+                                                   "owner": os.environ.get("TIANJI_PICO_SESSION_OWNER", ""),
                                                    "stamp_ns": time.monotonic_ns()})
                         health.publish(message)
                     time.sleep(max(1.0 / self.rate, 0.001))

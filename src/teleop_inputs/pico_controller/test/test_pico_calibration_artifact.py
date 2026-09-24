@@ -149,6 +149,34 @@ def test_shared_contract_accepts_diagnostic_shoulder_motion_and_reports_lineage(
     assert summary.lineage_match is True
 
 
+def test_set_ground_epoch_artifacts_validate_but_unknown_sources_fail_closed(tmp_path):
+    tcp, wrist, geometry = _chain(tmp_path)
+    wrist_document = yaml.safe_load(wrist.read_text(encoding="utf-8"))
+    wrist_document["tracking_epoch_source"] = "controller_set_ground"
+    _write(wrist, wrist_document)
+    geometry_document = yaml.safe_load(geometry.read_text(encoding="utf-8"))
+    geometry_document["tracking_epoch_source"] = "controller_set_ground"
+    geometry_document["wrist_pivot_sha256"] = _sha256(wrist)
+    _write(geometry, geometry_document)
+
+    assert validate_artifact(wrist, "wrist", "left").valid
+    assert validate_artifact(
+        geometry, "geometry", "left", tcp_path=tcp, wrist_path=wrist
+    ).lineage_match
+
+    for path, kind, document in (
+        (wrist, "wrist", wrist_document),
+        (geometry, "geometry", geometry_document),
+    ):
+        document["tracking_epoch_source"] = "unknown"
+        _write(path, document)
+        with pytest.raises(ValueError, match="tracking_epoch_source"):
+            lineage = {"tcp_path": tcp, "wrist_path": wrist} if kind == "geometry" else {}
+            validate_artifact(path, kind, "left", **lineage)
+        document["tracking_epoch_source"] = "controller_set_ground"
+        _write(path, document)
+
+
 def test_geometry_contract_accepts_29_degrees_but_rejects_above_30(tmp_path):
     tcp, wrist, geometry = _chain(tmp_path)
     document = yaml.safe_load(geometry.read_text(encoding="utf-8"))

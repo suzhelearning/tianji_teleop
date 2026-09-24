@@ -1,0 +1,7 @@
+# Candidate only: visual preview is not hardware safety approval.
+"left_joint_names": ["Joint1_L","Joint2_L","Joint3_L","Joint4_L","Joint5_L","Joint6_L","Joint7_L"]
+"right_joint_names": ["Joint1_R","Joint2_R","Joint3_R","Joint4_R","Joint5_R","Joint6_R","Joint7_R"]
+"left_home_rad": [1.5707963267948966,-1.5707963267948966,-1.5707963267948966,-1.5707963267948966,0,0,0]
+"right_home_rad": [-1.5707963267948966,-1.5707963267948966,1.5707963267948966,-1.5707963267948966,0,0,0]
+"lower_limits_rad": [-2.8797932658,-2.0071286398,-2.8797932658,-2.4434609528,-2.8797932658,-0.9599310886,-1.4835298642]
+"upper_limits_rad": [2.8797932658,2.0071286398,2.8797932658,0.9599310886,2.8797932658,0.9599310886,1.4835298642]

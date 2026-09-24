@@ -1,4 +1,6 @@
+import csv
 import hashlib
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -23,8 +25,10 @@ class DlsSessionTests(unittest.TestCase):
             ["--headless"],
             ["--pico-port", "25000"],
             ["--hand-teleop", "--no-hand-teleop"],
-            ["--hand-port", "0"],
-            ["--hand-port", "65536"],
+            ["--hand-source", "unknown"],
+            ["--hand-port", "16000"],
+            ["--hand-source", "exoskeleton", "--hand-port", "0"],
+            ["--hand-source", "exoskeleton", "--hand-port", "65536"],
             ["--duration", "nan"],
             ["--duration", "-1"],
         )
@@ -36,7 +40,7 @@ class DlsSessionTests(unittest.TestCase):
             self.assertEqual(raised.exception.code, 2)
             start.assert_not_called()
 
-    def test_standard_dls_configuration_starts_the_actual_ros_core_without_export(self):
+    def test_actual_ros_simulation_holds_initial_arms_without_input(self):
         import os
         import subprocess
         from tianji_runtime import native_executable
@@ -45,22 +49,55 @@ class DlsSessionTests(unittest.TestCase):
             native_executable("tianji_arm_ros")
         except ResourceNotFound:
             self.skipTest("build-arm-ros is required for native startup verification")
-        args = SimpleNamespace(config=None, model=None, duration=2.0,
-                               ik_backend="franka-dls", hand_teleop=False)
-        results = []
 
         def execute(_executable, command):
-            results.append(subprocess.run(
+            result = subprocess.run(
                 [*command, "--headless"], capture_output=True, text=True, timeout=20,
-                env={**os.environ, "ROS_DOMAIN_ID": "121"}))
+                env={**os.environ, "ROS_DOMAIN_ID": "121"})
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
-        with tempfile.TemporaryDirectory() as directory, \
-             patch("simulation.dls_session.tempfile.mkdtemp", return_value=directory), \
-             patch("simulation.dls_session.os.execv", side_effect=execute):
-            launch(args)
-        self.assertEqual(results[0].returncode, 0, results[0].stderr)
-        self.assertIn("DLS_SIM: WAITING", results[0].stdout)
-        self.assertNotIn("joint_command_state=ready", results[0].stdout)
+        for options in ([], ["--no-hand-teleop"]):
+            with self.subTest(options=options), \
+                 tempfile.TemporaryDirectory() as directory, \
+                 patch("simulation.dls_session.tempfile.mkdtemp", return_value=directory), \
+                 patch("simulation.dls_session.os.execv", side_effect=execute):
+                main(["--duration", "2", *options])
+                runtime = yaml.safe_load((Path(directory) / "runtime.yaml").read_text())
+                with (Path(directory) / "joints.csv").open() as stream:
+                    samples = list(csv.DictReader(stream))
+                self.assertGreater(float(samples[-1]["control_time_seconds"]), 0.1)
+                for side in ("left", "right"):
+                    initial = runtime["controller"][f"initial_{side}_q_rad"]
+                    for joint, expected in enumerate(initial, start=1):
+                        positions = [float(sample[f"{side}_j{joint}_actual_q"]) for sample in samples]
+                        self.assertAlmostEqual(min(positions), expected, places=8)
+                        self.assertAlmostEqual(max(positions), expected, places=8)
+
+    def test_manus_configuration_rejects_missing_invalid_or_shared_topics(self):
+        left, right = "/hands/left", "/hands/right"
+        invalid = (
+            None,
+            {"left_hand": left},
+            {"left_hand": 3, "right_hand": right},
+            {"left_hand": "/hands/left bad", "right_hand": right},
+            {"left_hand": "hands/left", "right_hand": right},
+            {"left_hand": left, "right_hand": left},
+            {"left_hand": "/pico/arm_input", "right_hand": right},
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            robot_path = Path(directory) / "robot.json"
+            for topics in invalid:
+                robot_path.write_text(json.dumps({
+                    "pico_input_topic": "/pico/arm_input",
+                    "hand_command_topics": topics,
+                }))
+                with self.subTest(topics=topics), \
+                     patch("simulation.dls_session.native_executable", return_value=Path("/unused/viewer")), \
+                     patch("simulation.dls_session.config_path", return_value=robot_path), \
+                     patch("simulation.dls_session.os.execv") as execute:
+                    with self.assertRaises(ValueError):
+                        launch(SimpleNamespace(config=None))
+                    execute.assert_not_called()
 
     def test_missing_standard_binary_does_not_fallback_to_old_build(self):
         args = SimpleNamespace(ik_backend="franka-dls")
@@ -73,12 +110,14 @@ class DlsSessionTests(unittest.TestCase):
     def test_installed_launch_preserves_artifacts_and_custom_home(self):
         from tianji_runtime.resources import config_path
         source = controller_profile("qp_ik_pico_shared_root_dls.yaml")
-        robot_config = config_path("robot.json").read_bytes()
+        robot_config = json.loads(config_path("robot.json").read_text())
+        robot_config.pop("hand_command_topics")
+        robot_config["hand_port"] = 0
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             (root / "pixi.toml").touch()
             (root / "config").mkdir()
-            (root / "config" / "robot.json").write_bytes(robot_config)
+            (root / "config" / "robot.json").write_text(json.dumps(robot_config))
             installed = root / "install/control/share/tianji_controller/config"
             installed.mkdir(parents=True)
             description = root / "install/default/share/tianji_description/models"

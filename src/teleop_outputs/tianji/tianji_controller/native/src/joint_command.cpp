@@ -123,6 +123,12 @@ bool JointCommandArmReadiness::update(bool ready, bool reset) noexcept {
 }
 
 void HandCommandFreshness::observe(const WujiHandTeleopFrame& frame) noexcept {
+  const auto generation = side_ == ArmSide::kLeft
+      ? frame.left_revocation_generation : frame.right_revocation_generation;
+  if (generation != revocation_generation_) {
+    reset();
+    revocation_generation_ = generation;
+  }
   if (!(side_ == ArmSide::kLeft ? frame.left_valid : frame.right_valid)) {
     return;
   }

@@ -1,7 +1,8 @@
-"""Franka DLS simulation with optional TJH2 hands; no export or hardware driver."""
+"""Franka DLS simulation with Manus ROS or exoskeleton hands; no hardware output."""
 from pathlib import Path
 import os
 import json
+import re
 import tempfile
 
 from tianji_runtime import controller_profile, native_executable, workspace
@@ -19,7 +20,30 @@ def launch(args):
     except ResourceNotFound as error:
         raise RuntimeError(f"Run pixi run build first: {error}") from error
     hands = getattr(args, "hand_teleop", True)
-    hand_port = getattr(args, "hand_port", 16000)
+    hand_source = getattr(args, "hand_source", "manus")
+    hand_port = getattr(args, "hand_port", None)
+    if hand_port is not None and hand_source != "exoskeleton":
+        raise ValueError("--hand-port requires --hand-source exoskeleton")
+    robot = json.loads(config_path("robot.json").read_text())
+    topics = {"pico_input_topic": robot.get("pico_input_topic")}
+    if hands:
+        if hand_source not in ("manus", "exoskeleton"):
+            raise ValueError("hand_source must be manus or exoskeleton")
+        if hand_source == "manus":
+            hand_topics = robot.get("hand_command_topics")
+            if not isinstance(hand_topics, dict):
+                raise ValueError("hand_command_topics must map selected hands to ROS topics")
+            for hand in ("left_hand", "right_hand"):
+                topics[f"hand_command_topics.{hand}"] = hand_topics.get(hand)
+        else:
+            hand_port = 16000 if hand_port is None else hand_port
+            if type(hand_port) is not int or not 1 <= hand_port <= 65535:
+                raise ValueError("hand_port must be an integer in [1, 65535]")
+    for field, topic in topics.items():
+        if not isinstance(topic, str) or re.fullmatch(r"(?:/[A-Za-z_][A-Za-z_0-9]*)+", topic) is None:
+            raise ValueError(f"{field} must be an absolute nonempty ROS topic with valid names")
+    if len(set(topics.values())) != len(topics):
+        raise ValueError("selected input topics must be distinct")
     source = (args.config or controller_profile("qp_ik_pico_shared_root_dls.yaml")).resolve()
     config = yaml.safe_load(source.read_text())
     if config["ik"]["algorithm"] != "pico_ee_franka_dls":
@@ -43,13 +67,14 @@ def launch(args):
                "--pico-teleop", "--model-state-only",
                "--telemetry", str(directory / "telemetry.csv"),
                "--joint-telemetry", str(directory / "joints.csv")]
-    robot = json.loads(config_path("robot.json").read_text())
-    topic = robot["pico_input_topic"]
-    if not isinstance(topic, str) or not topic.startswith("/") or not topic.strip("/"):
-        raise ValueError("pico_input_topic must be an absolute nonempty ROS topic")
-    command += ["--pico-topic", topic, "--joint-target-topic", ""]
+    command += ["--pico-topic", topics["pico_input_topic"], "--joint-target-topic", ""]
     if hands:
-        command += ["--hand-teleop", "--hand-bind", "127.0.0.1", "--hand-port", str(hand_port)]
+        command += ["--hand-teleop", "--hand-source", hand_source]
+        if hand_source == "manus":
+            command += ["--left-hand-topic", topics["hand_command_topics.left_hand"],
+                        "--right-hand-topic", topics["hand_command_topics.right_hand"]]
+        else:
+            command += ["--hand-bind", "127.0.0.1", "--hand-port", str(hand_port)]
     else:
         command.append("--no-hand-teleop")
     if args.model:
@@ -60,13 +85,19 @@ def launch(args):
         command += ["--duration", str(args.duration)]
     if getattr(args, "user", None):
         print(f"Checking PICO input for {args.user}; robot viewer has not started.", flush=True)
-    scope = "arms + TJH2 hands" if hands else "arms-only"
+    scope = f"arms + {hand_source} hands" if hands else "arms-only"
     print(f"Franka DLS + Ruckig {scope} simulation; logs: {directory}\n"
           "Click the robot window: S start, H smooth Home then wait, P/Space hold.\n"
           "No joint export, no automatic takeover.", flush=True)
     if hands:
-        print(f"Start the exoskeleton sender separately; TJH2 hand input: 127.0.0.1:{hand_port}. "
-              "Hands follow only in TELEOP; H/P/fault hold fingers (H homes arms only). "
+        if hand_source == "manus":
+            print("Start the Manus ROS publisher separately; Hand2 command topics: "
+                  f"left={topics['hand_command_topics.left_hand']}, "
+                  f"right={topics['hand_command_topics.right_hand']}.", flush=True)
+        else:
+            print("Start the exoskeleton sender separately; TJH2 hand UDP input: "
+                  f"127.0.0.1:{hand_port}.", flush=True)
+        print("Hands follow only in TELEOP; H/P/fault hold fingers (H homes arms only). "
               "Stale hands hold independently; Ruckig applies to arms, not fingers.", flush=True)
     if getattr(args, "user", None):
         from .pico_owned_session import run_with_owned_pico

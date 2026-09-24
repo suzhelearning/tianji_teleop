@@ -11,7 +11,7 @@ setup(
         ("share/" + package_name, ["package.xml"]),
         ("share/" + package_name + "/launch", ["launch/cameras.launch.py"]),
     ],
-    install_requires=["setuptools"],
+    install_requires=["setuptools", "Pillow"],
     zip_safe=True,
     maintainer="Tianji operators",
     maintainer_email="ops@example.com",

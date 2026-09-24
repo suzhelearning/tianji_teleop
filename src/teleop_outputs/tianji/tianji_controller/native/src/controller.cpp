@@ -4,7 +4,10 @@
 #include <utility>
 namespace tianji_qp_ik {
 DualArmController::DualArmController(MujocoRobot& robot, QpIkConfig config)
-    : robot_(robot), config_(std::move(config)) {
+    : robot_(robot), config_(std::move(config)),
+      motion_limits_{
+          effectiveArmLimits(config_.joint_limits, robot.mapping(ArmSide::kLeft).limits, ArmSide::kLeft),
+          effectiveArmLimits(config_.joint_limits, robot.mapping(ArmSide::kRight).limits, ArmSide::kRight)} {
   left_state_.q_ref = robot_.armPosition(ArmSide::kLeft);
   right_state_.q_ref = robot_.armPosition(ArmSide::kRight);
   initializeDls();
@@ -50,10 +53,15 @@ ArmMotionState DualArmController::referenceState(
   return {arm_state.q_ref, arm_state.qdot_prev, arm_state.qddot_prev};
 }
 
+const ArmLimits& DualArmController::motionLimits(ArmSide side) const noexcept {
+  return motion_limits_[side == ArmSide::kLeft ? 0 : 1];
+}
+
 bool DualArmController::setReferenceState(
     ArmSide side, const ArmMotionState& motion) {
-  left_dls_.valid = right_dls_.valid = false;
-  const ArmLimits& limits = robot_.mapping(side).limits;
+  const ArmLimits& limits = motionLimits(side);
+  const auto& smoother = side == ArmSide::kLeft ? left_smoother_ : right_smoother_;
+  if (config_.joint_limits.execution_limits && !smoother->canReset(motion)) return false;
   if (!motion.q.allFinite() || !motion.qdot.allFinite() ||
       !motion.qddot.allFinite()) {
     return false;
@@ -71,6 +79,7 @@ bool DualArmController::setReferenceState(
       return false;
     }
   }
+  left_dls_.valid = right_dls_.valid = false;
   ArmReferenceState& arm_state = state(side);
   arm_state.q_ref = motion.q;
   arm_state.qdot_prev = motion.qdot;

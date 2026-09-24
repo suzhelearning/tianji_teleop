@@ -41,6 +41,8 @@ class RuckigTrajectoryLimiter7 {
   RuckigTrajectoryResult update(const Vec7& target, double dt, bool allow_soft_start_ramp = true);
   const ArmMotionState& state() const noexcept { return state_; }
   const DlsPostureRuckigConfig& sampledLimits() const noexcept { return sampled_limits_; }
+  // Relative real control must never project q/qdot independently of derivatives.
+  void preserveConstraints() noexcept { preserve_constraints_ = true; }
 
  private:
   bool validState(const ArmMotionState& state) const noexcept;
@@ -57,6 +59,7 @@ class RuckigTrajectoryLimiter7 {
   ruckig::OutputParameter<kArmDof> output_;
   ArmMotionState state_;
   bool initialized_{false};
+  bool preserve_constraints_{false};
 };
 
 }  // namespace tianji_qp_ik

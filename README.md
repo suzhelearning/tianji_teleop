@@ -1,4 +1,23 @@
 # 天机遥操
+## PICO＋Manus 双臂＋双手遥操
+
+### 四终端启动（已完成本人标定）
+
+各终端在本仓库根目录运行。`NAME` 必须对应实际佩戴者；切换前先停止执行器，再停止旧输入和相机。
+
+```bash
+# 终端 1：PICO 前台输入与骨架；保持终端打开
+bash bash/run_pico.sh --user NAME
+
+# 终端 2：Manus 双手 ROS 目标；保持终端打开
+bash bash/run_manus.sh --user NAME
+
+# 终端 3：三路相机、top 到 PICO 视频、RViz
+bash bash/run_camera_views.sh
+
+# 终端 4：仅在现场预检通过、前三路就绪后启动真机采集
+bash bash/run_teleop.sh --data --task pick-and-place
+```
 
 工程保留 PICO＋VR 手柄、PICO2 裸手／手势识别、Manus 和外骨骼输入，以及仿真、真机和采集入口。
 下面先介绍最新的 **新人员标定 → 骨架检查 → DLS 双臂仿真**，其他路线也可直接按各节启动。
@@ -19,10 +38,10 @@
 已安装并完成本人标定后的常用命令：
 
 ```bash
-# Manus 独立发布左右手各 20 维 ROS 目标；当前不连接执行器
-pixi run manus --calibration-user MANUS_USER
+# Manus 独立发布左右手各 20 维 ROS 目标；执行由仿真／安全执行器负责
+bash bash/run_manus.sh --user MANUS_USER
 
-# PICO 人员选择 + DLS/Ruckig 双臂仿真（不接入新 Manus 目标）
+# PICO 人员选择 + DLS/Ruckig 纯双臂仿真
 bash bash/run_teleop.sh --sim --user NEW_USER --no-hand-teleop
 ```
 
@@ -206,8 +225,8 @@ ready 撤销锁存至核心重启；执行器及 Home 使用跨域／跨话题�
 回 Home 未结束时 S 可能被拒绝；等待 `HOME_REACHED` 后再按 S。
 不要把骨架窗口当作机械臂按键窗口。
 
-默认 DLS direct 仿真保留外骨骼 TJH2 手部输入；仅双臂使用 `--no-hand-teleop`，不占用手部端口。
-新 Manus 发布的是独立 ROS Hand2 目标，尚未接入该执行分支，不能按旧 Manus UDP 接线使用。
+默认 DLS direct 仿真接收 Manus ROS 双手目标；外骨骼须显式传 `--hand-source exoskeleton`。
+仅双臂使用 `--no-hand-teleop`。Manus 不走旧 TJH2 UDP 接线。
 没有有效手部输入时模型手指保持，不妨碍双臂仿真接入。仿真不导出硬件指令，不等于真机验收。
 故障处理和详细状态说明见[原生 DLS 控制器](src/teleop_outputs/tianji/tianji_controller/native/README.md)。
 
@@ -319,14 +338,18 @@ H.264 使用 PICO 的 4 字节大端长度头协议，按请求尺寸生成左�
 不积压／回放旧编码帧；恢复输入后重新启动串流。top 未启用、未发布或画面格式不符时明确失败，
 不会用黑图或冻结帧冒充相机。源码与编码器依赖随工作区安装，不依赖 Downloads 中的脚本。
 
-## PICO＋Manus 双臂＋双手遥操
 
-### 当前范围：Manus 仅发布 Hand2 ROS 命令
 
-新 Manus 路线迁入参考 `wuji_teleop-main` 的采集／语义适配和 SDK Hand2 重定向，
-不再运行 rawviz 文本管道、私有重定向 worker 或 TJH2 UDP 出口。
-**本次止于目标发布，没有接入仿真／真机执行器，也不改变采集系统。**
-不能把下面的 ROS 命令当作电机已经执行，不能依靠启动 `--data` 来消费这些新目标。
+终端 3 等待 `CAMERA_VIEWS_READY`；不要同时运行另一套 `run_cameras.sh` 或相机预览设备驱动。
+终端 4 可替换为 `bash bash/run_teleop.sh --sim` 先验证仿真；纯仿真不要求启动相机。
+仿真默认消费 Manus 双手目标，S 跟随、P／空格保持、H 双臂 Home；不发送真机指令。
+采集模式首次 `r` 授权 Home 准备和张手，再次 `r` 冻结目标并缓慢对齐，录制确认后跟随；
+`s` 保存、`d` 丢弃，均在制动、停稳及操作确认后回 Home 并张手。按键不带回车。
+停止时先在终端 4 退出并确认机器人停止，再 Ctrl+C 停止终端 1–3。
+四入口日志位于 `tmp/logs/{pico,manus,camera,teleop}/`；PICO 默认前台，不创建 tmux。
+
+Manus 采集／适配／SDK Hand2 重定向不连接 Wuji 硬件；硬件写入只属于授权后的执行器。
+已移除 rawviz 文本管道、私有重定向 worker 和 Manus TJH2 UDP 出口。
 
 ```bash
 # 首次／原生代码更新后：只构建，不启动设备
@@ -349,10 +372,10 @@ ros2 launch manus_bridge manus_hand2.launch.py user:=NAME
 | 每手 20 关节目标 | `tianji_interfaces/msg/HandJointCommand`，`/wuji/{left,right}_hand/joint_commands` |
 
 三段均为 BEST_EFFORT／KEEP_LAST 1／VOLATILE。每侧携带 `glove_id`、`side`、
-`session_id`、`boot_id`、`sequence`、`source_monotonic_ns` 和 `valid`；
+`session_id`、`boot_id`、`sequence`、`source_monotonic_ns`、`revocation_generation` 和 `valid`；
 时间在 SDK 原始骨架回调处取本机 CLOCK_MONOTONIC，并在适配／求解后原样保留，
 不是手套内部采样时间。关节单位 rad，顺序为 thumb/index/middle/ring/pinky 各 S1～S4。
-原始姿态使用右手 VUH XFromViewer、Z-up、世界坐标米；适配器仅做一次 `(x,-y,z)` 转换。
+原始姿态使用右手 VUH XFromViewer、Z-up、世界坐标米；适配器保留该坐标，不额外镜像 Y。
 
 无新源帧不重复刷新目标时间；单侧超时、无效骨架或发布者冲突会发布 `valid=false`，
 无效数值使用 NaN，绝不当作补零命令。另一侧数据不会刷新失鲜侧。
@@ -371,14 +394,14 @@ ros2 topic echo /wuji/right_hand/joint_commands
 `--check`、`--host`、`--port` 和旧 `/hand_input`／UDP 接线已退役，不保留旧后端回退。
 两只手仍须使用本人的 `.mcal`，不会复制参考仓库的标定、设备身份或自动使能设置。
 
-后续执行接入须单独实现：现有执行器保有唯一硬件写入权和最小安全门控，
-逐条录制确认开始后才放行手部目标；记录真机反馈，而不是把重定向目标当作实测状态。
-外骨骼现有 TJH2 路线、PICO 裸手、双臂 DLS/Ruckig 和真机授权未在本次修改。
+仿真原生链与真机 Python 执行器分别接收 Manus ROS 目标；执行器保有唯一硬件写入权和安全门控。
+逐条录制确认开始后才跟随；采集记录真机反馈，不把重定向目标当作实测状态。
+构建、无硬件 DDS 和离线验证不代表真实手套、相机、头显或机器人现场验收。
 
 
 ## 外骨骼替代 Manus
 
-使用同一 PICO 输入和默认 DLS／Ruckig 执行端，仅将 Manus 发送器换成外骨骼输入：
+使用同一 PICO 输入，将 Manus 换成外骨骼输入，并给仿真／执行端显式追加 `--hand-source exoskeleton`：
 
 ```bash
 # 已有主环境时补装／更新外骨骼原生组件
@@ -421,6 +444,16 @@ bash bash/run_teleop.sh --real
 仅双臂可用 `pixi run -e default bash -c 'source bash/environment.sh; exec python -m tianji real --devices arms --confirm-real'`，
 仍需先对 `arms` 做只读预检和干跑。不再提供旧后端标定、断流宽限或恢复选项。
 
+独立双臂回位使用 `bash bash/run_home.sh`，默认 Home 不变。
+`bash bash/run_home.sh --L` 选择 `home-L.yaml`：左臂 `[90,-90,-90,-90,0,0,0]°`，
+右臂 `[-90,-90,90,-90,0,0,0]°`（各侧 Joint1–Joint7），不控制手指。
+先用 `bash bash/run_home.sh --L --dry-run` 无硬件校验；去掉 `--dry-run` 即进入真机回位流程，
+必须先确认现场运动空间与急停。配置及限位检查不代表路径无碰撞或真机安全验收。
+采集也可选同一姿态：`bash bash/run_teleop.sh --data --task pick-and-place -L`。
+`-L`／`--L` 同时影响使能前的实测 Home 检查，以及每条采集结束后的回 Home；
+必须先确认双臂已在 L Home，不能仅改变参数后从默认 Home 直接使能。
+两个入口均接受 `-L` 和 `--L`，不传则保持默认 Home；选择只对本次运行生效，不改 `robot.json`。
+
 输入失鲜、身份／反馈异常时不要绕过门控；先停止并排查。
 运动使能期间不要按 PICO A 键、重新标定或重启输入。
 正常退出确认设备释放后再停输入；紧急危险使用现场急停。
@@ -437,12 +470,13 @@ bash bash/run_teleop.sh --real
 - 独立观察采集器：`pixi run collect --task TASK`，只订阅 DDS，不连接机器人或打开相机；
   先用 `pixi run cameras` 启动官方相机节点。R/S/D 仍在真机执行器的交互终端操作，见[观察采集](README-reference.md#观测数据集采集r--s--d)。
 - 真机任务采集：`bash bash/run_teleop.sh --data --task TASK`，复用 DLS／Ruckig 和安全门控，采用一次使能、多条采集循环；普通 `--real` 的三阶段 Enter 流程不变。
+  先运行第三终端 `bash bash/run_camera_views.sh`；`--data` 要求已有且通过校验的相机监控，不再自行启动相机。
   它在设备连接前确认相机验证和 writer 准备完成（prepared），连接后再等待真实反馈 ready。
   只复用身份、配置和就绪状态匹配的独立会话，退出只停止本次创建的进程，不接管他人会话。
   默认原始数据为 `/data/TianjiData/raw/YYYYMMDD/`，不是 `dataset/`；
   `TIANJI_DATASET`／`--dataset` 可覆盖根目录，日期目录内独立保存配置。
-  启动前双臂须已在 Home，执行器按实测反馈和配置容差确认，不在 Home 时拒绝使能；初次 Enter 只授权本场使能并保持。`HOME_READY` 后 `r` 冻结目标并慢速对齐，采集确认开始后才跟随。
-  `s` 停止跟随、保存当前条并回双臂 Home；`d` 丢弃当前条并回 Home。条目间保持使能，不跟随 PICO／Manus。
+  启动前双臂须已在 Home，执行器按实测反馈和配置容差确认；首次 `r` 授权使能并缓慢张手。`HOME_READY` 后再次 `r` 冻结目标并慢速对齐，采集确认开始后才跟随。
+  `s` 截止并保存当前条，`d` 截止并丢弃当前条；受控制动、实测停稳和数据操作确认后回双臂 Home 并张手。条目间保持使能，不跟随 PICO／Manus。
   `q` 在 Home 结束整场；录制中按 `q` 则保存当前条、回 Home 后失能退出。其他过渡阶段拒绝录制键，不排队下一条。
   使能后 Enter、Ctrl+C 或关闭机器人窗口均立即安全停止，不自动 Home。故障路径不强行回程、不自动重新使能。
   USB 键盘式双踏板可映射为单次 `r`／`s`（不带 Enter、不连发），焦点必须保持在执行器终端；这不是全局脚踏设备监听。

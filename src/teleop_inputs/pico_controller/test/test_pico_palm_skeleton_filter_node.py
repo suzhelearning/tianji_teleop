@@ -394,7 +394,7 @@ def test_stale_palm_without_previous_correction_keeps_raw_smpl_output():
 def test_status_json_has_independent_side_fields():
     node = object.__new__(PicoPalmSkeletonFilterNode)
     node._tracking_epoch = 7
-    node._tracking_epoch_source = "wire_world_reset"
+    node._tracking_epoch_source = "controller_set_ground"
     node._source_frame_id = "pico"
     node._ratio_max_stretch = 0.995
     node._ik_output_topic = "/pico/smpl_palm_corrected_ik"
@@ -415,7 +415,7 @@ def test_status_json_has_independent_side_fields():
     assert payload["left"]["corrected"] is True
     assert payload["right"]["fallback_reason"] == "palm_stale"
     assert payload["tracking_epoch"] == 7
-    assert payload["tracking_epoch_source"] == "wire_world_reset"
+    assert payload["tracking_epoch_source"] == "controller_set_ground"
     assert payload["stream_valid"] is True
     assert payload["source_frame_id"] == "pico"
     assert payload["tcp_calibration_revision_left"] == 4
@@ -473,7 +473,7 @@ def test_epoch_transition_clears_world_dependent_runtime_state():
     }
 
     status = String()
-    status.data = '{"tracking_epoch":5,"tracking_epoch_source":"wire_world_reset"}'
+    status.data = '{"tracking_epoch":5,"tracking_epoch_source":"controller_set_ground"}'
     node._tracking_epoch_status_callback(status)
 
     assert node._tracking_epoch == 5
@@ -487,6 +487,9 @@ def test_epoch_transition_clears_world_dependent_runtime_state():
         assert state.previous_elbow_position is None
         assert state.previous_corrected_positions is None
         assert state.previous_corrected_orientations_xyzw is None
+    assert not node._epoch_consistent()
+    node._tracking_epoch_callback(SimpleNamespace(data=5))
+    assert node._epoch_consistent()
 
 
 def test_first_explicit_epoch_clears_pre_epoch_ik_continuity_reference():

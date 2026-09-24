@@ -18,8 +18,8 @@ constexpr uint8_t TYPE_POSE_LEFT   = 0x03;
 constexpr uint8_t TYPE_POSE_RIGHT  = 0x04;
 constexpr uint8_t TYPE_POSE_HEAD   = 0x05;
 constexpr uint8_t TYPE_WORLD_RESET = 0x06;  // 4B float yaw, published as /pico/world_reset
-constexpr uint8_t TYPE_CTRL_LEFT   = 0x07;  // controller button state, payload undocumented
-constexpr uint8_t TYPE_CTRL_RIGHT  = 0x08;  // controller button state, payload undocumented
+constexpr uint8_t TYPE_CTRL_LEFT   = 0x07;  // 25B controller state, primary = X
+constexpr uint8_t TYPE_CTRL_RIGHT  = 0x08;  // 25B controller state, primary = A
 constexpr uint8_t TYPE_RECORD_FLAG = 0x09;  // 1B, non-zero = start recording
 constexpr uint8_t TYPE_BLE_LEFT    = 0x10;
 constexpr uint8_t TYPE_BLE_RIGHT   = 0x11;
@@ -102,6 +102,82 @@ inline bool decode_packed_pose(const uint8_t* payload, bool half, float (&pose)[
     }
     return true;
 }
+
+struct RightControllerState {
+    bool primary;
+    bool valid;
+    uint8_t feature_mask;
+};
+
+// The APK's fixed 25-byte controller record puts A at 0, validity at 22,
+// and the feature mask at 23. No feature-mask bits are assumed here.
+inline bool parse_right_controller_payload(const uint8_t* payload, size_t len,
+                                           RightControllerState& out) {
+    if (payload == nullptr || len != 25) return false;
+    out.primary = payload[0] != 0;
+    out.valid = payload[22] != 0;
+    out.feature_mask = payload[23];
+    return true;
+}
+
+class ControllerSetGroundEdge {
+public:
+    // A connection starts unarmed: a held button must not become a new press.
+    void reset_connection() {
+        last_ts_ms_ = -1;
+        released_ = false;
+    }
+
+    void invalidate(int64_t ts_ms) {
+        if (ts_ms < 0 || ts_ms <= last_ts_ms_) return;
+        last_ts_ms_ = ts_ms;
+        released_ = false;
+    }
+
+    bool observe(uint8_t type, int64_t ts_ms, const uint8_t* payload, size_t len) {
+        size_t right_offset = 0;
+        size_t expected_len = 0;
+        switch (type) {
+            case TYPE_CTRL_RIGHT:
+                expected_len = 25;
+                break;
+            case TYPE_CTRL_ALL:
+                expected_len = 50;
+                right_offset = 25;
+                break;
+            case TYPE_TRACKING_ALL:
+            case TYPE_TRACKING_ALL_HALF:
+                expected_len = 51 + (BODY_JOINT_COUNT + 3) *
+                    (type == TYPE_TRACKING_ALL_HALF ? 14 : 28);
+                right_offset = 26;
+                break;
+            default:
+                return false;  // Left X and record flags are not Set Ground.
+        }
+        if (ts_ms < 0 || ts_ms <= last_ts_ms_) return false;
+        if (payload == nullptr || len != expected_len ||
+            (right_offset == 26 && (payload[0] & ~uint8_t{7}) != 0)) {
+            invalidate(ts_ms);
+            return false;
+        }
+        if (right_offset == 26 && (payload[0] & 1) == 0) return false;
+
+        RightControllerState state{};
+        if (!parse_right_controller_payload(payload + right_offset, 25, state) ||
+            !state.valid) {
+            invalidate(ts_ms);
+            return false;
+        }
+        last_ts_ms_ = ts_ms;
+        const bool pressed = released_ && state.primary;
+        released_ = !state.primary;
+        return pressed;
+    }
+
+private:
+    int64_t last_ts_ms_ = -1;
+    bool released_ = false;
+};
 
 inline bool parse_world_reset_payload(const uint8_t* payload, size_t len, float& yaw) {
     if (len < sizeof(float)) return false;

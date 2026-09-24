@@ -268,7 +268,9 @@ class PalmWristCalibrator:
         return (
             self._tracking_epoch > 0
             and self._tracking_epoch_numeric == self._tracking_epoch
-            and self._tracking_epoch_source in {"tcp_connection", "wire_world_reset"}
+            and self._tracking_epoch_source in {
+                "tcp_connection", "wire_world_reset", "controller_set_ground"
+            }
         )
 
     def _handle_epoch_transition(self, previous: int, current: int) -> None:

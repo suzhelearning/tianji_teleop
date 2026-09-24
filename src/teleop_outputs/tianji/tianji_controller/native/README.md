@@ -71,40 +71,6 @@ pixi run -e control install/control/bin/tianji_qp_ik_viewer \
 只显示调用方传入的关节状态，不运行控制循环、输入接收、录制或目标导出。
 `--continuous-follow` 仅可配合该显示模式使用；不要用它代替生产 ROS 控制入口。
 
-## 输入录制、回放与 artifact 工具
-
-以下脚本位于 `src/teleop_outputs/tianji/tianji_controller/native/scripts/`，
-在已安装工作区 Python 包的环境运行；它们不连接硬件 SDK，不授予运动权限。
-
-| 工具 | 用途 |
-|---|---|
-| `record_shared_root_actions.py` | 调用 `tianji_record_action_trace`，录制 50 秒原始 TJVR 输入、提示事件与配置快照 |
-| `replay_pico_udp_trace.py` | 按录制接收时间间隔发送 TJVT 内的原始 TJVR 报文 |
-| `audit_shared_root_trace.py` | 只读检查简化标定与 TJVR 有效骨长、坐标及报文一致性 |
-| `validate_shared_root_contract.py` | 只读检查 DLS profile、输入来源哈希与冻结机器人几何 |
-| `repin_shared_root.py` | artifact 维护工具：更新输入契约引用哈希与原生几何允许哈希；`--check` 不写文件 |
-
-例如，以下命令均从工作区根目录执行：
-
-```bash
-native=src/teleop_outputs/tianji/tianji_controller/native
-
-python "$native/scripts/record_shared_root_actions.py" plan
-python "$native/scripts/record_shared_root_actions.py" record \
-  --output recordings/shared_root/session-new \
-  --participant PARTICIPANT --calibration-dir /path/to/pico-simple/revision
-
-python "$native/scripts/replay_pico_udp_trace.py" \
-  --input recordings/shared_root/session-new/input.tjvr --port 15000
-
-python "$native/scripts/validate_shared_root_contract.py"
-```
-
-录制目录必须不存在；现场录制必须指定参与者和标定目录。
-动作提示只是待确认区间，不能证明佩戴者实际完成动作；只有观察者核对后才可运行
-`confirm-prompts --session DIR --reviewer NAME`，并且确认不构成运动授权。
-回放不重写源时间戳或 CRC，不能冒充新鲜现场输入驱动真机。
-
 ## 冻结几何与边界
 
 共享根输入来源、坐标系和连续性所有权见
@@ -114,4 +80,4 @@ python "$native/scripts/validate_shared_root_contract.py"
 `marvin_m6_wuji2_shared_root_ceres.xml` 是保留的冻结来源名称，不是运行时后端选项。
 来源几何数据见 [冻结模型几何证据](docs/verification/shared_root_dls_geometry.md)。
 
-离线 artifact 一致性、模型显示和录制回放都不能替代真实输入、动力学或真机验收。
+离线 artifact 一致性检查与模型显示都不能替代真实输入、动力学或真机验收。

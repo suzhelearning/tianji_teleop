@@ -92,6 +92,7 @@ class HandPipelineNode(Node):
         for name in IDENTITY_FIELDS:
             setattr(message, name, getattr(result.source, name))
         message.valid = result.valid
+        message.revocation_generation = result.revocation_generation
         if self._commands:
             message.joint_names = list(HAND2_JOINT_LABELS)
             message.position_rad = (

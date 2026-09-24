@@ -29,7 +29,15 @@ set_target_properties(manus_sdk PROPERTIES
   IMPORTED_LOCATION "${MANUS_SDK_ROOT}/lib/libManusSDK_Integrated.so"
   INTERFACE_INCLUDE_DIRECTORIES "${MANUS_SDK_ROOT}/include")
 
-add_executable(manus_data_publisher src/manus_data_publisher.cpp)
+# Compile the adapted official client directly; its standalone ROS packages and
+# message definitions are not part of this workspace's production graph.
+get_filename_component(_manus_ros_source
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../../vendor/manus_ros2/manus_ros2/src" ABSOLUTE)
+add_executable(manus_data_publisher
+  "${_manus_ros_source}/manus_data_publisher.cpp"
+  "${_manus_ros_source}/ManusDataPublisher.cpp"
+  "${_manus_ros_source}/ClientPlatformSpecific.cpp")
+target_include_directories(manus_data_publisher PRIVATE "${_manus_ros_source}")
 target_compile_features(manus_data_publisher PRIVATE cxx_std_17)
 target_link_libraries(manus_data_publisher manus_sdk Threads::Threads)
 ament_target_dependencies(manus_data_publisher rclcpp geometry_msgs tianji_interfaces)

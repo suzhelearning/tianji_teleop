@@ -4,7 +4,7 @@
 #
 #   --sim    actuator-driven simulation, no hardware
 #   --real   real robot execution with the interactive authorization gate
-#   --data   real execution with schema-v1 collection (starts cameras+collector)
+#   --data   real execution with schema-v1 collection (requires camera_views)
 set -euo pipefail
 root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 # shellcheck source=bash/pixi.bash

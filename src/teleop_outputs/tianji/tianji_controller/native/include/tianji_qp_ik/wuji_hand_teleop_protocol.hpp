@@ -31,6 +31,9 @@ struct WujiHandTeleopFrame {
   bool right_valid{false};
   // Receiver-local metadata; this field is never encoded on the wire.
   std::int64_t receive_monotonic_ns{0};
+  // Sticky receiver-local discontinuities survive latest-value supersession.
+  std::uint64_t left_revocation_generation{0U};
+  std::uint64_t right_revocation_generation{0U};
 };
 
 enum class WujiHandPacketError {
@@ -82,6 +85,7 @@ class WujiHandHistory {
     std::size_t begin{0U};
     std::size_t size{0U};
     std::int64_t source_timestamp_ns{0};
+    std::uint64_t revocation_generation{0U};
 
     void append(std::int64_t timestamp_ns, std::int64_t source_ns,
                 const std::array<double, kWujiHandJointDof>& position) noexcept;

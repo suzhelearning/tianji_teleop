@@ -4,15 +4,34 @@ import math
 
 from launch import LaunchDescription
 from launch.actions import (
-    DeclareLaunchArgument, EmitEvent, OpaqueFunction, RegisterEventHandler,
+    DeclareLaunchArgument, OpaqueFunction, RegisterEventHandler,
     SetEnvironmentVariable, UnsetEnvironmentVariable,
 )
 from launch.event_handlers import OnProcessExit
-from launch.events import Shutdown
 from launch.substitutions import EnvironmentVariable, LaunchConfiguration
 from launch_ros.actions import Node
 
 from manus_bridge.paths import calibration_dir
+
+
+def _required_process_exited(event, context):
+    if context.is_shutdown:
+        return
+    # LaunchService turns exceptions into a nonzero result and shuts down all
+    # launch-owned processes. A Shutdown event alone would report success.
+    raise RuntimeError(
+        f"Required Manus process {event.process_name} exited unexpectedly "
+        f"(exit code {event.returncode})"
+    )
+
+
+def _required_processes(nodes):
+    # Register first, so even an immediate import/init failure is fatal.
+    handlers = [RegisterEventHandler(OnProcessExit(
+        target_action=node, on_exit=_required_process_exited,
+    )) for node in nodes]
+    return [*handlers, *nodes]
+
 
 
 def _setup(context):
@@ -41,13 +60,7 @@ def _setup(context):
                 "calibration.right_file": f"{user}RightMetaglovePro.mcal",
             }],
         ))
-    # Register first, so even an immediate import/init failure stops only these
-    # launch-owned processes. No process-name kills or external node shutdowns.
-    handlers = [RegisterEventHandler(OnProcessExit(
-        target_action=node,
-        on_exit=[EmitEvent(event=Shutdown(reason="Manus command pipeline child exited"))],
-    )) for node in nodes]
-    return [*handlers, *nodes]
+    return _required_processes(nodes)
 
 
 def generate_launch_description():

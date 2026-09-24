@@ -43,10 +43,10 @@ class _WriterSlot:
                 raise RuntimeError('episode writer is not ready')
             self._writer.start(start_ns)
 
-    def stop(self):
+    def stop(self, cutoff_monotonic_ns=0):
         with self._lock:
             if self._writer is not None:
-                self._writer.stop()
+                self._writer.stop(cutoff_monotonic_ns)
 
     def check(self):
         with self._lock:
@@ -214,7 +214,7 @@ class CollectionSession:
             print(text, flush=True)
             self._notice = text
 
-    def command(self, key, phase):
+    def command(self, key, phase, cutoff_monotonic_ns=0):
         """Only enqueue work. R/S/D never call robot APIs, join threads or write files."""
         if phase != 'TELEOP':
             self._notify('DATASET: r/s/d are available only in TELEOP')
@@ -229,7 +229,7 @@ class CollectionSession:
             elif key in ('s', 'd') and self._state == 'RECORDING':
                 self._operation_error = ""
                 # Freeze this segment immediately; saving/deletion remains asynchronous.
-                self.runtime.end_episode()
+                self.runtime.end_episode(cutoff_monotonic_ns)
                 self._set_state('SAVING' if key == 's' else 'DISCARDING')
                 self._commands.put_nowait('save' if key == 's' else 'discard')
             else:
@@ -249,13 +249,13 @@ class CollectionSession:
             if self.state in ('STARTING', 'RECORDING'):
                 self.end_episode()
 
-    def end_episode(self):
+    def end_episode(self, cutoff_monotonic_ns=0):
         """An unsaved segment ends at HOME/stop/fault and is kept as partial, not success."""
         with self._lock:
             if self._state in ('STARTING', 'RECORDING'):
                 self._operation_error = ""
                 if self.runtime is not None:
-                    self.runtime.end_episode()
+                    self.runtime.end_episode(cutoff_monotonic_ns)
                 self._set_state('ABORTING')
                 self._commands.put_nowait('abort')
 

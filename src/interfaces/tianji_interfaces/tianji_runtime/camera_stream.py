@@ -35,6 +35,31 @@ class StreamFault(RuntimeError):
     """The stream is unusable; the current recording segment must end."""
 
 
+class PublisherDiscoveryPending(StreamFault):
+    """DDS knows a topic before its ROS node identity is fully discovered."""
+
+
+def camera_publisher_gid(endpoints, role, suffix):
+    """Return only a uniquely identified driver writer; never trust placeholders."""
+    topic = f"/cameras/{role}/color/{suffix}"
+    if not endpoints:
+        raise PublisherDiscoveryPending(f"{topic}: publisher not yet discovered")
+    if len(endpoints) != 1:
+        raise StreamFault(f"{topic}: expected one publisher, found {len(endpoints)}")
+    endpoint = endpoints[0]
+    if (endpoint.node_name == "_NODE_NAME_UNKNOWN_" or
+            endpoint.node_namespace == "_NODE_NAMESPACE_UNKNOWN_"):
+        raise PublisherDiscoveryPending(f"{topic}: publisher node discovery pending")
+    if endpoint.node_name != role or endpoint.node_namespace != "/cameras":
+        raise StreamFault(
+            f"{topic}: unexpected publisher node identity "
+            f"{endpoint.node_namespace}/{endpoint.node_name}; expected /cameras/{role}")
+    gid = bytes(endpoint.endpoint_gid)
+    if not gid or not any(gid):
+        raise PublisherDiscoveryPending(f"{topic}: publisher GID not yet discovered")
+    return gid
+
+
 @dataclass(frozen=True)
 class PairedFrame:
     """One complete, ordered, structurally valid camera sample."""

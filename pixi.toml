@@ -41,6 +41,8 @@ wheel = "*"
 numpy = "*"
 h5py = "*"
 pyyaml = ">=6,<7"
+# Host-side Chinese status overlay on the headset video copy (not recorded RGB).
+pillow = "*"
 matplotlib = ">=3.10,<4"
 scipy = ">=1.11,<2"
 pytest = ">=8,<9"
@@ -215,12 +217,13 @@ ros-jazzy-geometry-msgs = "*"
 ros-jazzy-builtin-interfaces = "*"
 
 # ---------------------------------------------------------------------------
-# manus: Python 3.12 + Pinocchio/nlopt hand retargeting.
+# manus: Python 3.12 + Pinocchio/nlopt Hand2 retargeting.
 #
-# Deliberately ROS-free. `manus.sh` runs in the `default` (Jazzy) environment
-# and reaches this one over the existing UDP/TJH2 boundary, so there is no
-# cross-ABI rclpy import and no second ROS prefix to source. The python pin is
-# explicit because `no-default-feature = true` removes the default feature's.
+# Deliberately ROS-free. It hosts the input-agnostic 21-landmark -> 20-joint
+# retargeter that mocap replay runs over a bounded pipe, so there is no
+# cross-ABI rclpy import and no second ROS prefix to source. The Manus ROS
+# publisher (`bash/run_manus.sh`) deliberately does NOT use it: it runs in
+# default with the Wuji SDK RetargetSession.
 # ---------------------------------------------------------------------------
 [feature.manus.dependencies]
 python = "3.12.*"

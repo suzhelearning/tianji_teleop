@@ -9,5 +9,7 @@ string boot_id
 uint64 sequence
 int64 source_monotonic_ns
 bool valid
+# Includes upstream/solver invalidations; a change revokes an active execution session.
+uint64 revocation_generation
 string[20] joint_names
 float64[20] position_rad

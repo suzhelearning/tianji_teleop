@@ -20,21 +20,26 @@ def main(argv=None):
                         help="Franka DLS with Ruckig arm smoothing")
     parser.add_argument("--duration", type=float, default=0.0,
                         help="stop after N wall-clock seconds (0: until stopped)")
-    parser.add_argument("--hand-port", type=int, default=16000,
-                        help="loopback hand input port (default: 16000)")
+    parser.add_argument("--hand-source", choices=("manus", "exoskeleton"), default="manus",
+                        help="Manus ROS hand commands (default), or explicit legacy TJH2 exoskeleton input")
+    parser.add_argument("--hand-port", type=int,
+                        help="exoskeleton loopback UDP input port (default: 16000)")
     hands = parser.add_mutually_exclusive_group()
     hands.add_argument("--hand-teleop", dest="hand_teleop", action="store_true", default=True,
-                       help="receive independently started legacy TJH2 hand input")
+                       help="receive independently started input from the selected hand source")
     hands.add_argument("--no-hand-teleop", dest="hand_teleop", action="store_false",
-                       help="arms only, do not bind the hand input port")
+                       help="arms only, do not subscribe to hand topics or bind a hand input port")
     parser.add_argument("--config", type=Path,
                         help="controller YAML, also used for the initial arm pose")
     parser.add_argument("--model", type=Path, help="dual-arm and both Hand2 MuJoCo XML")
     parser.add_argument("--sim-allow-pico-jumps", action="store_true",
                         help="simulation only: skip PICO pose jump rejection; retain freshness and motion limits")
     args = parser.parse_args(argv)
-    if args.hand_teleop and not 1 <= args.hand_port <= 65535:
-        parser.error("hand port must be in [1,65535]")
+    if args.hand_port is not None:
+        if args.hand_source != "exoskeleton":
+            parser.error("--hand-port requires --hand-source exoskeleton")
+        if not 1 <= args.hand_port <= 65535:
+            parser.error("hand port must be in [1,65535]")
     if not math.isfinite(args.duration) or args.duration < 0:
         parser.error("duration must be finite and non-negative")
     from .dls_session import launch

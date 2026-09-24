@@ -1,6 +1,6 @@
 # 三条输入路线
 
-工作目录：`~/syz/tianji_teleop-ros2`。PICO 手柄 + 外骨骼使用 `bash bash/run_teleop.sh`；Manus 已迁移为独立 ROS Hand2 目标发布链，当前止于发布，尚未接入仿真／真机执行器；PICO 裸手由 `bash bash/run_pico_hand_sim.sh --height-m HEIGHT` 独立运行，仅支持仿真。输入侧物理目录只保留 `src/teleop_inputs/` 下的 `pico_controller`、`manus`、`exoskeleton`、`pico_hand` 四个主输入包（ROS 包名仍为 `pico_bridge`、`manus_bridge`、`exoskeleton_bridge`、`pico2_hands`）；正式 schema-v1 采集器独立于输入目录。
+工作目录：`~/syz/tianji_teleop`。用户已要求恢复备份四终端链：PICO 前台输入、Manus ROS 输入、`bash bash/run_camera_views.sh`（三相机＋头显视频＋RViz）、`bash bash/run_teleop.sh --data --task TASK`。默认仿真和真机执行器接收 Manus ROS 双手目标；外骨骼须显式 `--hand-source exoskeleton`。PICO 裸手由 `bash bash/run_pico_hand_sim.sh --height-m HEIGHT` 独立运行，仅支持仿真。输入物理目录仍为 `src/teleop_inputs/` 下四个主输入包；正式 schema-v1 采集器独立于输入目录。恢复源码和构建通过不代表现场硬件验收。
 
 环境由 Pixi 管理，统一为 ROS 2 Jazzy + Fast DDS：`RMW_IMPLEMENTATION=rmw_fastrtps_cpp`、`ROS_DOMAIN_ID=120`、`ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST`（只支持同机采集与共享单调时钟）。大多数 `bash/` 入口会自行进入 Pixi 环境并 `source bash/environment.sh`，确认 `ROS_DISTRO=jazzy`、Python 3.12，并清掉旧 shell 可能残留的 Humble／旧 `tracking/install` overlay；`bash bash/build.sh` 与 `bash bash/test_native.sh` 例外，它们要求调用者已经在 Pixi 环境内（推荐用 `pixi run build`／`pixi run test-native`）。不要手动 source 旧环境。
 
@@ -83,10 +83,10 @@ ros2 launch manus_bridge manus_hand2.launch.py user:=NAME
 
 - 入口需要且只需要一个人员档案：`--user NAME`（或 `--calibration-user NAME`）；`--list-users`／`--list-calibration-users` 列出完整双侧档案。后续参数是 ROS launch 的 `name:=value`，旧 `--check`、`--host`、`--port` 已移除。
 - 使用 `tianji_interfaces` 的 `ManusGlove`、`HandLandmarks`、`HandJointCommand`。每侧保留 glove/side/session/boot/sequence 和 SDK 回调处的 CLOCK_MONOTONIC 源时间；不能用发布或求解时间刷新旧样本。BEST_EFFORT/KEEP_LAST1/VOLATILE；默认失鲜 250ms，失效发布 valid=false 和不可执行数值，禁止补零冒充目标。
-- SDK 原始世界坐标为右手 VUH XFromViewer/Z-up/米；适配器仅执行一次 `(x,-y,z)`。输出固定为 thumb/index/middle/ring/pinky 各 S1–S4，SDK 已做重定向，不再套旧 Hand2 关节重排或双臂 IK。
+- SDK 原始世界坐标为右手 VUH XFromViewer/Z-up/米；恢复的客户端与适配器保留该坐标，不额外镜像 Y。输出固定为 thumb/index/middle/ring/pinky 各 S1–S4，不套旧 Hand2 关节重排或双臂 IK。
 - `start_acquisition:=false` 只启动适配和求解，用于独立调试。合成数据只在 source 环境后显式设置的隔离域 121 发布。显示／调试不参与生产进程的生存条件。
 - 包仍是 `manus_bridge`，现使用 ament_cmake_python；`bash bash/build_manus.sh` 构建 ROS 包及消息。rawviz 文本管道、私有 worker、旧 Manus TJH2 输出已退役，无旧算法回退。
-- 本次用户限定只完成目标发布：**执行器、安全授权和采集系统未改，新目标不会被当前 `run_teleop.sh --data` 执行。** 后续接入时须由现有执行器唯一写入硬件，逐条录制确认开始后才放行 Hand2 目标，保留最小执行安全门控，采集继续记录实测反馈。不得启动参考仓库自动使能的独立手部驱动。
+- 用户已授权恢复备份配套接入：默认仿真原生链和真机 Python 执行器接收 Manus ROS 目标；硬件仍由现有执行器唯一写入，逐条录制确认开始后才跟随，保留本地授权、安全门控及实测反馈采集。输入节点本身不连接 Wuji，不得启动自动使能的独立手部驱动。消息端到端保留 revocation_generation。PICO 默认前台运行，先停执行器再 Ctrl+C 停输入；四入口日志在 `tmp/logs/{pico,manus,camera,teleop}/`。
 
 ## 共用执行模式与切换
 
@@ -96,7 +96,7 @@ ros2 launch manus_bridge manus_hand2.launch.py user:=NAME
 | 真机执行 | `bash bash/run_teleop.sh --real` |
 | 真机 + schema-v1 采集 | `bash bash/run_teleop.sh --data` |
 
-`--sim`／`--real`／`--data` 只能选一个，其余参数原样传给执行器。`--data` 在真机执行的同时按需管理相机与采集节点，把原始 RGB、双臂 14 维和双手 40 维写入数据集；数据集目录由 `--dataset` 给出、任务标签由 `--task` 记录，相机或采集未就绪时不会连接设备。
+`--sim`／`--real`／`--data` 只能选一个，其余参数原样传给执行器。`--data` 要求第三终端已有就绪的相机监控，不能自动启动相机；它按需管理采集节点，将原始 RGB、双臂 14 维和双手 40 维写入数据集。目录由 `--dataset` 给出，任务由 `--task` 记录，相机或采集未就绪时不连接设备。首次 r 授权 Home 准备及张手，第二次 r 冻结目标并缓慢对齐，录制确认后跟随；s/d 截止录制、制动并等待确认后回 Home 和张手。
 
 两种执行模式共用 `qp_ik_pico_shared_root_dls.yaml`，运行副本开启共享根并固定 `pico_ee_franka_dls`＋Ruckig；默认模型为冻结的 `marvin_m6_wuji2_shared_root_ceres.xml`，文件名中的 `ceres` 不代表使用 Ceres 算法。`controller_velocity_scale` 同时约束运行副本的 Ruckig 速度上限。禁止用旧后端或旧配置回退绕过启动拒绝。双臂仍从只读实测姿态初始化，采集服务永远不能获得运动授权。
 
@@ -126,6 +126,7 @@ pixi run bash -c 'source bash/environment.sh; python -m tianji_controller.run_te
 
 | 目的 | 命令 |
 |---|---|
+| 四终端相机／视频／RViz 组合入口 | `bash bash/run_camera_views.sh` |
 | 启动相机驱动 | `bash bash/run_cameras.sh` |
 | 只读 RGB 预览（只订阅，不打开 pipeline） | `bash bash/preview_cameras.sh` |
 | top RGB 传到 PICO（只订阅，不录制） | `bash bash/run_pico_camera.sh`／`pixi run pico-camera` |
@@ -134,8 +135,8 @@ pixi run bash -c 'source bash/environment.sh; python -m tianji_controller.run_te
 | 对应的 Pixi 任务 | `pixi run cameras`／`pixi run preview`／`pixi run collect` |
 
 - 每个启用角色一个驱动节点，私有 RGB 话题统一为 `/cameras/<role>/color/image_raw`，同目录有 `camera_info` 与 metadata。
-- 采集节点只订阅相机图像和 `/tianji/feedback/*`、`/tianji/executor/state`；它不打开相机、不连接机器人。`--data` 管理本次创建的相机／collector，已运行节点只有精确配置、身份和 ready 一致才复用；退出只停止本次拥有的进程。
-- DDS 录制操作只使用 `/start_collect`（StartCollect）与 `/stop_collect`（StopCollect），旧 RecordingCommand 已移除。r 等待实际 RECORDING 的服务结果及匹配条目状态后放行遥操作；s 调 stop(save=true)，d 调 stop(save=false)，确认本条完成且受控制动结束后才回双臂 Home。首次本地授权不变；服务永远不能获得使能或运动权限。
+- 采集节点只订阅相机图像和 `/tianji/feedback/*`、`/tianji/executor/state`，不打开相机、不连接机器人。`run_camera_views.sh` 拥有相机、视频和 RViz；`--data` 校验并复用外部相机监控，只管理本次创建的 collector。只有精确配置、身份和 ready 一致才复用；退出只停止本次拥有的进程。
+- DDS 录制操作只使用 `/start_collect`（StartCollect）与 `/stop_collect`（StopCollect）。r 等待实际 RECORDING 服务结果及匹配条目状态后放行跟随；s/d 带 cutoff_monotonic_ns 分别保存／丢弃，确认条目完成且实测停稳后回 Home。首次本地 r 授权不可由服务替代。全局 ROS 图可含 client-only 服务名，没有服务端 owners 不构成身份冲突。
 - 请求用规范 UUID request_id 绑定 session／phase_revision；stop 还绑定 episode_id（start 的 request_id）。同进程同请求复用终态结果或等待同一操作，改参复用 ID 拒绝；缓存不跨采集器重启，不自动重试未知结果。内部故障 stop(abort=true,save=false) 保留 partial，不等同 d 的删除。服务 success 是实际完成，不是入队确认；连续反馈／状态仍走 Topic。
 
 PICO 视频串流运行在 default，只订阅唯一配置中的 top RGB，不打开相机 pipeline，不影响 Manus／外骨骼或真机执行。先运行官方相机节点；头显 PC 视频源地址为 127.0.0.1。视频脚本只管理 reverse 13579 与 forward 12345，复用匹配映射、冲突拒绝、退出只清理本次新建且仍匹配的映射，绝不修改裸手 10002。使用现有 PICO OPEN/CLOSE_CAMERA 控制协议及大端长度头 H.264、同源双眼 SBS，无录制；无相机、失鲜或背压不能用重复旧帧掩盖。物理相机与头显显示的现场验收独立于合成 ROS／编码／协议验证。

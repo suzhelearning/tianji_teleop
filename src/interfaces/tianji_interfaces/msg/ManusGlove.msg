@@ -7,4 +7,6 @@ string boot_id
 uint64 sequence
 int64 source_monotonic_ns
 bool valid
+# Persistent invalidation generation; later valid frames retain it across DDS drops.
+uint64 revocation_generation
 ManusRawNode[] raw_nodes

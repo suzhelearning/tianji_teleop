@@ -105,11 +105,19 @@ class _AccessUnits:
         return packet
 
 
+class H264StreamError(RuntimeError):
+    """The current video session failed; its resources still need closing."""
+
+
+class H264CleanupError(RuntimeError):
+    """Owned resources could not be released safely; do not reopen a session."""
+
+
 class H264Sender:
     """Owned nonblocking encoder/socket worker; call check() while streaming.
 
     start() launches the worker (connection/encoder errors surface via check()).
-    close() is idempotent and bounded, and reports worker or cleanup failures.
+    close() is bounded and reports cleanup and unhandled stream failures.
     Instances are single-use. Frame stamps are Unix wall-clock nanoseconds;
     receive stamps are monotonic nanoseconds. No files or recordings are made.
     """
@@ -117,6 +125,7 @@ class H264Sender:
     def __init__(
         self, source: Callable[[], RgbFrame | None], width: int, height: int,
         fps: int, bitrate: int, host: str = "127.0.0.1", port: int = 12345,
+        *, video_transform: Callable[[bytes], bytes | bytearray] | None = None,
     ) -> None:
         if not 4 <= width <= 4096 or width % 4:
             raise ValueError("H264 width must be a multiple of four in [4, 4096]")
@@ -129,6 +138,7 @@ class H264Sender:
         if host != "127.0.0.1" or port != 12345:
             raise ValueError("PICO video is wired-only at 127.0.0.1:12345")
         self._source = source
+        self._video_transform = video_transform
         self._width = width
         self._height = height
         self._fps = fps
@@ -139,7 +149,8 @@ class H264Sender:
         self._lock = threading.Lock()
         self._thread: threading.Thread | None = None
         self._closed = False
-        self._errors: list[Exception] = []
+        self._stream_error: Exception | None = None
+        self._cleanup_errors: list[Exception] = []
         self._frames_sent = 0
 
     @property
@@ -155,12 +166,23 @@ class H264Sender:
             self._thread.start()
 
     def check(self) -> None:
-        with self._lock:
-            errors = tuple(self._errors)
-        if errors:
-            raise RuntimeError("PICO video failed: " + "; ".join(str(e) for e in errors)) from errors[0]
+        self._check_errors(stream_error_handled=False)
 
-    def close(self) -> None:
+    def _check_errors(self, *, stream_error_handled: bool) -> None:
+        with self._lock:
+            cleanup_errors = tuple(self._cleanup_errors)
+            stream_error = self._stream_error
+        if cleanup_errors:
+            raise H264CleanupError("PICO video cleanup failed: " + "; ".join(
+                str(error) for error in cleanup_errors)) from cleanup_errors[0]
+        if stream_error is not None and not stream_error_handled:
+            raise H264StreamError(f"PICO video failed: {stream_error}") from stream_error
+
+    def close(self, *, stream_error_handled: bool = False) -> None:
+        """Release once; only an already-reported stream failure may be acknowledged.
+
+        Cleanup errors and a worker that cannot stop always remain fatal.
+        """
         with self._lock:
             self._closed = True
             thread = self._thread
@@ -168,12 +190,15 @@ class H264Sender:
         if thread is not None:
             thread.join(timeout=4.0)
             if thread.is_alive():
-                raise RuntimeError("PICO worker did not stop; source must be nonblocking")
-        self.check()
+                raise H264CleanupError("PICO worker did not stop; source must be nonblocking")
+        self._check_errors(stream_error_handled=stream_error_handled)
 
-    def _record_error(self, error: Exception) -> None:
+    def _record_error(self, error: Exception, *, cleanup: bool = False) -> None:
         with self._lock:
-            self._errors.append(error)
+            if cleanup:
+                self._cleanup_errors.append(error)
+            else:
+                self._stream_error = error
 
     def _command(self, ffmpeg: str, metadata_fd: int) -> list[str]:
         graph = (
@@ -199,12 +224,16 @@ class H264Sender:
         ]
 
     @staticmethod
-    def _fresh(received_ns: int, stamp_ns: int) -> None:
+    def _fresh(received_ns: int, stamp_ns: int, stage: str = "source") -> None:
         receive_age = time.monotonic_ns() - received_ns
         stamp_age = time.time_ns() - stamp_ns
         if (not 0 <= receive_age <= FRESHNESS_NS or
                 not -FUTURE_TOLERANCE_NS <= stamp_age <= FRESHNESS_NS):
-            raise TimeoutError("Camera frame is stale or has a future timestamp (250 ms age / 5 ms future limit)")
+            raise TimeoutError(
+                f"Camera frame is stale or has a future timestamp at {stage} "
+                f"(receive_age={receive_age / 1_000_000:.3f} ms, "
+                f"stamp_age={stamp_age / 1_000_000:.3f} ms; "
+                "250 ms age / 5 ms future limit)")
 
     def _connect(self, sock: socket.socket) -> None:
         result = sock.connect_ex((self._host, self._port))
@@ -262,9 +291,11 @@ class H264Sender:
                     sock.shutdown(socket.SHUT_RDWR)
                 except OSError as error:
                     if error.errno not in (errno.ENOTCONN, errno.EBADF):
-                        self._record_error(error)
-                finally:
+                        self._record_error(error, cleanup=True)
+                try:
                     sock.close()
+                except OSError as error:
+                    self._record_error(error, cleanup=True)
             if process is not None:
                 try:
                     if process.poll() is None:
@@ -275,19 +306,19 @@ class H264Sender:
                         process.kill()
                         process.wait(timeout=1.0)
                 except Exception as error:
-                    self._record_error(error)
+                    self._record_error(error, cleanup=True)
                 finally:
                     for stream in (process.stdin, process.stdout, process.stderr):
                         try:
                             stream.close()
                         except Exception as error:
-                            self._record_error(error)
+                            self._record_error(error, cleanup=True)
             for fd in (metadata_read, metadata_write):
                 if fd is not None:
                     try:
                         os.close(fd)
                     except OSError as error:
-                        self._record_error(error)
+                        self._record_error(error, cleanup=True)
 
     def _stream(self, process: subprocess.Popen, sock: socket.socket,
                 metadata_fd: int, stderr: bytearray) -> None:
@@ -308,7 +339,7 @@ class H264Sender:
         while not self._stop.is_set():
             now = time.monotonic_ns()
             if pending:
-                self._fresh(*pending[0])
+                self._fresh(*pending[0], stage="pending encoded delivery")
             frame = self._source()
             if frame is not None:
                 self._fresh(frame.received_ns, frame.stamp_ns)
@@ -322,7 +353,11 @@ class H264Sender:
                     and (last_sequence is None or frame.sequence > last_sequence)):
                 if not isinstance(frame.data, bytes) or len(frame.data) != IMAGE_WIDTH * IMAGE_HEIGHT * 3:
                     raise ValueError("Camera source must provide tightly packed immutable RGB8 bytes")
-                raw = memoryview(frame.data)
+                # HUD work happens only after frame admission, never in the poll loop
+                # or DDS callback. Source bytes/stamps and delivery deadlines stay intact.
+                video = self._video_transform(frame.data) if self._video_transform else frame.data
+                raw = memoryview(video)
+                video = None
                 pending.append((frame.received_ns, frame.stamp_ns))
                 last_sequence = frame.sequence
                 # Never catch up by producing a burst after a delayed iteration.
@@ -333,7 +368,7 @@ class H264Sender:
                 if packet is not None:
                     if not pending:
                         raise RuntimeError("FFmpeg produced an access unit without a source frame")
-                    self._fresh(*pending[0])
+                    self._fresh(*pending[0], stage="encoded packet")
                     output.extend((memoryview(struct.pack(">I", len(packet))), memoryview(packet)))
             writable = ([input_fd] if raw is not None else []) + ([sock] if output else [])
             readable, writable, _ = select.select(read_fds, writable, [], _POLL_SECONDS)
@@ -356,7 +391,7 @@ class H264Sender:
                     stderr.extend(chunk)
                     del stderr[:-8192]
             if input_fd in writable and raw is not None:
-                self._fresh(*pending[-1])
+                self._fresh(*pending[-1], stage="encoder input")
                 try:
                     written = os.write(input_fd, raw)
                 except BlockingIOError:
@@ -365,7 +400,7 @@ class H264Sender:
                 if not raw:
                     raw = None
             if sock in writable and output:
-                self._fresh(*pending[0])
+                self._fresh(*pending[0], stage="socket send")
                 try:
                     sent = sock.send(output[0])
                 except BlockingIOError:
@@ -376,7 +411,7 @@ class H264Sender:
                 if not output[0]:
                     output.popleft()
                 if not output:
-                    self._fresh(*pending.popleft())
+                    self._fresh(*pending.popleft(), stage="completed delivery")
                     with self._lock:
                         self._frames_sent += 1
             if process.poll() is not None:

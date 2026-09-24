@@ -130,6 +130,68 @@ TEST(Config, RejectsInitialPostureOutsideNamedArmJointLimit) {
                std::runtime_error);
 }
 
+TEST(Config, RejectsIncompleteOrMalformedExecutionPositionBounds) {
+  const auto valid_lower = YAML::Load("[-2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2]");
+  const auto valid_upper = YAML::Load("[2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2]");
+  for (int invalid = 0; invalid < 7; ++invalid) {
+    auto node = YAML::Load(projectConfigText());
+    node["joint_limits"]["position_lower_rad"] = YAML::Clone(valid_lower);
+    node["joint_limits"]["position_upper_rad"] = YAML::Clone(valid_upper);
+    auto limits = node["joint_limits"];
+    if (invalid == 0) limits.remove("position_lower_rad");
+    if (invalid == 1) limits.remove("position_upper_rad");
+    if (invalid == 2) limits["position_lower_rad"] = YAML::Load("[-2, -2]");
+    if (invalid == 3) limits["position_upper_rad"] = 2;
+    if (invalid == 4) limits["position_upper_rad"][13] = YAML::Load(".nan");
+    if (invalid == 5) limits["position_lower_rad"][0] = 2;
+    if (invalid == 6) limits["position_upper_rad"][7] = -3;
+    const auto path = writeTemporaryConfig("invalid_execution_bounds.yaml", YAML::Dump(node));
+    EXPECT_THROW(loadConfig(path.string()), std::exception) << invalid;
+    std::filesystem::remove(path);
+  }
+}
+
+TEST(Config, ExecutionEnvelopeRejectsEmptyAndMarginInfeasibleModelIntersections) {
+  ArmLimits model;
+  model.lower_position.setConstant(-1.0);
+  model.upper_position.setConstant(1.0);
+  model.velocity.setOnes();
+  for (const auto& interval : {std::pair{2.0, 3.0}, std::pair{0.95, 1.5}}) {
+    auto node = YAML::Load(projectConfigText());
+    std::vector<double> lower(14, -2.0), upper(14, 2.0);
+    lower[7] = interval.first;
+    upper[7] = interval.second;
+    node["joint_limits"]["position_lower_rad"] = lower;
+    node["joint_limits"]["position_upper_rad"] = upper;
+    const auto path = writeTemporaryConfig("infeasible_execution_bounds.yaml", YAML::Dump(node));
+    const auto config = loadConfig(path.string());
+    EXPECT_THROW(effectiveArmLimits(config.joint_limits, model, ArmSide::kRight),
+                 std::runtime_error);
+    std::filesystem::remove(path);
+  }
+}
+
+TEST(Config, ExecutionEnvelopePreventsConfiguredInitialPostureOutsideIntersection) {
+  auto node = YAML::Load(projectConfigText());
+  node["controller"]["initial_posture_enabled"] = true;
+  node["controller"]["initial_left_q_rad"] = std::vector<double>(7, 0.0);
+  node["controller"]["initial_right_q_rad"] = std::vector<double>(7, 0.0);
+  std::vector<double> lower(14, -2.0), upper(14, 2.0);
+  upper[3] = -0.2;
+  node["joint_limits"]["position_lower_rad"] = lower;
+  node["joint_limits"]["position_upper_rad"] = upper;
+  const auto path = writeTemporaryConfig("outside_execution_initial.yaml", YAML::Dump(node));
+  const auto config = loadConfig(path.string());
+  ArmLimits model;
+  model.lower_position.setConstant(-1.0);
+  model.upper_position.setConstant(1.0);
+  model.velocity.setOnes();
+  const auto limits = effectiveArmLimits(config.joint_limits, model, ArmSide::kLeft);
+  EXPECT_THROW(configuredInitialPosture(config.controller, limits, ArmSide::kLeft),
+               std::runtime_error);
+  std::filesystem::remove(path);
+}
+
 TEST(Config, RejectsNonPositiveControlRate) {
   auto node = YAML::Load(projectConfigText());
   node["controller"]["rate_hz"] = 0.0;

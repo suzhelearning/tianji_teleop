@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Per-run console logging for ``teleop.sh --real``.
+"""Per-run console logging for operator terminal entrypoints.
 
-The launcher creates a unique ``logs/real/<timestamp>-<unique>/`` directory before
-the executor is started, mirrors the executor's stdout/stderr (Python, vendor SDK
-and child controller output) to the operator terminal and to ``console.log``,
-exports the directory to the executor as ``TIANJI_RUN_LOG_DIR`` and records the
-raw exit status in ``launcher_exit.json``.  ``--view``/``--sim`` never use this
-module, and the executor keeps its previous behaviour when the variable is absent.
+The launcher creates a unique ``<log-root>/<timestamp>-<unique>/`` directory before
+the command is started, mirrors its stdout/stderr (Python, vendor SDK and child
+controller output) to the operator terminal and to ``console.log``, exports the
+directory as ``TIANJI_RUN_LOG_DIR`` and records the raw exit status in
+``launcher_exit.json``. The four terminal entrypoints select their own roots under
+``tmp/logs``; direct commands without this wrapper keep their previous behaviour.
 
 Design constraints kept here:
 
@@ -363,8 +363,8 @@ def main(argv=None):
         options, command = arguments, []
     parser = argparse.ArgumentParser(
         prog="run_logging.py",
-        description="Run the real executor with a per-run console log.",
-        epilog="example: run_logging.py --log-root logs/real -- python real_robot/run_teleop.py --confirm-real")
+        description="Run a command with a per-run console log.",
+        epilog="example: run_logging.py --log-root tmp/logs/teleop -- bash bash/run_teleop.sh --help")
     parser.add_argument("--log-root", type=Path, default=DEFAULT_LOG_ROOT,
                         help=f"directory receiving one <timestamp>-<unique> run directory per run "
                              f"(default: {DEFAULT_LOG_ROOT})")

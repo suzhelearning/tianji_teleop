@@ -14,7 +14,7 @@ from rclpy.qos import (
     ReliabilityPolicy,
     qos_profile_sensor_data,
 )
-from std_msgs.msg import Bool, Float32
+from std_msgs.msg import Bool, Empty, Float32
 
 
 REPOSITORY = Path(__file__).parents[4]
@@ -41,13 +41,15 @@ def _spin_publish(node, publisher, message, count):
         rclpy.spin_once(node, timeout_sec=0.01)
 
 
-def test_ros_runtime_requires_a_then_locks_and_resets_ground():
+@pytest.mark.parametrize("reset_type", [Empty, Float32], ids=["set_ground", "world_reset"])
+def test_ros_runtime_requires_reset_then_locks_and_resets_ground(reset_type):
     unique = f"ground_{uuid.uuid4().hex}"
     previous_domain = os.environ.get("ROS_DOMAIN_ID")
     os.environ["ROS_DOMAIN_ID"] = str(120 + int(unique[-4:], 16) % 80)
     raw_topic = f"/test/{unique}/raw"
     output_topic = f"/test/{unique}/canonical"
     reset_topic = f"/test/{unique}/reset"
+    set_ground_topic = f"/test/{unique}/set_ground"
     ready_topic = f"/test/{unique}/ground_ready"
     # The overlay is environment-qualified: install/<env>/<package>/...
     environment = os.environ.get("TIANJI_ENVIRONMENT", "default")
@@ -63,6 +65,7 @@ def test_ros_runtime_requires_a_then_locks_and_resets_ground():
             "-p", f"raw_topic:={raw_topic}",
             "-p", f"output_topic:={output_topic}",
             "-p", f"world_reset_topic:={reset_topic}",
+            "-p", f"set_ground_topic:={set_ground_topic}",
             "-p", f"ground_ready_topic:={ready_topic}",
             "-p", "stable_window_frames:=30",
             "-p", "require_world_reset:=true",
@@ -79,7 +82,9 @@ def test_ros_runtime_requires_a_then_locks_and_resets_ground():
         raw_publisher = node.create_publisher(
             PoseArray, raw_topic, qos_profile_sensor_data
         )
-        reset_publisher = node.create_publisher(Float32, reset_topic, 10)
+        reset_publisher = node.create_publisher(
+            reset_type, set_ground_topic if reset_type is Empty else reset_topic, 10
+        )
         received = []
         ready_states = []
         subscription = node.create_subscription(
@@ -118,7 +123,7 @@ def test_ros_runtime_requires_a_then_locks_and_resets_ground():
         _spin_publish(node, raw_publisher, raw, 35)
         assert not received
 
-        reset_publisher.publish(Float32(data=0.0))
+        reset_publisher.publish(reset_type())
         rclpy.spin_once(node, timeout_sec=0.05)
         assert ready_states[-1] is False
         _spin_publish(node, raw_publisher, raw, 29)
@@ -144,7 +149,7 @@ def test_ros_runtime_requires_a_then_locks_and_resets_ground():
         assert canonical.poses[0].orientation.w == raw.poses[0].orientation.w
 
         received.clear()
-        reset_publisher.publish(Float32(data=1.0))
+        reset_publisher.publish(Empty() if reset_type is Empty else Float32(data=1.0))
         rclpy.spin_once(node, timeout_sec=0.05)
         assert ready_states[-1] is False
         _spin_publish(node, raw_publisher, raw, 5)

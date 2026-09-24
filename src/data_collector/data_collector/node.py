@@ -46,6 +46,8 @@ from tianji_runtime.camera_stream import (
     ImageRecord,
     MetadataJsonParser,
     StreamFault,
+    PublisherDiscoveryPending,
+    camera_publisher_gid,
     split_stamp,
 )
 from tianji_runtime.constants import (
@@ -316,6 +318,9 @@ class CollectorNode(Node):
                 rgb=_rgb_view(message),
             )
             frame = validator.accept_image(record, received)
+        except PublisherDiscoveryPending as error:
+            self._revoke_certificate(str(error))
+            return
         except (StreamFault, ValueError) as error:
             self._camera_failed(role, str(error))
             return
@@ -341,6 +346,9 @@ class CollectorNode(Node):
                 message.header.frame_id, split_stamp(message.header.stamp),
                 message.json_data)
             frame = validator.accept_metadata(record, received)
+        except PublisherDiscoveryPending as error:
+            self._revoke_certificate(str(error))
+            return
         except (StreamFault, ValueError) as error:
             self._camera_failed(role, str(error))
             return
@@ -351,17 +359,8 @@ class CollectorNode(Node):
         """CameraInfo has a separate DDS publisher; never use it as Image identity."""
 
     def _publisher_gid(self, topic):
-        endpoints = self.get_publishers_info_by_topic(topic)
-        if len(endpoints) != 1:
-            raise StreamFault(f"{topic}: expected one publisher, found {len(endpoints)}")
-        endpoint = endpoints[0]
-        role = topic.split("/")[2]
-        if endpoint.node_name != role or endpoint.node_namespace != "/cameras":
-            raise StreamFault(f"{topic}: unexpected publisher node identity")
-        gid = bytes(endpoint.endpoint_gid)
-        if not gid or not any(gid):
-            raise StreamFault(f"{topic}: publisher endpoint has no GID")
-        return gid
+        return camera_publisher_gid(
+            self.get_publishers_info_by_topic(topic), topic.split("/")[2], topic.rsplit("/", 1)[1])
 
     def _check_header(self, header):
         age = self.get_clock().now().nanoseconds - split_stamp(header.stamp)
@@ -471,6 +470,12 @@ class CollectorNode(Node):
             if not response.success:
                 raise RuntimeError(response.message or "camera monitor is not ready")
             self._monitor_identity()
+            # The monitor's graph can be complete while this new participant's
+            # graph still has placeholder node identities. Do not accept frames
+            # or poison the writer until our own Image/Metadata writers resolve.
+            for role in self._cameras:
+                for suffix in ("image_raw", "metadata"):
+                    self._publisher_gid(f"/cameras/{role}/color/{suffix}")
             if self._camera_rearm_required:
                 if self._session.state != "IDLE" or self._session.current_writer() is not None:
                     return  # Never revive or extend the retired episode.

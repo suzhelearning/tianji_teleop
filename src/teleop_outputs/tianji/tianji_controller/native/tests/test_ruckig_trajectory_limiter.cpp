@@ -193,6 +193,22 @@ TEST(RuckigTrajectoryLimiter, ClipsOutwardSamplesAtBothPositionLimits) {
   }
 }
 
+TEST(RuckigTrajectoryLimiter, RelativeModeRejectsOvershootWithoutChangingDerivativesOrPosition) {
+  constexpr double dt = .005;
+  const auto bounds = limits();
+  RuckigTrajectoryLimiter7 limiter(config(), bounds, dt);
+  limiter.preserveConstraints();
+  ArmMotionState initial;
+  initial.q = bounds.upper_position - Vec7::Constant(1e-6);
+  initial.qdot = Vec7::Constant(.1);
+  ASSERT_TRUE(limiter.reset(initial));
+  const auto result = limiter.update(bounds.upper_position, dt);
+  EXPECT_FALSE(result.accepted);
+  EXPECT_EQ(limiter.state().q, initial.q);
+  EXPECT_EQ(limiter.state().qdot, initial.qdot);
+  EXPECT_EQ(limiter.state().qddot, initial.qddot);
+}
+
 TEST(RuckigTrajectoryLimiter, SettledRoundoffDoesNotRejectOrPreventRestart) {
   constexpr double kDt = 0.005;
   auto cfg = fastConfig();

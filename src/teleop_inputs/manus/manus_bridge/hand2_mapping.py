@@ -72,18 +72,18 @@ def resolve_mediapipe_nodes(raw_nodes):
 
 
 def convert_manus_to_mediapipe(raw_nodes):
-    """Return (21,3) points and resolved IDs, applying (x,-y,z) exactly once.
+    """Return right-handed (21,3) world points in metres and resolved node IDs.
 
-    Acquisition supplies unmodified world-space right-handed VUH XFromViewer,
-    Z-up positions in metres. This is the reference retarget-input reflection,
-    not a ROS REP-103 frame or a wrist-local pose. The SDK consumes these points
-    directly. The extra non-thumb MANUS metacarpals are deliberately omitted.
+    Acquisition already requests right-handed VUH XFromViewer, Z-up. Preserve
+    that handedness for RetargetSession: reflecting Y mirrors palm-side flexion
+    into dorsal extension. MediaPipe specifies landmark order, not a reason to
+    mirror coordinates. Extra non-thumb MANUS metacarpals are omitted.
     """
     nodes = resolve_mediapipe_nodes(raw_nodes)
     points = np.empty((21, 3), dtype=np.float32)
     for index, node in enumerate(nodes):
         position = node.pose.position
-        points[index] = (position.x, -position.y, position.z)
+        points[index] = (position.x, position.y, position.z)
     if not np.isfinite(points).all():
         raise ManusMappingError("MANUS positions contain NaN or infinity")
     return points, tuple(int(node.node_id) for node in nodes)

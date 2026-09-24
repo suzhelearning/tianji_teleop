@@ -8,6 +8,7 @@
 #include <geometry_msgs/msg/pose_array.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/bool.hpp>
+#include <std_msgs/msg/empty.hpp>
 #include <std_msgs/msg/float32.hpp>
 
 #include "pico_bridge/smpl_ground_alignment.hpp"
@@ -30,6 +31,8 @@ class PicoSmplGroundNode : public rclcpp::Node {
     output_topic_ = declare_parameter<std::string>("output_topic", "/pico/smpl");
     world_reset_topic_ = declare_parameter<std::string>(
       "world_reset_topic", "/pico/world_reset");
+    set_ground_topic_ = declare_parameter<std::string>(
+      "set_ground_topic", "/pico/set_ground");
     ground_ready_topic_ = declare_parameter<std::string>(
       "ground_ready_topic", "/pico/smpl_ground_ready");
     output_frame_ = declare_parameter<std::string>("output_frame", "pico_ground");
@@ -40,7 +43,7 @@ class PicoSmplGroundNode : public rclcpp::Node {
       "stability_tolerance_m", 0.02);
     const bool require_reset = declare_parameter<bool>("require_world_reset", true);
     if (raw_topic_.empty() || output_topic_.empty() || world_reset_topic_.empty() ||
-        ground_ready_topic_.empty() || output_frame_.empty()) {
+        set_ground_topic_.empty() || ground_ready_topic_.empty() || output_frame_.empty()) {
       throw std::invalid_argument("SMPL ground topics and output frame must not be empty");
     }
     if (raw_topic_ == output_topic_) {
@@ -72,21 +75,30 @@ class PicoSmplGroundNode : public rclcpp::Node {
     world_reset_subscription_ = create_subscription<std_msgs::msg::Float32>(
       world_reset_topic_, rclcpp::QoS(10),
       [this](std_msgs::msg::Float32::ConstSharedPtr) {
-        std::lock_guard<std::mutex> lock(mutex_);
-        alignment_->reset();
-        publish_ground_ready(false);
-        RCLCPP_INFO(
-          get_logger(),
-          "PICO world reset received; canonical SMPL paused until stable feet lock the floor");
+        on_ground_reset();
+      });
+    set_ground_subscription_ = create_subscription<std_msgs::msg::Empty>(
+      set_ground_topic_, rclcpp::QoS(10),
+      [this](std_msgs::msg::Empty::ConstSharedPtr) {
+        on_ground_reset();
       });
     RCLCPP_INFO(
       get_logger(),
-      "SMPL ground normalizer: %s -> %s, frame=%s, stable_frames=%d, require_A=%s",
+      "SMPL ground normalizer: %s -> %s, frame=%s, stable_frames=%d, require_reset_event=%s",
       raw_topic_.c_str(), output_topic_.c_str(), output_frame_.c_str(), stable_window,
       require_reset ? "true" : "false");
   }
 
  private:
+  void on_ground_reset() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    alignment_->reset();
+    publish_ground_ready(false);
+    RCLCPP_INFO(
+      get_logger(),
+      "PICO Set Ground/reset event received; canonical SMPL paused until stable feet lock the floor");
+  }
+
   void on_raw_skeleton(const geometry_msgs::msg::PoseArray & message) {
     if (message.poses.size() != 24) {
       RCLCPP_WARN_THROTTLE(
@@ -114,7 +126,7 @@ class PicoSmplGroundNode : public rclcpp::Node {
       if (!alignment_->locked()) {
         RCLCPP_INFO_THROTTLE(
           get_logger(), *get_clock(), 2000,
-          "Waiting for PICO A and stable post-reset feet before publishing /pico/smpl");
+          "Waiting for Set Ground/reset event and stable post-reset feet before publishing /pico/smpl");
         return;
       }
       just_locked = !was_locked;
@@ -143,11 +155,13 @@ class PicoSmplGroundNode : public rclcpp::Node {
 
   std::mutex mutex_;
   std::string raw_topic_, output_topic_, world_reset_topic_, ground_ready_topic_, output_frame_;
+  std::string set_ground_topic_;
   std::unique_ptr<pico_bridge::SmplGroundAlignment> alignment_;
   rclcpp::Publisher<geometry_msgs::msg::PoseArray>::SharedPtr publisher_;
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr ground_ready_publisher_;
   rclcpp::Subscription<geometry_msgs::msg::PoseArray>::SharedPtr raw_subscription_;
   rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr world_reset_subscription_;
+  rclcpp::Subscription<std_msgs::msg::Empty>::SharedPtr set_ground_subscription_;
 };
 
 int main(int argc, char ** argv) {

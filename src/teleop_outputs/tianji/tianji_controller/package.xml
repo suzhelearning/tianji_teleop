@@ -5,7 +5,7 @@
   <version>0.3.0</version>
   <description>
     Arm executor, safety gates and native controller. Also hosts the native
-    CMake projects (core QP/IK and the mapped-palm adapter) and the device
+    CMake projects (the DLS/SharedRoot core with Ruckig) and the device
     feedback publisher. It owns no ROS services that can enable motion.
   </description>
   <maintainer email="ops@example.com">Tianji operators</maintainer>

@@ -23,6 +23,8 @@ class CommandFrame:
     right_arm: tuple[float, ...]
     left_hand: tuple[float, ...]
     right_hand: tuple[float, ...]
+    reference_id: int = 0
+    controller_session_id: str = ""
 
     def positions(self, device: str) -> tuple[float, ...]:
         if device == "arms":

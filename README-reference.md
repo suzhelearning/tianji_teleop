@@ -12,10 +12,10 @@
 > 业务 UDP 15000／17000 已从生产路径移除；双臂不再提供其他 IK 后端或自动回退。
 > 新核心在隔离 `arm-ros` 环境构建，`pixi run build-arm-ros` 不连接设备。
 
-> Manus 范围更新（2026-09-22）：当前 `run_manus.sh` 已切换为 ROS 采集、21 点适配、
-> SDK Hand2 重定向和左右手各 20 维命令发布；不再发送 TJH2，尚未接入执行器。
-> 本页旧 `/hand_input`、私有 worker、`--check`／`--port` 和 Manus 联合真机／仿真命令
-> 仅保留为历史记录，不可作为当前操作步骤。当前入口与边界见 [Manus 发布链](README.md#picomanus-双臂双手遥操)。
+> 四终端恢复（2026-09-24）：PICO、Manus、`run_camera_views.sh`、`run_teleop.sh --data`
+> 分别运行；具体命令和当前 r/s/d 授权流程以 [四终端启动](README.md#picomanus-双臂双手遥操) 为准。
+> Manus ROS 目标已接入默认仿真和 Python 安全执行器；输入节点本身不连接 Wuji 硬件。
+> 本页旧 `/hand_input`、私有 worker、`--check`／`--port`、Manus UDP 命令及历史验收仅作历史记录。
 
 # 天机遥操数据采集
 
@@ -30,9 +30,9 @@ PICO 裸手使用独立[仿真入口 `bash/run_pico_hand_sim.sh --height-m HEIGH
 硬件 SDK、ROS、MuJoCo、Pinocchio 等通用库仍须安装；厂商二进制和私钥不由重构替代。
 
 > **三种模式必须区分，且不能同时占用相同输入端口。**
-> - `pixi run sim`（或 `bash bash/run_teleop.sh --sim`）：仅 Franka DLS＋Ruckig 双臂 direct 仿真，按 S 接入；默认接收 Hand2，纯双臂使用 `--no-hand-teleop`。不提供旧后端或动力学模式切换。
-> - `bash bash/run_teleop.sh --real`：共享根 DLS＋Ruckig 双臂与独立 TJH2 双 Hand2 真机执行，保留实测／目标双模型窗口；三次 Enter 分别授权慢速对齐、实时遥操、回 HOME 后失能。激活 default overlay 后执行 `python -m tianji_controller.run_teleop` 不带使能参数仍为 dry-run。
-> - `bash bash/run_teleop.sh --data --task TASK`：使用相同 DLS／Ruckig 执行器和真机安全门控，额外管理相机及独立 DDS 采集器，默认写入 `/data/TianjiData/raw/YYYYMMDD/`；用 `--dataset PATH` 指定根目录。
+> - `pixi run sim`（或 `bash bash/run_teleop.sh --sim`）：仅 Franka DLS＋Ruckig direct 仿真，按 S 接入；默认接收 Manus ROS 双手目标，纯双臂使用 `--no-hand-teleop`，外骨骼须显式 `--hand-source exoskeleton`。
+> - `bash bash/run_teleop.sh --real`：共享根 DLS＋Ruckig 双臂与 Manus ROS 双 Hand2 真机执行，保留实测／目标窗口；独立预检及逐步授权不可省略。
+> - `bash bash/run_teleop.sh --data --task TASK`：先启动 `bash bash/run_camera_views.sh` 并等待就绪；执行器管理独立 DDS 采集器，默认写入 `/data/TianjiData/raw/YYYYMMDD/`，可用 `--dataset PATH` 指定根目录。
 > - 当前真机支持双臂与左右两只 Hand2；`all` 表示双臂＋双手，`hands` 表示仅双手。
 > - 历史离线测试和设备身份读取不能替代当前只读预检；尚不能宣称迁移后带运动实机闭环已验收。
 
@@ -150,7 +150,7 @@ bash bash/run_teleop.sh --sim --no-hand-teleop
 ```
 
 在机器人窗口按 S 接入、H 受控回双臂 Home、P／空格停止跟随。回位中不排队接管，
-普通仿真不导出硬件目标；新 Manus 目前只发布 ROS 手部目标，尚未接入执行器。
+普通仿真不导出硬件目标；不加 `--no-hand-teleop` 时默认接收 Manus ROS 手部目标。
 
 ### 3B. 终端二：真机仅双臂
 
@@ -319,7 +319,8 @@ python -m tianji visualize /data/tianji_jpeg50
 | --- | --- |
 | ROS 2 | Jazzy／Fast DDS，Domain `120`，`ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST`；清除 `ROS_LOCALHOST_ONLY` |
 | PICO 双臂输入 | ROS `/pico/arm_input`，`PicoArmInput` |
-| 旧手部输入（外骨骼） | TJH2 UDP `127.0.0.1:16000`；新 Manus ROS 目标尚未接入执行器 |
+| 默认手部输入（Manus） | ROS `/wuji/{left,right}_hand/joint_commands`，`HandJointCommand` |
+| 显式手部输入（外骨骼） | `--hand-source exoskeleton`，TJH2 UDP `127.0.0.1:16000` |
 | 控制器 → 真机执行器 | ROS `/tianji/controller/joint_targets`，`ControllerJointTargets`，同机 boot/时钟 |
 
 **同一时刻只保留一套 PICO 驱动、一套 Manus 采集链路和一个机器人控制器。**

@@ -42,22 +42,27 @@ class ArmInputProgress:
 
 
 class ViewerProgress:
-    def __init__(self, pane):
-        self.pane = pane
+    def __init__(self, pane=None, *, owner=None):
+        if (pane is None) == (owner is None):
+            raise ValueError("Expected exactly one viewer pane or owner")
+        self.identity_key = "owner" if owner is not None else "pane"
+        self.identity = owner if owner is not None else pane
         self.stamp = 0
         self.advancing = False
 
     def observe(self, payload):
+        self.advancing = False
         try:
             value = json.loads(payload)
             stamp = value["stamp_ns"]
-            if value["pane"] != self.pane or type(stamp) is not int or stamp <= 0:
-                raise ValueError("invalid viewer heartbeat")
-            self.advancing = self.stamp > 0 and stamp > self.stamp
+            if (value[self.identity_key] != self.identity
+                    or type(stamp) is not int or stamp <= self.stamp):
+                raise ValueError("invalid or replayed viewer heartbeat")
+            self.advancing = self.stamp > 0
             self.stamp = stamp
         except (ValueError, KeyError, TypeError):
-            self.stamp = 0
-            self.advancing = False
+            # Retain the high-water mark so a replay cannot re-establish progress.
+            pass
 
     def ready(self, now_ns):
         return self.advancing and 0 <= now_ns - self.stamp < 1_000_000_000
@@ -74,7 +79,7 @@ def check_panes(session, checkout, run=subprocess.run):
         raise RuntimeError("PICO window missing or exited: " + ", ".join(rows))
 
 
-def wait_ready(session, checkout, timeout):
+def wait_ready(session, checkout, timeout, *, viewer_owner=None):
     import rclpy
     from std_msgs.msg import String
     from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
@@ -85,9 +90,12 @@ def wait_ready(session, checkout, timeout):
     try:
         node = rclpy.create_node("pico_session_startup_check")
         progress = ArmInputProgress(Path("/proc/sys/kernel/random/boot_id").read_text().strip())
-        pane = subprocess.run(["tmux", "display-message", "-p", "-t", session + ":m0", "#{pane_id}"],
-                              capture_output=True, text=True, check=True, timeout=2).stdout.strip()
-        viewer = ViewerProgress(pane)
+        if viewer_owner is None:
+            pane = subprocess.run(["tmux", "display-message", "-p", "-t", session + ":m0", "#{pane_id}"],
+                                  capture_output=True, text=True, check=True, timeout=2).stdout.strip()
+            viewer = ViewerProgress(pane)
+        else:
+            viewer = ViewerProgress(owner=viewer_owner)
         viewer_topic = "/pico/skeleton_viewer/status"
         viewer_subscription = node.create_subscription(String, viewer_topic, lambda msg: viewer.observe(msg.data), 10)
         topic = json.loads(config_path("robot.json").read_text())["pico_input_topic"]
@@ -98,13 +106,15 @@ def wait_ready(session, checkout, timeout):
             lambda msg: progress.observe(msg, time.monotonic_ns()), qos)
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
-            check_panes(session, checkout)
+            if viewer_owner is None:
+                check_panes(session, checkout)
             rclpy.spin_once(node, timeout_sec=0.2)
             if progress.ready(time.monotonic_ns()) and viewer.ready(time.monotonic_ns()):
                 # Multiple semantic mappers must not be mistaken for one live stream.
                 if node.count_publishers(topic) != 1 or node.count_publishers(viewer_topic) != 1:
                     raise RuntimeError("Expected exactly one PICO arm input and viewer publisher")
-                check_panes(session, checkout)
+                if viewer_owner is None:
+                    check_panes(session, checkout)
                 print("PICO input ready: skeleton viewer rendering; fresh matched ROS arm frames observed (no executor authorization)")
                 return
         raise RuntimeError("Timed out waiting for advancing PICO arm input and fresh skeleton viewer heartbeat")
@@ -114,16 +124,26 @@ def wait_ready(session, checkout, timeout):
         rclpy.shutdown()
 
 
+def owner_token(value):
+    if uuid.UUID(value).hex != value:
+        raise ValueError("viewer owner must be canonical UUID hex")
+    return value
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--session", required=True)
-    parser.add_argument("--checkout", required=True)
+    ownership = parser.add_mutually_exclusive_group(required=True)
+    ownership.add_argument("--session")
+    ownership.add_argument("--viewer-owner", type=owner_token)
+    parser.add_argument("--checkout")
     parser.add_argument("--timeout-s", type=float, default=30)
     args = parser.parse_args()
+    if args.session is not None and not args.checkout:
+        parser.error("--checkout is required with --session")
     if not math.isfinite(args.timeout_s) or args.timeout_s <= 0:
         parser.error("timeout must be finite and positive")
     try:
-        wait_ready(args.session, args.checkout, args.timeout_s)
+        wait_ready(args.session, args.checkout, args.timeout_s, viewer_owner=args.viewer_owner)
     except (RuntimeError, subprocess.SubprocessError) as error:
         parser.exit(2, str(error) + "\n")
 

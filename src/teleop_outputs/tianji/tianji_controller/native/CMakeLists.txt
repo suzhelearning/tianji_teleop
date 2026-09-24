@@ -53,6 +53,7 @@ add_library(tianji_qp_ik STATIC
   src/franka_iterative_pose_dls.cpp
   src/pico_ee_franka_dls.cpp
   src/config.cpp
+  src/episode_relative.cpp
   src/controller.cpp
   src/interactive_marker.cpp
   src/joint_kinematics_plot.cpp
@@ -145,13 +146,6 @@ if(TIANJI_BUILD_ROS)
   install(TARGETS tianji_arm_ros RUNTIME DESTINATION bin COMPONENT arm_ros)
 endif()
 
-add_executable(tianji_inspect_model apps/inspect_model.cpp)
-target_link_libraries(tianji_inspect_model PRIVATE mujoco::mujoco)
-tianji_enable_warnings(tianji_inspect_model)
-add_executable(tianji_record_action_trace apps/record_action_trace.cpp)
-target_link_libraries(tianji_record_action_trace PRIVATE tianji_qp_ik)
-tianji_enable_warnings(tianji_record_action_trace)
-
 include(CTest)
 if(BUILD_TESTING)
   find_package(GTest CONFIG REQUIRED)
@@ -198,6 +192,7 @@ if(BUILD_TESTING)
   tianji_add_test(test_simulation_recovery tests/test_simulation_recovery.cpp)
   tianji_add_test(test_pico_ee_franka_dls tests/test_pico_ee_franka_dls.cpp)
   tianji_add_test(test_franka_dls_controller tests/test_franka_dls_controller.cpp)
+  tianji_add_test(test_episode_relative tests/test_episode_relative.cpp)
   tianji_add_test(test_shared_root_geometry tests/test_shared_root_geometry.cpp)
   tianji_add_test(test_shared_root_closure tests/test_shared_root_closure.cpp)
   tianji_add_test(test_shared_root_input tests/test_shared_root_input.cpp)
@@ -233,7 +228,7 @@ if(BUILD_TESTING)
     ENVIRONMENT "TIANJI_WORKSPACE=${TIANJI_WORKSPACE};TIANJI_ENVIRONMENT=default")
 endif()
 
-install(TARGETS mocap_tcp_worker tianji_inspect_model tianji_record_action_trace
+install(TARGETS mocap_tcp_worker
   RUNTIME DESTINATION bin)
 install(TARGETS pico2_dls_worker tianji_qp_ik_viewer
   RUNTIME DESTINATION bin COMPONENT spd)

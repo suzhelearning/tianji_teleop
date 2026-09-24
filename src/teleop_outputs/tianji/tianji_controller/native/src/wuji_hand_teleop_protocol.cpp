@@ -247,7 +247,20 @@ bool WujiHandHistory::SideHistory::sample(
 }
 
 bool WujiHandHistory::observe(const WujiHandTeleopFrame& frame) noexcept {
-  if (!validMetadata(frame) || !finiteJoints(frame.left) ||
+  if (frame.left_revocation_generation != left_.revocation_generation) {
+    left_ = SideHistory{};
+    left_.revocation_generation = frame.left_revocation_generation;
+  }
+  if (frame.right_revocation_generation != right_.revocation_generation) {
+    right_ = SideHistory{};
+    right_.revocation_generation = frame.right_revocation_generation;
+  }
+  // ROS revocations may clear both sides; the UDP wire contract still requires
+  // at least one valid side. Never feed revoked endpoints to interpolation.
+  const bool empty_revocation = !frame.left_valid && !frame.right_valid &&
+      frame.sequence > 0U && frame.source_timestamp_ns > 0 &&
+      frame.left_source_timestamp_ns == 0 && frame.right_source_timestamp_ns == 0;
+  if ((!validMetadata(frame) && !empty_revocation) || !finiteJoints(frame.left) ||
       !finiteJoints(frame.right) || frame.sequence <= sequence_ ||
       frame.source_timestamp_ns <= publication_timestamp_ns_ ||
       (frame.left_valid &&

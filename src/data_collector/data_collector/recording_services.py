@@ -45,7 +45,7 @@ class RecordingServices:
         """Return one shared future for identical in-flight or completed requests."""
         fields = (request.session_id, request.phase_revision)
         fields += ((request.task,) if kind == "start" else
-                   (request.episode_id, request.save, request.abort))
+                   (request.episode_id, request.save, request.abort, request.cutoff_monotonic_ns))
         fingerprint = (kind, *fields)
         episode = request.request_id if kind == "start" else request.episode_id
         future = Future()
@@ -123,6 +123,8 @@ class RecordingServices:
             raise ValueError("no active recording for this executor session and episode")
         if self.stop_operation is not None:
             raise ValueError("an end operation already owns this episode")
+        if request.cutoff_monotonic_ns and session.state != "RECORDING":
+            raise ValueError("cutoff requires an active recording")
         if request.abort:
             if session.state not in ("STARTING", "RECORDING", "ABORTING"):
                 raise ValueError("episode cannot be aborted in this state")
@@ -132,11 +134,11 @@ class RecordingServices:
                 raise ValueError("episode is not recording")
         operation.kind = "abort" if request.abort else ("save" if request.save else "discard")
         operation.previous_saved = str(session.saved_paths[-1]) if session.saved_paths else ""
-        self.stop_operation = operation
         if request.abort:
-            session.end_episode()
+            session.end_episode(request.cutoff_monotonic_ns)
         else:
-            session.command("s" if request.save else "d", "TELEOP")
+            session.command("s" if request.save else "d", "TELEOP", request.cutoff_monotonic_ns)
+        self.stop_operation = operation
 
     def transition(self, state, active_path, saved_path, operation_error):
         """Complete only the episode whose serialized writer transitions we own."""

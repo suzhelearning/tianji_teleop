@@ -64,7 +64,7 @@ def fixture(tmp_path, present=True, mismatch=None, ready_error=False):
         if command[:2] == ["tmux", "has-session"]:
             return subprocess.CompletedProcess(command, 0 if present else 1, "")
         if command[:2] == ["tmux", "show-options"]:
-            return subprocess.CompletedProcess(command, 0, options[command[-1]])
+            return subprocess.CompletedProcess(command, 0, options.get(command[-1], ""))
         if "check_pico_session_ready.py" in command[1] and ready_error:
             raise subprocess.CalledProcessError(2, command)
         return subprocess.CompletedProcess(command, 0, "")
@@ -74,7 +74,7 @@ def fixture(tmp_path, present=True, mismatch=None, ready_error=False):
 @pytest.mark.parametrize("present", [True, False])
 def test_matching_or_new_input_requires_readiness(tmp_path, present):
     revision, commands, run = fixture(tmp_path, present)
-    ensure("person", root=tmp_path, run=run, resolver=lambda *_: revision)
+    ensure("person", root=tmp_path, run=run, resolver=lambda *_: revision, discover=lambda: None)
     starts = [c for c in commands if c[0] == "bash"]
     assert len(starts) == (0 if present else 1)
     assert "check_pico_session_ready.py" in commands[-1][1]
@@ -85,14 +85,14 @@ def test_matching_or_new_input_requires_readiness(tmp_path, present):
 def test_mismatch_does_not_replace_existing_session(tmp_path, key):
     revision, commands, run = fixture(tmp_path, mismatch=key)
     with pytest.raises(RuntimeError, match="不匹配"):
-        ensure("person", root=tmp_path, run=run, resolver=lambda *_: revision)
+        ensure("person", root=tmp_path, run=run, resolver=lambda *_: revision, discover=lambda: None)
     assert not any(c[0] == "bash" or "kill-session" in c for c in commands)
 
 
 def test_stale_session_cannot_be_reused(tmp_path):
     revision, commands, run = fixture(tmp_path, ready_error=True)
     with pytest.raises(subprocess.CalledProcessError):
-        ensure("person", root=tmp_path, run=run, resolver=lambda *_: revision)
+        ensure("person", root=tmp_path, run=run, resolver=lambda *_: revision, discover=lambda: None)
 
 
 def test_missing_person_profile_never_starts_input(tmp_path):
@@ -108,4 +108,29 @@ def test_fingerprint_detects_bundle_changes(tmp_path):
     (revision / "pico_right_palm_tcp.yaml").write_text("changed")
     assert fingerprint(revision) != before
 
+
+def test_simulation_reuses_matching_foreground_without_starting_or_stopping_it(tmp_path):
+    revision, commands, run = fixture(tmp_path)
+    active = {"checkout": str(tmp_path), "calibration_dir": str(revision),
+              "calibration_sha256": fingerprint(revision), "owner": "a" * 32, "pid": 123}
+    ensure("person", root=tmp_path, run=run, resolver=lambda *_: revision,
+           discover=lambda: dict(active))
+    assert len(commands) == 1
+    assert "--viewer-owner" in commands[0]
+    assert not any("tmux" in command or command[0] == "bash" for command in commands)
+
+
+def test_foreground_reuse_refuses_other_calibration_and_restart_during_readiness(tmp_path):
+    revision, commands, run = fixture(tmp_path)
+    active = {"checkout": str(tmp_path), "calibration_dir": str(revision),
+              "calibration_sha256": fingerprint(revision), "owner": "a" * 32, "pid": 123}
+    with pytest.raises(RuntimeError):
+        ensure("person", root=tmp_path, run=run, resolver=lambda *_: revision,
+               discover=lambda: dict(active, calibration_sha256="changed"))
+    assert not commands
+    observations = iter([active, dict(active, owner="b" * 32)])
+    with pytest.raises(RuntimeError):
+        ensure("person", root=tmp_path, run=run, resolver=lambda *_: revision,
+               discover=lambda: next(observations))
+    assert not any("kill-session" in command for command in commands)
 

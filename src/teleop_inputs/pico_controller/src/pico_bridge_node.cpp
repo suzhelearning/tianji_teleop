@@ -12,6 +12,7 @@
 #include <geometry_msgs/msg/pose_array.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <std_msgs/msg/bool.hpp>
+#include <std_msgs/msg/empty.hpp>
 #include <std_msgs/msg/float32.hpp>
 #include <std_msgs/msg/string.hpp>
 #include <std_msgs/msg/u_int64.hpp>
@@ -84,6 +85,7 @@ public:
 
         record_flag_pub_ = create_publisher<std_msgs::msg::Bool>("/pico/record_flag", 10);
         world_reset_pub_ = create_publisher<std_msgs::msg::Float32>(world_reset_topic_, 10);
+        set_ground_pub_ = create_publisher<std_msgs::msg::Empty>("/pico/set_ground", 10);
         auto epoch_qos = rclcpp::QoS(1).reliable().transient_local();
         tracking_epoch_pub_ = create_publisher<std_msgs::msg::UInt64>(
             tracking_epoch_topic_, epoch_qos);
@@ -217,16 +219,26 @@ private:
         tracking_epoch_status_pub_->publish(status_message);
     }
 
-    void advance_tracking_epoch(const std::string& source) {
+    bool advance_tracking_epoch(const std::string& source) {
         clear_body_frame();
         try {
             const uint64_t epoch = pico_bridge::reserve_tracking_epoch(tracking_epoch_state_file_);
             tracking_epoch_.store(epoch);
             publish_tracking_epoch(epoch, source);
+            return true;
         } catch (const std::exception & error) {
             RCLCPP_FATAL(get_logger(), "Cannot reserve tracking epoch: %s", error.what());
             running_ = false;
+            return false;
         }
+    }
+
+    void publish_set_ground(uint8_t type, int64_t ts_ms,
+                            const uint8_t* payload, size_t len) {
+        if (!set_ground_edge_.observe(type, ts_ms, payload, len)) return;
+        if (!advance_tracking_epoch("controller_set_ground")) return;
+        set_ground_pub_->publish(std_msgs::msg::Empty{});
+        RCLCPP_INFO(get_logger(), "PICO right-controller A: Set Ground");
     }
 
     void publish_pose(rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pub,
@@ -319,6 +331,7 @@ private:
         const size_t count = pf::BODY_JOINT_COUNT + (body_only ? 0 : 3);
         if (len != offset + count * stride ||
             (!body_only && (payload[0] & ~uint8_t{7}) != 0)) {
+            if (!body_only) set_ground_edge_.invalidate(ts_ms);
             RCLCPP_WARN(get_logger(), "Invalid packed tracking payload for type 0x%02X", type);
             return;
         }
@@ -328,9 +341,14 @@ private:
         for (size_t i = 0; i < count; ++i) {
             const bool enabled = (!body_only && i < 3) ? (flags & 2) : (flags & 4);
             if (enabled && !pf::decode_packed_pose(payload + offset + i * stride, half, poses[i])) {
+                if (!body_only) set_ground_edge_.invalidate(ts_ms);
                 RCLCPP_WARN(get_logger(), "Nonfinite packed tracking pose");
                 return;
             }
+        }
+        if (!body_only) {
+            publish_set_ground(type, ts_ms, payload, len);
+            if (!running_) return;
         }
         if (!body_only && (flags & 2)) {
             publish_pose(pose_l_pub_, ts_ms, reinterpret_cast<const uint8_t*>(poses[0]), 28);
@@ -367,6 +385,7 @@ private:
             ::setsockopt(client, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
             RCLCPP_INFO(get_logger(), "Accepted wired APK tracking client on %s:%d",
                         host_.c_str(), port_);
+            set_ground_edge_.reset_connection();
             advance_tracking_epoch("tcp_connection");
 
             while (running_ && rclcpp::ok()) {
@@ -421,10 +440,11 @@ private:
                         RCLCPP_INFO(get_logger(), "PICO world reset yaw: %.3f", yaw);
                         break;
                     }
-                    case pf::TYPE_CTRL_LEFT:
                     case pf::TYPE_CTRL_RIGHT:
                     case pf::TYPE_CTRL_ALL:
-                        break;  // recognized, intentionally not published
+                        publish_set_ground(h.type, h.ts_ms, payload.data(), payload.size()); break;
+                    case pf::TYPE_CTRL_LEFT:
+                        break;  // Left primary X is not Set Ground.
                     default: {
                         if (pf::is_body_pose_type(h.type))
                             accept_body_pose(h.type, h.ts_ms, payload.data(), payload.size());
@@ -435,6 +455,7 @@ private:
             }
 
             ::close(client);
+            set_ground_edge_.reset_connection();
             clear_body_frame();
             if (running_ && rclcpp::ok()) {
                 RCLCPP_WARN(get_logger(), "Tracking client disconnected; waiting for wired APK");
@@ -454,6 +475,7 @@ private:
     std::array<int, 2> wake_pipe_{{-1, -1}};
     std::atomic<uint64_t> tracking_epoch_{0};
     std::thread thread_;
+    pf::ControllerSetGroundEdge set_ground_edge_;
 
     rclcpp::Publisher<sensor_msgs::msg::CompressedImage>::SharedPtr cam_l_pub_, cam_r_pub_;
     rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pose_h_pub_, pose_l_pub_, pose_r_pub_;
@@ -465,6 +487,7 @@ private:
     bool smpl_published_ = false;
         rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr record_flag_pub_;
         rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr world_reset_pub_;
+    rclcpp::Publisher<std_msgs::msg::Empty>::SharedPtr set_ground_pub_;
     rclcpp::Publisher<std_msgs::msg::UInt64>::SharedPtr tracking_epoch_pub_;
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr tracking_epoch_status_pub_;
     rclcpp::Publisher<pico_bridge::msg::BleFrame>::SharedPtr ble_l_pub_, ble_r_pub_;

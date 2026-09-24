@@ -11,8 +11,6 @@ import sys
 import tempfile
 import time
 
-from tianji_runtime import workspace
-
 
 class IdentityConflict(RuntimeError):
     """An observed participant cannot safely belong to this collection."""
@@ -56,6 +54,7 @@ class CollectionSupervisor:
             self._check_workers()
             try:
                 if predicate():
+                    self._check_workers()
                     return
             except IdentityConflict:
                 raise
@@ -69,8 +68,10 @@ class CollectionSupervisor:
         return [namespace.rstrip("/") + "/" + name for name, namespace in nodes]
 
     def _expected(self, node, token):
+        config_bytes = self.config.read_bytes()
+        digest = hashlib.sha256(config_bytes).hexdigest()
         expected = {"owner_token": token, "config_path": str(self.config),
-                    "config_digest": hashlib.sha256(self.config.read_bytes()).hexdigest()}
+                    "config_digest": digest}
         if node == self.COLLECTOR:
             expected.update(dataset_path=str(self.dataset), task=self.task,
                             model_path=str(self.model),
@@ -101,16 +102,18 @@ class CollectionSupervisor:
         return True
 
     def _discover(self):
-        # Give remote graph caches time to converge before deciding to create a
-        # worker. Identity and service ownership are rechecked after launching.
-        deadline = time.monotonic() + 2.0
+        # External cameras may already be streaming before this participant
+        # joins DDS. Wait for their monitor, not merely a fixed discovery sleep.
+        settle_until = time.monotonic() + 2.0
+        deadline = time.monotonic() + 15.0
         while True:
             nodes, services = self.observer.request("graph")
             names = self._names(nodes)
             for node in self.SERVICES:
                 if names.count(node) > 1:
                     raise IdentityConflict(f"ambiguous identity: {node}")
-            if time.monotonic() >= deadline:
+            now = time.monotonic()
+            if now >= deadline or (now >= settle_until and self.CAMERA in names):
                 break
             time.sleep(0.05)
         present = {node for node in self.SERVICES if node in names}
@@ -119,13 +122,14 @@ class CollectionSupervisor:
             if service in reserved:
                 owners = self.observer.request("service_owners", service)
                 expected_node = next(node for node, mapping in self.SERVICES.items() if service in mapping)
-                if not owners or any(owner != expected_node for owner, _ in owners):
+                # The ROS graph also lists client-only services. No server
+                # owner means there is no participant to reuse or conflict with.
+                if not owners:
+                    continue
+                if any(owner != expected_node for owner, _ in owners):
                     raise IdentityConflict(f"conflicting service identity: {service}: {owners}")
                 if expected_node not in present:
                     raise IdentityConflict(f"service without unique node identity: {service}")
-        if self.CAMERA not in present and (
-                self.COLLECTOR in present or any(ns == "/cameras" for _, ns in nodes)):
-            raise IdentityConflict("existing camera/collector has no certifying camera monitor")
         return present
 
     def start(self):
@@ -137,17 +141,16 @@ class CollectionSupervisor:
         except BlockingIOError as error:
             raise RuntimeError("another executor owns collection startup in this DDS domain") from error
         present = self._discover()
+        if self.CAMERA not in present:
+            raise RuntimeError(
+                "--data requires an existing camera monitor; start bash/run_camera_views.sh "
+                f"--config {self.config} first and wait for CAMERA_VIEWS_READY")
         # Validate every existing participant before creating anything. An empty
         # token denotes standalone, never permission to take over a foreign owner.
         for node in present:
             self._wait(lambda node=node: self._identity(node, ""), "standalone identity")
             self._participants[node] = ""
         token = self.observer.session_id
-        if self.CAMERA not in present:
-            self._launch("cameras", ["bash", str(workspace() / "bash/run_cameras.sh"),
-                                     "--config", str(self.config), "--owner-token", token], 15.0)
-            self._participants[self.CAMERA] = token
-        self._wait(lambda: self._identity(self.CAMERA, self._participants[self.CAMERA]), "camera identity")
         self._wait(lambda: self.observer.request("trigger", "/tianji/cameras/check_ready").success,
                    "validated camera profiles and streams")
         if self.COLLECTOR not in present:
@@ -162,6 +165,8 @@ class CollectionSupervisor:
         # Recheck current bytes and all service owners at the SDK-connect boundary.
         for node, owner in self._participants.items():
             self._identity(node, owner)
+        self._wait(lambda: self.observer.request("trigger", "/tianji/cameras/check_ready").success,
+                   "camera freshness before SDK connection")
         self.observer.request("activate_collection")
         self._collector_bound = True
 

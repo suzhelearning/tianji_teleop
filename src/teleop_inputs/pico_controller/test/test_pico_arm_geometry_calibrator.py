@@ -112,7 +112,7 @@ def test_right_candidate_has_independent_artifact_and_lineage(tmp_path):
         tcp_translation_fingerprint="a" * 64,
         wrist_pivot_hash="right-wrist-hash",
         tracking_epoch=4,
-        tracking_epoch_source="wire_world_reset",
+        tracking_epoch_source="controller_set_ground",
         output_dir=tmp_path,
     )
     assert report["valid"] is True

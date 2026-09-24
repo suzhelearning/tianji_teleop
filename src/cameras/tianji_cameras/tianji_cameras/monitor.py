@@ -26,6 +26,7 @@ from std_srvs.srv import Trigger
 from tianji_runtime import config_path, workspace
 from tianji_runtime.camera_stream import (
     CameraStreamValidator, ImageRecord, MetadataJsonParser, StreamFault, split_stamp,
+    camera_publisher_gid,
 )
 from tianji_runtime.constants import CAMERA_FPS, IMAGE_HEIGHT, IMAGE_WIDTH
 from .preflight import load_camera_selection, uses_depth_module_color
@@ -131,15 +132,8 @@ class CameraMonitor(Node):
 
     def _publisher(self, state, suffix):
         topic = f"/cameras/{state.role}/color/{suffix}"
-        endpoints = self.get_publishers_info_by_topic(topic)
-        if len(endpoints) != 1:
-            raise StreamFault(f"{topic}: expected one publisher, found {len(endpoints)}")
-        endpoint = endpoints[0]
-        if endpoint.node_name != state.role or endpoint.node_namespace != "/cameras":
-            raise StreamFault(f"{topic}: unexpected publisher node identity")
-        gid = bytes(endpoint.endpoint_gid)
-        if not gid or not any(gid):
-            raise StreamFault(f"{topic}: publisher endpoint has no GID")
+        gid = camera_publisher_gid(
+            self.get_publishers_info_by_topic(topic), state.role, suffix)
         if suffix == "image_raw":
             state.validator.note_image_publisher(gid)
         else:

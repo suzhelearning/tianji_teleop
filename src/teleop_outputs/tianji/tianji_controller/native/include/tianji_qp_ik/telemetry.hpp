@@ -122,6 +122,11 @@ struct ViewerSnapshot {
   bool hand_configured{false};
   bool hand_live{false};
   bool hand_stale{true};
+  bool hand_ros{false};
+  bool hand_left_stale{true};
+  bool hand_right_stale{true};
+  std::uint64_t hand_messages{0U};
+  std::uint64_t hand_rejected{0U};
   std::uint64_t hand_sequence{0U};
   std::uint64_t hand_datagrams{0U};
   std::uint64_t hand_accepted{0U};

@@ -23,6 +23,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/ControllerJointTargets.msg"
   "srv/StartCollect.srv"
   "srv/StopCollect.srv"
+  "srv/TeleopReference.srv"
   DEPENDENCIES builtin_interfaces std_msgs geometry_msgs
 )
 

@@ -121,13 +121,18 @@ class PalmWristPivotTest(unittest.TestCase):
 
         calibrator._epoch_status_callback(
             SimpleNamespace(
-                data='{"tracking_epoch":5,"tracking_epoch_source":"wire_world_reset"}'
+                data='{"tracking_epoch":5,"tracking_epoch_source":"controller_set_ground"}'
             )
         )
 
         self.assertFalse(calibrator._capturing)
         self.assertEqual(calibrator._samples, [])
         self.assertEqual(calibrator._tracking_epoch, 5)
+        self.assertFalse(calibrator._epoch_consistent())
+        calibrator._epoch_callback(SimpleNamespace(data=5))
+        self.assertTrue(calibrator._epoch_consistent())
+        calibrator._tracking_epoch_source = "unknown"
+        self.assertFalse(calibrator._epoch_consistent())
 
     def test_successful_wrist_solution_exits_without_allowing_overwrite(self):
         wrist = np.array([0.4, -0.2, 0.9])

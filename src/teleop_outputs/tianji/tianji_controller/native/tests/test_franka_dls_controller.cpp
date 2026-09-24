@@ -1,6 +1,7 @@
 #include "tianji_qp_ik/controller.hpp"
 #include "tianji_qp_ik/so3.hpp"
 #include <gtest/gtest.h>
+#include <algorithm>
 #include <limits>
 
 namespace tianji_qp_ik { namespace {
@@ -15,6 +16,14 @@ class FrankaDlsController : public ::testing::Test {
     robot.forward();
   }
   DualArmTargets target() { return {robot.tcpPose(ArmSide::kLeft),robot.tcpPose(ArmSide::kRight)}; }
+  void useExecutionEnvelope() {
+    std::array<ArmLimits, 2> limits{
+        robot.mapping(ArmSide::kLeft).limits, robot.mapping(ArmSide::kRight).limits};
+    limits[0].upper_position[2] = 0.0;
+    limits[1].lower_position[2] = 0.0;
+    limits[0].upper_position[3] = limits[1].upper_position[3] = 0.0;
+    config.joint_limits.execution_limits = limits;
+  }
 };
 TEST_F(FrankaDlsController, ExplicitPinocchioIsRequiredWithoutFallback) {
   auto c=config;c.controller.pico_ee_dls_kinematics_urdf_path.clear();
@@ -82,6 +91,78 @@ TEST_F(FrankaDlsController, RejectsHardwareDisabledAndRelaxedEnvelope) {
   c=config; c.pico_ee_franka_dls.post_smoothing.max_velocity_rad_s[0]=std::numeric_limits<double>::quiet_NaN();
   EXPECT_THROW(DualArmController(robot,c),std::invalid_argument);
 }
+TEST_F(FrankaDlsController, UnreachablePositiveElbowPoseNeverEscapesExecutionEnvelope) {
+  std::array<Vec7, 2> initial{robot.armPosition(ArmSide::kLeft),
+                             robot.armPosition(ArmSide::kRight)};
+  initial[0][3] = initial[1][3] = -0.15;
+  for (bool constrained : {false, true}) {
+    if (constrained) useExecutionEnvelope();
+    for (auto side : {ArmSide::kLeft, ArmSide::kRight})
+      robot.setArmState(side, initial[side == ArmSide::kLeft ? 0 : 1], Vec7::Zero());
+    robot.forward();
+    DualArmController controller(robot, config);
+    double maximum_elbow = -0.15;
+    for (int step = 0; step < 600; ++step) {
+      DualArmTargets requested;
+      for (auto side : {ArmSide::kLeft, ArmSide::kRight}) {
+        Vec7 q = initial[side == ArmSide::kLeft ? 0 : 1];
+        q[3] += 0.001 * (step + 1);
+        (side == ArmSide::kLeft ? requested.left : requested.right) =
+            robot.armKinematicsAt(side, q).tcp_pose;
+      }
+      const auto result = controller.step(requested, 0.005);
+      for (auto side : {ArmSide::kLeft, ArmSide::kRight}) {
+        const auto& q = controller.reference(side);
+        maximum_elbow = std::max(maximum_elbow, q[3]);
+        if (!constrained) continue;
+        const auto& limits = (*config.joint_limits.execution_limits)[side == ArmSide::kLeft ? 0 : 1];
+        EXPECT_TRUE((q.array() >= limits.lower_position.array()).all());
+        EXPECT_TRUE((q.array() <= limits.upper_position.array()).all());
+        if (result.accepted) {
+          const auto& goal = side == ArmSide::kLeft ? result.left.dls_posture_goal
+                                                  : result.right.dls_posture_goal;
+          EXPECT_TRUE((goal.array() >= limits.lower_position.array() + config.joint_limits.margin_rad - 1e-10).all());
+          EXPECT_TRUE((goal.array() <= limits.upper_position.array() - config.joint_limits.margin_rad + 1e-10).all());
+        }
+      }
+    }
+    // Both trials must actually move; the wide-model control must reach the
+    // forbidden branch, so an always-hold implementation cannot pass.
+    EXPECT_GT(maximum_elbow, constrained ? -0.14 : 0.02);
+  }
+}
+
+TEST_F(FrankaDlsController, RejectsInitialAndResetStatesOutsideEffectiveRuckigEnvelope) {
+  useExecutionEnvelope();
+  const auto initial = robot.armPosition(ArmSide::kLeft);
+  for (double elbow : {0.1, -0.01}) {
+    Vec7 q = initial;
+    q[3] = elbow;
+    robot.setArmPosition(ArmSide::kLeft, q);
+    robot.forward();
+    EXPECT_THROW(DualArmController(robot, config), std::invalid_argument);
+  }
+  robot.setArmPosition(ArmSide::kLeft, initial);
+  robot.forward();
+  DualArmController controller(robot, config);
+  const auto before = controller.referenceState(ArmSide::kLeft);
+  for (double elbow : {0.1, -0.01}) {
+    auto invalid = before;
+    invalid.q[3] = elbow;
+    EXPECT_FALSE(controller.setReferenceState(ArmSide::kLeft, invalid));
+    EXPECT_EQ(controller.reference(ArmSide::kLeft), before.q);
+    EXPECT_EQ(robot.armPosition(ArmSide::kLeft), before.q);
+    std::array<Vec7, 2> measured{before.q, controller.reference(ArmSide::kRight)};
+    measured[0][0] += .02;
+    measured[1][3] = elbow;
+    DualArmTargets captured_tcp;
+    EXPECT_FALSE(controller.resetEpisodeReference(measured, captured_tcp));
+    EXPECT_EQ(controller.reference(ArmSide::kLeft), before.q);
+    EXPECT_EQ(robot.armPosition(ArmSide::kLeft), before.q);
+  }
+  EXPECT_TRUE(controller.step(target(), 0.005).accepted);
+}
+
 TEST_F(FrankaDlsController, StationaryAndMovingPoseRemainBounded) {
   DualArmController controller(robot,config);
   auto t=target();

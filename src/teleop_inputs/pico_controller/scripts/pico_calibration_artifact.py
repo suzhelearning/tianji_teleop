@@ -23,7 +23,7 @@ from pico_arm_geometry_core import (
 from pico_palm_orientation_core import translation_fingerprint
 
 
-EXPLICIT_EPOCH_SOURCES = {"tcp_connection", "wire_world_reset"}
+EXPLICIT_EPOCH_SOURCES = {"tcp_connection", "wire_world_reset", "controller_set_ground"}
 EXPECTED_GEOMETRY_COVARIANCE_ORDER = (
     "shoulder_x_m",
     "shoulder_y_m",

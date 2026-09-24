@@ -4,6 +4,7 @@ import argparse
 import json
 from pathlib import Path
 import time
+from types import SimpleNamespace
 
 from data_collector import node
 from data_collector.dataset import EpisodeWriter
@@ -36,6 +37,18 @@ def main():
     class ObservedCollector(original_node):
         def __init__(self, **kwargs):
             super().__init__(**kwargs, status_rate_hz=1.0 / options.status_period)
+
+        def get_publishers_info_by_topic(self, topic):
+            endpoints = super().get_publishers_info_by_topic(topic)
+            try:
+                pending = json.loads(options.writer_control.read_text()).get("camera_graph_pending", False)
+            except FileNotFoundError:
+                pending = False
+            if pending and topic.startswith("/cameras/"):
+                return [SimpleNamespace(
+                    node_name="_NODE_NAME_UNKNOWN_", node_namespace="_NODE_NAMESPACE_UNKNOWN_",
+                    endpoint_gid=endpoint.endpoint_gid) for endpoint in endpoints]
+            return endpoints
 
     node.CollectorNode = ObservedCollector
     return node.main(arguments)

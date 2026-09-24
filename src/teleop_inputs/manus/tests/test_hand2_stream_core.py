@@ -15,11 +15,12 @@ class Clock:
 
 
 def frame(clock, *, side="left", sequence=1, session="one", glove=10,
-          stamp=None, boot="local", valid=True):
+          stamp=None, boot="local", valid=True, generation=0):
     return SimpleNamespace(
         side=side, sequence=sequence, session_id=session, glove_id=glove,
         source_monotonic_ns=clock() if stamp is None else stamp,
         boot_id=boot, valid=valid,
+        revocation_generation=generation,
     )
 
 
@@ -147,3 +148,36 @@ def test_undiscovered_publisher_cannot_initialize_source_or_run_solver():
     assert rejected.values is None
     accepted = stage.process(frame(clock), 3, publisher_count=1, writer=b"discovered")
     assert accepted.valid and accepted.values == 3
+
+
+def test_revocation_survives_dropped_invalid_sample_at_each_pipeline_hop():
+    clock = Clock()
+    solver = HistorySolver()
+    adapter = HandStage("left", "local", lambda value: value, clock=clock)
+    retarget = HandStage("left", "local", solver.step, reset=solver.reset, clock=clock)
+    first = adapter.process(frame(clock), 3)
+    assert retarget.process(frame(clock, generation=first.revocation_generation), first.values).values == 3
+    # Raw acquisition invalidated and recovered before this adapter received it.
+    clock.now += 1
+    recovered = adapter.process(frame(clock, sequence=2, generation=1), 5)
+    assert recovered.valid and recovered.revocation_generation > first.revocation_generation
+    target = retarget.process(
+        frame(clock, sequence=2, generation=recovered.revocation_generation), recovered.values)
+    assert target.valid and target.values == 5  # Solver history did not survive the revocation.
+    assert target.revocation_generation > 0
+    clock.now += 1
+    following = retarget.process(
+        frame(clock, sequence=3, generation=recovered.revocation_generation), 2)
+    assert following.revocation_generation == target.revocation_generation
+
+
+def test_local_invalidation_remains_visible_after_recovery():
+    clock = Clock()
+    stage = HandStage("left", "local", lambda value: value, clock=clock)
+    first = stage.process(frame(clock), 1)
+    invalid = stage.process(frame(clock, valid=False), None)
+    clock.now += 1
+    recovered = stage.process(frame(clock, sequence=2), 2)
+    assert recovered.valid
+    assert recovered.revocation_generation == invalid.revocation_generation
+    assert recovered.revocation_generation > first.revocation_generation

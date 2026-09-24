@@ -542,10 +542,12 @@ class SmplGeometryTest(unittest.TestCase):
         self.assertEqual(visualizer._ground_estimator.height, locked)
         self.assertEqual(visualizer._floor_source, "primary")
 
-    def test_world_reset_clears_locked_floor(self):
+    def test_ground_reset_clears_floor_and_requires_30_new_stable_frames(self):
         visualizer = SmplMujocoVisualizer.__new__(SmplMujocoVisualizer)
-        visualizer._ground_estimator = smpl_viewer.GroundPlaneEstimator(window_size=1)
-        visualizer._ground_estimator.observe(-1.0, -1.0)
+        visualizer._ground_estimator = smpl_viewer.GroundPlaneEstimator()
+        for _ in range(30):
+            visualizer._ground_estimator.observe(-1.0, -1.0)
+        self.assertEqual(visualizer._ground_estimator.height, -1.0)
         visualizer._floor_source = "raw"
         visualizer._raw_cache = PoseFrameCache()
         visualizer._raw_cache.update(
@@ -561,6 +563,11 @@ class SmplGeometryTest(unittest.TestCase):
         self.assertIsNone(visualizer._ground_estimator.height)
         self.assertIsNone(visualizer._floor_source)
         self.assertFalse(visualizer._raw_floor_is_preferred())
+        for _ in range(29):
+            visualizer._ground_estimator.observe(-1.5, -1.5)
+        self.assertIsNone(visualizer._ground_estimator.height)
+        visualizer._ground_estimator.observe(-1.5, -1.5)
+        self.assertEqual(visualizer._ground_estimator.height, -1.5)
 
     def test_apply_ground_plane_moves_and_reveals_reference_geometry(self):
         visualizer = SmplMujocoVisualizer.__new__(SmplMujocoVisualizer)

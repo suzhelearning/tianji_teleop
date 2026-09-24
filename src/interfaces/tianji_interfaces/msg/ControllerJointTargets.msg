@@ -8,6 +8,8 @@ uint64 sequence
 int64 produced_monotonic_ns
 int64 input_monotonic_ns
 uint64 tracking_epoch
+# Zero outside episode-relative mode or before a reference is prepared.
+uint64 reference_id
 # bit0 arms ready, bit1 right legacy hand ready, bit2 left legacy hand ready.
 uint8 flags
 float64[7] left_arm

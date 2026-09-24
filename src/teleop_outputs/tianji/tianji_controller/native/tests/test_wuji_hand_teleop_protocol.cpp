@@ -1,4 +1,6 @@
 #include "tianji_qp_ik/wuji_hand_teleop_protocol.hpp"
+#include "tianji_qp_ik/joint_command.hpp"
+#include "tianji_qp_ik/telemetry.hpp"
 
 #include <gtest/gtest.h>
 
@@ -257,6 +259,71 @@ TEST(WujiHandHistory, RingWrapAndRejectedRegressionsPreserveNewestTrajectory) {
   rollback.source_timestamp_ns = 1210000000;  // Regressed callback source.
   EXPECT_FALSE(history.observe(rollback));
   EXPECT_DOUBLE_EQ(history.sample(1220000000).left[0], 20.0);
+}
+
+TEST(WujiHandHistory, SupersededRevocationCannotInterpolateAcrossRevokedSide) {
+  LatestSpscExchange<WujiHandTeleopFrame> exchange;
+  WujiHandHistory history;
+  HandCommandFreshness left(ArmSide::kLeft), right(ArmSide::kRight);
+  auto first = trajectoryFrame(1U, 1000000000, 0.0, 0.0);
+  first.receive_monotonic_ns = first.source_timestamp_ns;
+  ASSERT_TRUE(history.observe(first));
+  left.observe(first);
+  right.observe(first);
+
+  auto revoked = trajectoryFrame(2U, 1005000000, 0.0, 0.5);
+  revoked.left_valid = false;
+  revoked.left_source_timestamp_ns = 0;
+  revoked.left_revocation_generation = 1U;
+  (void)exchange.publish(revoked);
+  auto recovered = trajectoryFrame(3U, 1010000000, 1.0, 1.0);
+  recovered.receive_monotonic_ns = recovered.source_timestamp_ns;
+  recovered.left_revocation_generation = 1U;
+  (void)exchange.publish(recovered);
+  WujiHandTeleopFrame latest;
+  ASSERT_TRUE(exchange.tryReadLatest(latest));
+  ASSERT_TRUE(history.observe(latest));
+  left.observe(latest);
+  right.observe(latest);
+  const auto sample = history.sample(1015000000);
+  ASSERT_TRUE(sample.left_valid);
+  ASSERT_TRUE(sample.right_valid);
+  EXPECT_DOUBLE_EQ(sample.left[0], 1.0);  // No pre-revocation endpoint.
+  EXPECT_DOUBLE_EQ(sample.right[0], 0.5);  // Other side stays continuous.
+  EXPECT_TRUE(left.live(1015000000));
+  EXPECT_TRUE(right.live(1015000000));
+}
+
+TEST(WujiHandHistory, RevocationsFreezeAndOtherHandCannotRefreshSourceAge) {
+  WujiHandHistory history;
+  HandCommandFreshness left(ArmSide::kLeft), right(ArmSide::kRight);
+  auto frame = trajectoryFrame(1U, 1000000000, 0.25, 0.5);
+  frame.receive_monotonic_ns = frame.source_timestamp_ns;
+  ASSERT_TRUE(history.observe(frame));
+  left.observe(frame);
+  right.observe(frame);
+  // Right keeps publishing; cached left must expire on its original timestamp.
+  frame.sequence = 2U;
+  frame.source_timestamp_ns = frame.right_source_timestamp_ns = 1140000000;
+  frame.receive_monotonic_ns = frame.source_timestamp_ns;
+  ASSERT_TRUE(history.observe(frame));
+  left.observe(frame);
+  right.observe(frame);
+  EXPECT_FALSE(left.live(1150000000));
+  EXPECT_TRUE(right.live(1150000000));
+
+  frame.sequence = 3U;
+  frame.source_timestamp_ns = frame.receive_monotonic_ns = 1141000000;
+  frame.left_valid = frame.right_valid = false;
+  frame.left_source_timestamp_ns = frame.right_source_timestamp_ns = 0;
+  frame.left_revocation_generation = frame.right_revocation_generation = 1U;
+  ASSERT_TRUE(history.observe(frame));
+  left.observe(frame);
+  right.observe(frame);
+  EXPECT_FALSE(history.sample(1142000000).left_valid);
+  EXPECT_FALSE(history.sample(1142000000).right_valid);
+  EXPECT_FALSE(left.live(1142000000));
+  EXPECT_FALSE(right.live(1142000000));
 }
 
 }  // namespace

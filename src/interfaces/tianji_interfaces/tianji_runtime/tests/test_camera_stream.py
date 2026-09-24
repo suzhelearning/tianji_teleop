@@ -1,9 +1,11 @@
 import time
+from types import SimpleNamespace
 
 import pytest
 
 from tianji_runtime.camera_stream import (
     CameraStreamValidator, ImageRecord, MetadataJsonParser, MetadataRecord, StreamFault,
+    PublisherDiscoveryPending, camera_publisher_gid,
 )
 
 
@@ -82,3 +84,23 @@ def test_late_metadata_is_dropped_but_driver_counter_restart_is_a_fault():
         validator.accept_metadata(MetadataRecord(300, 'optical', 0), now)
     with pytest.raises(StreamFault):
         validator.check_fresh(paired.timestamp_ns + 2_000_000_001)
+
+
+def test_discovery_placeholders_never_authorize_a_camera_writer():
+    unknown = SimpleNamespace(node_name="_NODE_NAME_UNKNOWN_",
+                              node_namespace="/cameras", endpoint_gid=b"image")
+    with pytest.raises(PublisherDiscoveryPending):
+        camera_publisher_gid([unknown], "top", "image_raw")
+    unknown.node_name = "top"
+    assert camera_publisher_gid([unknown], "top", "image_raw") == b"image"
+
+
+def test_known_wrong_or_ambiguous_camera_writers_remain_faults():
+    rogue = SimpleNamespace(node_name="other", node_namespace="/cameras", endpoint_gid=b"image")
+    with pytest.raises(StreamFault) as error:
+        camera_publisher_gid([rogue], "top", "image_raw")
+    assert not isinstance(error.value, PublisherDiscoveryPending)
+    rogue.node_name = "top"
+    with pytest.raises(StreamFault) as error:
+        camera_publisher_gid([rogue, rogue], "top", "image_raw")
+    assert not isinstance(error.value, PublisherDiscoveryPending)

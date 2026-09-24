@@ -4,6 +4,8 @@
 
 #include <Eigen/Core>
 
+#include <array>
+#include <optional>
 #include <string>
 
 namespace tianji_qp_ik {
@@ -69,7 +71,14 @@ struct JointLimitConfig {
   double margin_rad{0.05};
   Vec7 max_acceleration_rad_s2{Vec7::Constant(1.0e6)};
   Vec7 max_jerk_rad_s3{Vec7::Constant(1.0e6)};
+  // Optional execution position envelope, left then right. Velocity stays model-owned.
+  std::optional<std::array<ArmLimits, 2>> execution_limits;
 };
+
+// Model metadata is immutable; motion uses its intersection with the execution envelope.
+// Rejects non-finite, empty, or margin-infeasible limits.
+ArmLimits effectiveArmLimits(const JointLimitConfig& config,
+                            const ArmLimits& model, ArmSide side);
 struct SafetyConfig {
   double bound_tolerance{1e-8};
   double max_target_position_step{0.05};

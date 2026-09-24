@@ -9,6 +9,9 @@ bool save
 # Fault/teardown: preserve an unsaved partial instead of publishing success or deleting it.
 # save=true and abort=true is invalid. This flag grants no motion authority.
 bool abort
+# Executor key receipt CLOCK_MONOTONIC time. Zero keeps legacy stop-at-service behavior.
+# A successful save contains no sample later than this cutoff, including queued samples.
+int64 cutoff_monotonic_ns
 ---
 # True only after the requested writer finalization/deletion has completed.
 bool success

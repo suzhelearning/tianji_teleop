@@ -24,6 +24,7 @@ from rclpy.qos import (
 from std_msgs.msg import String, UInt64
 
 from pico_calibration_artifact import (
+    EXPLICIT_EPOCH_SOURCES,
     file_sha256 as calibration_file_sha256,
     validate_artifact as validate_calibration_artifact,
 )
@@ -649,7 +650,7 @@ class PicoPalmSkeletonFilterNode(Node):
         return (
             self._tracking_epoch > 0
             and self._tracking_epoch_numeric == self._tracking_epoch
-            and self._tracking_epoch_source in {"tcp_connection", "wire_world_reset"}
+            and self._tracking_epoch_source in EXPLICIT_EPOCH_SOURCES
         )
 
     def _handle_epoch_transition(self, previous: int, current: int) -> None:
@@ -894,7 +895,7 @@ class PicoPalmSkeletonFilterNode(Node):
             "stream_valid": (
                 epoch > 0
                 and numeric_epoch == epoch
-                and source in {"tcp_connection", "wire_world_reset"}
+                and source in EXPLICIT_EPOCH_SOURCES
                 and source_frame_id == "pico"
             ),
             "source_frame_id": source_frame_id,

@@ -56,7 +56,7 @@ def _write_tcp(path: Path) -> None:
 def test_service_updates_only_orientation_and_hot_swaps_runtime(tmp_path):
     import rclpy
     from geometry_msgs.msg import PoseStamped
-    from rclpy.executors import MultiThreadedExecutor
+    from rclpy.executors import SingleThreadedExecutor
     from rclpy.node import Node
     from rclpy.qos import (
         DurabilityPolicy,
@@ -132,7 +132,8 @@ def test_service_updates_only_orientation_and_hot_swaps_runtime(tmp_path):
     client = source.create_client(
         Trigger, "/pico/palm_orientation/left/calibrate"
     )
-    executor = MultiThreadedExecutor(num_threads=4)
+    # Streaming must continue while the asynchronous calibration request waits.
+    executor = SingleThreadedExecutor()
     executor.add_node(publisher.node)
     executor.add_node(source)
     thread = threading.Thread(target=executor.spin, daemon=True)
@@ -164,3 +165,57 @@ def test_service_updates_only_orientation_and_hot_swaps_runtime(tmp_path):
         publisher.node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
+
+
+def test_palm_stream_never_republishes_older_source_stamps_within_epoch(tmp_path):
+    import rclpy
+    from geometry_msgs.msg import PoseStamped
+    from rclpy.executors import SingleThreadedExecutor
+    from rclpy.node import Node
+    from std_msgs.msg import UInt64
+
+    artifact = tmp_path / "tcp.yaml"
+    _write_tcp(artifact)
+    rclpy.init(domain_id=218)
+    publisher = PicoPalmTcpPublisher("left", artifact, load_tcp_transform(artifact, "left"))
+    source = Node("pico_stamp_order_test")
+    received = []
+    source.create_subscription(
+        PoseStamped, "/pico/palm_left",
+        lambda message: received.append(message.header.stamp.nanosec), 10)
+    executor = SingleThreadedExecutor()
+    executor.add_node(publisher.node)
+    executor.add_node(source)
+
+    def drain():
+        deadline = time.monotonic() + .05
+        while time.monotonic() < deadline:
+            executor.spin_once(timeout_sec=.005)
+
+    def send(stamp):
+        message = PoseStamped()
+        message.header.frame_id = "pico"
+        message.header.stamp.sec = 10
+        message.header.stamp.nanosec = stamp
+        message.pose.orientation.w = 1.0
+        publisher._controller_callback(message)
+        drain()
+
+    try:
+        deadline = time.monotonic() + 2
+        while publisher.publisher.get_subscription_count() == 0:
+            executor.spin_once(timeout_sec=.01)
+            assert time.monotonic() < deadline
+        send(100)
+        send(100)
+        send(50)
+        send(200)
+        assert received == [100, 200]
+        publisher._epoch_callback(UInt64(data=1))
+        send(10)
+        assert received == [100, 200, 10]
+    finally:
+        executor.shutdown()
+        source.destroy_node()
+        publisher.node.destroy_node()
+        rclpy.shutdown()

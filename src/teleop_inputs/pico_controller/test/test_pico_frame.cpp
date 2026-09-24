@@ -1,6 +1,7 @@
 // test/test_pico_frame.cpp
 #include <gtest/gtest.h>
 #include <cstring>
+#include <vector>
 #include "pico_bridge/pico_frame.hpp"
 
 using pico_bridge::FrameHeader;
@@ -83,4 +84,185 @@ TEST(PicoFrame, RejectsOversizedPayload) {
 
     FrameHeader hdr;
     EXPECT_FALSE(parse_frame_header(buf, hdr));
+}
+
+TEST(PicoFrame, SetGroundUsesRightAInEveryControllerWireLayout) {
+    struct Layout {
+        uint8_t type;
+        size_t length;
+        size_t right_offset;
+    };
+    const Layout layouts[] = {
+        {pico_bridge::TYPE_CTRL_RIGHT, 25, 0},
+        {pico_bridge::TYPE_CTRL_ALL, 50, 25},
+        {pico_bridge::TYPE_TRACKING_ALL, 807, 26},
+        {pico_bridge::TYPE_TRACKING_ALL_HALF, 429, 26},
+    };
+    for (const auto& layout : layouts) {
+        SCOPED_TRACE(static_cast<int>(layout.type));
+        pico_bridge::ControllerSetGroundEdge edge;
+        std::vector<uint8_t> payload(layout.length);
+        if (layout.right_offset == 26) payload[0] = 1;
+        payload[layout.right_offset + 22] = 1;
+        // Feature bits are not documented and must not gate a real A press.
+        payload[layout.right_offset + 23] = 0xA5;
+        const auto observe = [&](int64_t ts) {
+            return edge.observe(layout.type, ts, payload.data(), payload.size());
+        };
+        // Connecting with A held is not a rising edge.
+        payload[layout.right_offset] = 1;
+        EXPECT_FALSE(observe(10));
+        payload[layout.right_offset] = 0;
+        EXPECT_FALSE(observe(11));
+        payload[layout.right_offset] = 1;
+        EXPECT_TRUE(observe(12));
+        EXPECT_FALSE(observe(13));
+        payload[layout.right_offset] = 0;
+        EXPECT_FALSE(observe(14));
+        payload[layout.right_offset] = 1;
+        EXPECT_TRUE(observe(15));
+    }
+}
+
+TEST(PicoFrame, InvalidControllerRequiresFreshReleaseBeforeNextPress) {
+    pico_bridge::ControllerSetGroundEdge edge;
+    std::array<uint8_t, 25> payload{};
+    payload[22] = 1;
+    const auto observe = [&](int64_t ts) {
+        return edge.observe(pico_bridge::TYPE_CTRL_RIGHT, ts, payload.data(), payload.size());
+    };
+    EXPECT_FALSE(observe(1));  // Released and valid.
+    payload[22] = 0;
+    EXPECT_FALSE(observe(2));  // Lost controller validity.
+    payload[0] = 1;
+    payload[22] = 1;
+    EXPECT_FALSE(observe(3));  // Held through validity recovery.
+    payload[0] = 0;
+    EXPECT_FALSE(observe(3));  // Duplicate release cannot arm.
+    payload[0] = 1;
+    EXPECT_FALSE(observe(4));
+    payload[0] = 0;
+    EXPECT_FALSE(observe(5));
+    payload[0] = 1;
+    EXPECT_TRUE(observe(6));
+}
+
+TEST(PicoFrame, MalformedControllerCannotTriggerOrKeepEdgeArmed) {
+    pico_bridge::ControllerSetGroundEdge edge;
+    std::array<uint8_t, 26> payload{};
+    payload[22] = 1;
+    int64_t ts = 0;
+    for (const size_t bad_length : {size_t{0}, size_t{24}, size_t{26}}) {
+        payload[0] = 0;
+        EXPECT_FALSE(edge.observe(pico_bridge::TYPE_CTRL_RIGHT, ++ts, payload.data(), 25));
+        payload[0] = 1;
+        EXPECT_FALSE(edge.observe(pico_bridge::TYPE_CTRL_RIGHT, ++ts, payload.data(), bad_length));
+        EXPECT_FALSE(edge.observe(pico_bridge::TYPE_CTRL_RIGHT, ++ts, payload.data(), 25));
+    }
+    payload[0] = 0;
+    EXPECT_FALSE(edge.observe(pico_bridge::TYPE_CTRL_RIGHT, ++ts, payload.data(), 25));
+    EXPECT_FALSE(edge.observe(pico_bridge::TYPE_CTRL_RIGHT, ++ts, nullptr, 25));
+    payload[0] = 1;
+    EXPECT_FALSE(edge.observe(pico_bridge::TYPE_CTRL_RIGHT, ++ts, payload.data(), 25));
+    payload[0] = 0;
+    EXPECT_FALSE(edge.observe(pico_bridge::TYPE_CTRL_RIGHT, ++ts, payload.data(), 25));
+    payload[0] = 1;
+    EXPECT_TRUE(edge.observe(pico_bridge::TYPE_CTRL_RIGHT, ++ts, payload.data(), 25));
+}
+
+TEST(PicoFrame, ControllerFreshnessIsSharedAcrossWireLayouts) {
+    pico_bridge::ControllerSetGroundEdge edge;
+    std::array<uint8_t, 25> single{};
+    std::array<uint8_t, 50> packed{};
+    single[22] = packed[47] = 1;
+    EXPECT_FALSE(edge.observe(pico_bridge::TYPE_CTRL_RIGHT, 100, single.data(), single.size()));
+    single[0] = 1;
+    EXPECT_FALSE(edge.observe(pico_bridge::TYPE_CTRL_RIGHT, -1, single.data(), single.size()));
+    EXPECT_FALSE(edge.observe(pico_bridge::TYPE_CTRL_RIGHT, 99, single.data(), single.size()));
+    EXPECT_FALSE(edge.observe(pico_bridge::TYPE_CTRL_RIGHT, 100, single.data(), single.size()));
+    EXPECT_TRUE(edge.observe(pico_bridge::TYPE_CTRL_RIGHT, 101, single.data(), single.size()));
+    // A delayed aggregate release must not manufacture another press.
+    EXPECT_FALSE(edge.observe(pico_bridge::TYPE_CTRL_ALL, 100, packed.data(), packed.size()));
+    EXPECT_FALSE(edge.observe(pico_bridge::TYPE_CTRL_ALL, 101, packed.data(), packed.size()));
+    EXPECT_FALSE(edge.observe(pico_bridge::TYPE_CTRL_RIGHT, 102, single.data(), single.size()));
+    EXPECT_FALSE(edge.observe(pico_bridge::TYPE_CTRL_ALL, 103, packed.data(), packed.size()));
+    // Stale invalid state must not disarm a fresh release either.
+    single[22] = 0;
+    EXPECT_FALSE(edge.observe(pico_bridge::TYPE_CTRL_RIGHT, 102, single.data(), single.size()));
+    packed[25] = 1;
+    EXPECT_TRUE(edge.observe(pico_bridge::TYPE_CTRL_ALL, 104, packed.data(), packed.size()));
+}
+
+TEST(PicoFrame, ReconnectionRequiresReleaseAndRestartsControllerClock) {
+    pico_bridge::ControllerSetGroundEdge edge;
+    std::array<uint8_t, 25> payload{};
+    payload[22] = 1;
+    const auto observe = [&](int64_t ts) {
+        return edge.observe(pico_bridge::TYPE_CTRL_RIGHT, ts, payload.data(), payload.size());
+    };
+    EXPECT_FALSE(observe(100));
+    edge.reset_connection();  // Do not retain an armed release across clients.
+    payload[0] = 1;
+    EXPECT_FALSE(observe(1));
+    EXPECT_FALSE(observe(2));
+    payload[0] = 0;
+    EXPECT_FALSE(observe(3));
+    payload[0] = 1;
+    EXPECT_TRUE(observe(4));
+    edge.reset_connection();  // Nor turn an already-observed hold into a press.
+    EXPECT_FALSE(observe(5));
+    payload[0] = 0;
+    EXPECT_FALSE(observe(6));
+    payload[0] = 1;
+    EXPECT_TRUE(observe(7));
+}
+
+TEST(PicoFrame, DisabledPackedControllersAndLeftXAndRecordAreNotSetGround) {
+    pico_bridge::ControllerSetGroundEdge edge;
+    std::array<uint8_t, 807> payload{};
+    payload[48] = 1;
+    EXPECT_FALSE(edge.observe(pico_bridge::TYPE_TRACKING_ALL, 100, payload.data(), payload.size()));
+    payload[0] = 1;
+    payload[26] = 1;
+    EXPECT_FALSE(edge.observe(pico_bridge::TYPE_TRACKING_ALL, 1, payload.data(), payload.size()));
+    payload[26] = 0;
+    EXPECT_FALSE(edge.observe(pico_bridge::TYPE_TRACKING_ALL, 2, payload.data(), payload.size()));
+    payload[1] = 1;  // Left primary X.
+    EXPECT_FALSE(edge.observe(pico_bridge::TYPE_TRACKING_ALL, 3, payload.data(), payload.size()));
+    std::array<uint8_t, 25> left{};
+    left[0] = left[22] = 1;
+    EXPECT_FALSE(edge.observe(pico_bridge::TYPE_CTRL_LEFT, 100, left.data(), left.size()));
+    EXPECT_FALSE(edge.observe(pico_bridge::TYPE_RECORD_FLAG, 100, left.data(), 1));
+    payload[26] = 1;
+    EXPECT_TRUE(edge.observe(pico_bridge::TYPE_TRACKING_ALL, 4, payload.data(), payload.size()));
+}
+
+TEST(PicoFrame, MalformedPackedFrameDisarmsControllerEdge) {
+    pico_bridge::ControllerSetGroundEdge edge;
+    std::array<uint8_t, 429> payload{};
+    payload[0] = payload[48] = 1;
+    const auto observe = [&](int64_t ts, size_t len) {
+        return edge.observe(pico_bridge::TYPE_TRACKING_ALL_HALF, ts, payload.data(), len);
+    };
+    EXPECT_FALSE(observe(1, payload.size()));
+    payload[0] = 0x81;  // Unknown packed-header flag.
+    payload[26] = 1;
+    EXPECT_FALSE(observe(2, payload.size()));
+    payload[0] = 1;
+    EXPECT_FALSE(observe(3, payload.size()));
+    payload[26] = 0;
+    EXPECT_FALSE(observe(4, payload.size()));
+    payload[26] = 1;
+    EXPECT_FALSE(observe(5, payload.size() - 1));
+    EXPECT_FALSE(observe(6, payload.size()));
+    payload[26] = 0;
+    EXPECT_FALSE(observe(7, payload.size()));
+    // The bridge also disarms after enabled nonfinite packed poses.
+    edge.invalidate(8);
+    payload[26] = 1;
+    EXPECT_FALSE(observe(9, payload.size()));
+    payload[26] = 0;
+    EXPECT_FALSE(observe(10, payload.size()));
+    payload[26] = 1;
+    EXPECT_TRUE(observe(11, payload.size()));
 }

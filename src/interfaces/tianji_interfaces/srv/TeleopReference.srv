@@ -1,0 +1,32 @@
+# Native controller reference preparation only. Never grants hardware authority.
+# Operations are prepare, activate, cancel. Repeated/reordered request IDs are rejected.
+string request_id
+string session_id
+string controller_session_id
+uint64 reference_id
+string operation
+# Fresh, stationary hardware snapshot supplied by the guarded executor.
+int64 measured_monotonic_ns
+float64[14] measured_arm_rad
+# Readiness is evaluated on torso-relative palm poses before reference capture.
+float64 stable_time_s
+float64 position_tolerance_m
+float64 orientation_tolerance_rad
+# Bounds relative to the midpoint of the two shoulders, in the adapter frame.
+float64[3] waist_lower_m
+float64[3] waist_upper_m
+---
+bool success
+string request_id
+string session_id
+uint64 reference_id
+string state
+string message
+int64 input_monotonic_ns
+uint64 tracking_epoch
+# The two captured palm poses (xyz + quaternion xyzw), for episode provenance.
+float64[14] human_reference
+
+# Captured actual joints and FK TCP poses, not later model references.
+float64[14] measured_arm_rad
+float64[14] robot_reference

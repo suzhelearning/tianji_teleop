@@ -8,6 +8,7 @@ if [[ "${PIXI_ENVIRONMENT_NAME:-}" != default ]]; then
   exec env -u TIANJI_PYTHON -u PYTHONPATH -u PYTHONHOME -u LD_LIBRARY_PATH \
     -u AMENT_PREFIX_PATH -u COLCON_PREFIX_PATH -u CMAKE_PREFIX_PATH \
     TIANJI_PIXI_ACTIVE=1 TIANJI_ENVIRONMENT=default \
+    _TIANJI_ENTRY_LOG_REENTRY="$root/bash/run_manus.sh" \
     pixi run --locked --manifest-path "$root/pixi.toml" -e default \
     bash "${BASH_SOURCE[0]}" "$@"
 fi

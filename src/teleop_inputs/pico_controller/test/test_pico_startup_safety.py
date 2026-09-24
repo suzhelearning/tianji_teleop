@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import runpy
 import subprocess
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -15,6 +16,7 @@ READY = runpy.run_path(str(SCRIPTS / "check_pico_session_ready.py"))
 
 BOOT_ID = "01234567-89ab-4cde-8123-456789abcdef"
 SESSION_ID = "abcdef01-2345-4678-9abc-def012345678"
+VIEWER_OWNER = "0123456789ab4cde8123456789abcdef"
 
 
 def frame(sequence=10, stamp=100, epoch=1, published=1000, **overrides):
@@ -47,9 +49,90 @@ def test_viewer_readiness_requires_matching_fresh_render_heartbeat():
     tracker.observe("null")
     assert not tracker.ready(300)
 
+def test_foreground_viewer_rejects_foreign_stale_and_replayed_heartbeats():
+    tracker = READY["ViewerProgress"](owner=VIEWER_OWNER)
+    def observe(stamp, owner=VIEWER_OWNER):
+        tracker.observe(json.dumps(dict(owner=owner, pane="", stamp_ns=stamp)))
+    observe(100)
+    assert not tracker.ready(100)
+    observe(200)
+    assert tracker.ready(200)
+    assert not tracker.ready(199)
+    assert not tracker.ready(1_000_000_200)
+    observe(300, "abcdef01234546789abcdef012345678")
+    assert not tracker.ready(300)
+    observe(100)
+    assert not tracker.ready(300)
+    observe(200)
+    assert not tracker.ready(300)
+    observe(400)
+    assert tracker.ready(400)
+    tracker.observe(json.dumps(dict(pane="%12", stamp_ns=500)))
+    assert not tracker.ready(500)
+
+
+@pytest.mark.parametrize("arguments", [
+    ["--viewer-owner", ""],
+    ["--viewer-owner", "not-a-uuid"],
+    ["--viewer-owner", BOOT_ID],
+    ["--viewer-owner", VIEWER_OWNER, "--session", "pico", "--checkout", "/checkout"],
+    ["--session", "pico"],
+    *[["--viewer-owner", VIEWER_OWNER, "--timeout-s", value] for value in ("0", "-1", "nan", "inf")],
+])
+def test_readiness_rejects_invalid_ownership_and_deadlines(monkeypatch, arguments):
+    monkeypatch.setattr(sys, "argv", ["check_pico_session_ready.py", *arguments])
+    with pytest.raises(SystemExit) as exit_info:
+        READY["main"]()
+    assert exit_info.value.code == 2
+
+
+@pytest.mark.parametrize("arm_publishers,viewer_publishers", [(1, 1), (2, 1), (1, 2)])
+def test_foreground_wait_requires_unique_advancing_streams_without_tmux(
+        monkeypatch, tmp_path, arm_publishers, viewer_publishers):
+    subscriptions = {}
+    state = dict(step=0, destroyed=False, shutdown=False)
+    node = SimpleNamespace(
+        create_subscription=lambda msg_type, topic, callback, qos: subscriptions.update({topic: callback}),
+        count_publishers=lambda topic: arm_publishers if topic == "/arm" else viewer_publishers,
+        destroy_node=lambda: state.update(destroyed=True),
+    )
+    now_ns = lambda: 1_000_000_000 + state["step"] * 10_000_000
+    boot_id = Path("/proc/sys/kernel/random/boot_id").read_text().strip()
+    def spin_once(node, timeout_sec):
+        state["step"] += 1
+        assert state["step"] <= 2
+        subscriptions["/arm"](frame(sequence=state["step"], stamp=state["step"],
+                                   published=now_ns(), boot_id=boot_id))
+        subscriptions["/pico/skeleton_viewer/status"](SimpleNamespace(
+            data=json.dumps(dict(owner=VIEWER_OWNER, stamp_ns=now_ns()))))
+    monkeypatch.setitem(sys.modules, "rclpy", SimpleNamespace(
+        init=lambda: None, create_node=lambda name: node, spin_once=spin_once,
+        shutdown=lambda: state.update(shutdown=True)))
+    monkeypatch.setitem(sys.modules, "rclpy.qos", SimpleNamespace(
+        QoSProfile=lambda **kwargs: None, ReliabilityPolicy=SimpleNamespace(BEST_EFFORT=1),
+        DurabilityPolicy=SimpleNamespace(VOLATILE=1)))
+    monkeypatch.setitem(sys.modules, "std_msgs.msg", SimpleNamespace(String=SimpleNamespace))
+    monkeypatch.setitem(sys.modules, "tianji_interfaces.msg", SimpleNamespace(PicoArmInput=SimpleNamespace))
+    config = tmp_path / "robot.json"
+    config.write_text(json.dumps(dict(pico_input_topic="/arm")))
+    monkeypatch.setitem(sys.modules, "tianji_runtime.resources", SimpleNamespace(config_path=lambda name: config))
+    monkeypatch.setitem(READY["wait_ready"].__globals__, "time",
+                        SimpleNamespace(monotonic=lambda: now_ns() / 1e9, monotonic_ns=now_ns))
+    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: pytest.fail("foreground must not query tmux"))
+    monkeypatch.setattr(sys, "argv", ["check_pico_session_ready.py", "--viewer-owner", VIEWER_OWNER])
+    if arm_publishers == viewer_publishers == 1:
+        READY["main"]()
+    else:
+        with pytest.raises(SystemExit) as exit_info:
+            READY["main"]()
+        assert exit_info.value.code == 2
+    assert state == dict(step=2, destroyed=True, shutdown=True)
+
+
 
 @pytest.mark.parametrize("sync_fails", [False, True])
-def test_skeleton_heartbeat_is_only_sent_after_viewer_sync(monkeypatch, sync_fails):
+@pytest.mark.parametrize("foreground", [False, True])
+def test_skeleton_heartbeat_is_only_sent_after_viewer_sync(monkeypatch, sync_fails, foreground):
     import sys
     import types
     from contextlib import nullcontext
@@ -70,6 +153,11 @@ def test_skeleton_heartbeat_is_only_sent_after_viewer_sync(monkeypatch, sync_fai
     msg.String = types.SimpleNamespace
     monkeypatch.setitem(sys.modules, "std_msgs.msg", msg)
     monkeypatch.setenv("TMUX_PANE", "%test")
+    monkeypatch.setenv("TIANJI_PICO_SESSION_OWNER", VIEWER_OWNER)
+    monkeypatch.setattr(module["time"], "monotonic_ns", lambda: 200)
+    tracker = (READY["ViewerProgress"](owner=VIEWER_OWNER) if foreground
+               else READY["ViewerProgress"]("%test"))
+    tracker.observe(json.dumps(dict(owner=VIEWER_OWNER, pane="%test", stamp_ns=100)))
     obj = module["SmplMujocoVisualizer"].__new__(module["SmplMujocoVisualizer"])
     obj.model = obj.data = None
     obj.rate = 1000
@@ -77,7 +165,8 @@ def test_skeleton_heartbeat_is_only_sent_after_viewer_sync(monkeypatch, sync_fai
     obj._update_hand_overlay = lambda v: None
     def publish(message):
         assert events[-1] == "sync"
-        assert json.loads(message.data)["pane"] == "%test"
+        tracker.observe(message.data)
+        assert tracker.ready(200)
         events.append("heartbeat")
     obj.node = types.SimpleNamespace(create_publisher=lambda *args: types.SimpleNamespace(publish=publish))
     obj.rclpy = types.SimpleNamespace(spin=lambda n: None, ok=lambda: True, shutdown=lambda: None)
@@ -86,6 +175,7 @@ def test_skeleton_heartbeat_is_only_sent_after_viewer_sync(monkeypatch, sync_fai
         with pytest.raises(RuntimeError, match="render failed"):
             obj.run()
         assert events == ["sync"]
+        assert not tracker.ready(200)
     else:
         obj.run()
         assert events == ["sync", "heartbeat"]
@@ -163,22 +253,23 @@ esac
 ''')
     (scripts / "environment.sh").write_text('ros_setup=/unused/setup.bash\n')
     log = tmp_path / "calls"
+    run_log_dir = tmp_path / "tmp/logs/pico/current-run"
+    run_log_dir.mkdir(parents=True)
     result = subprocess.run(["bash", str(scripts / "start_tianji_pico_teleop.sh"), "--detach"],
         env={**os.environ, "PATH": str(binaries) + ":" + os.environ["PATH"],
              "TIANJI_PYTHON": str(python), "READY_RC": str(ready_rc), "TEST_LOG": str(log),
-             "TMPDIR": str(tmp_path), "TIANJI_ENVIRONMENT": "default"},
+             "TMPDIR": str(tmp_path), "TIANJI_ENVIRONMENT": "default",
+             "TIANJI_RUN_LOG_DIR": str(run_log_dir)},
         capture_output=True, text=True, timeout=5)
     assert result.returncode == ready_rc, result.stderr
-    assert ("Started Tianji PICO" in result.stdout) == (ready_rc == 0)
     calls = log.read_text().splitlines()
     assert "kill-session" not in log.read_text()
     for window in ("driver", "m0", "bridge"):
         capture = f"capture-pane -p -t pico_tianji_teleop:{window} -S -200"
         assert (capture in calls) == (ready_rc != 0)
-    assert ("PICO startup diagnostic logs:" in result.stderr) == (ready_rc != 0)
     if ready_rc:
         assert "missing messages: /pico/smpl_raw" in result.stderr
-        diagnostic_dirs = list(tmp_path.glob("pico-startup.*"))
+        diagnostic_dirs = list(run_log_dir.glob("startup-failure.*"))
         assert len(diagnostic_dirs) == 1
         assert "missing messages: /pico/smpl_raw" in (diagnostic_dirs[0] / "m0.log").read_text()
 

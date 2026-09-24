@@ -24,7 +24,7 @@ from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
 from std_msgs.msg import String, UInt64
 
-from pico_calibration_artifact import validate_artifact
+from pico_calibration_artifact import EXPLICIT_EPOCH_SOURCES, validate_artifact
 from pico_arm_geometry_core import (
     ArmSide,
     ArmStaticPoseResult,
@@ -423,7 +423,7 @@ def candidate_from_result(
     rejection_reasons = list(result.rejection_reasons)
     if tracking_epoch <= 0:
         rejection_reasons.append("tracking_epoch_invalid")
-    if tracking_epoch_source not in {"tcp_connection", "wire_world_reset"}:
+    if tracking_epoch_source not in EXPLICIT_EPOCH_SOURCES:
         rejection_reasons.append("tracking_epoch_source_invalid")
     raw_gate_results = {
         "straight_1_sample_count": result.straight_1_sample_count >= 50,
@@ -571,7 +571,7 @@ class PicoArmGeometryCalibrator(Node):
             and self._latest_palm_stamp_ns > 0
             and self._tracking_epoch > 0
             and self._tracking_epoch_numeric == self._tracking_epoch
-            and self._tracking_epoch_source in {"tcp_connection", "wire_world_reset"}
+            and self._tracking_epoch_source in EXPLICIT_EPOCH_SOURCES
         )
 
     def raise_capture_error(self) -> None:
@@ -612,7 +612,7 @@ class PicoArmGeometryCalibrator(Node):
         return (
             self._tracking_epoch > 0
             and self._tracking_epoch_numeric == self._tracking_epoch
-            and self._tracking_epoch_source in {"tcp_connection", "wire_world_reset"}
+            and self._tracking_epoch_source in EXPLICIT_EPOCH_SOURCES
         )
 
     def _handle_epoch_transition(self, previous: int, current: int) -> None:

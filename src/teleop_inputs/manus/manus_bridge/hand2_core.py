@@ -34,6 +34,7 @@ class Output:
     valid: bool
     values: object = None
     reason: str = ""
+    revocation_generation: int = 0
 
 
 class HandStage:
@@ -62,6 +63,8 @@ class HandStage:
         self.retired = set()
         self.live = False
         self.invalid_sent = False
+        self.revocation_generation = 0
+        self._upstream_generation = None
 
     def _reset(self):
         if self.reset is not None:
@@ -77,7 +80,9 @@ class HandStage:
             self._reset()
         self.live = False
         self.invalid_sent = True
-        return Output(source, False, reason=reason)
+        self.revocation_generation += 1
+        return Output(source, False, reason=reason,
+                      revocation_generation=self.revocation_generation)
 
     def _age_error(self, source):
         age = self.clock() - source.source_monotonic_ns
@@ -105,6 +110,21 @@ class HandStage:
         if source.identity in self.retired:
             return self._invalidate("retired source identity", source)
         changed = self.last is None or source.identity != self.last.identity
+        generation = message.revocation_generation
+        if type(generation) is not int or not 0 <= generation < 2**64:
+            return self._invalidate("invalid revocation generation", source)
+        if not changed and self._upstream_generation is not None:
+            if generation < self._upstream_generation:
+                return self._invalidate("revocation generation regressed", source)
+            if generation > self._upstream_generation:
+                # An invalid sample may have been dropped by a latest-only DDS hop.
+                # Reset state and carry the event in every following valid output.
+                self.revocation_generation += generation - self._upstream_generation
+                self._reset()
+                self.live = False
+        elif self._upstream_generation is None:
+            self.revocation_generation = max(self.revocation_generation, generation)
+        self._upstream_generation = generation
         if not changed:
             if writer != self.writer:
                 return self._invalidate("source identity changed publisher", source)
@@ -131,7 +151,8 @@ class HandStage:
             self.live = False
             return self._invalidate(error)
         self.live = True
-        return Output(source, True, values)
+        return Output(source, True, values,
+                      revocation_generation=self.revocation_generation)
 
     def poll(self, *, publisher_count=1):
         if publisher_count != 1:

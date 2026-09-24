@@ -217,7 +217,7 @@ def executor_profile(config, base):
     return data
 
 
-def load_configuration(path, device_selection=None, *, hand_source="manus"):
+def load_configuration(path, device_selection=None, *, hand_source="manus", home_config=None):
     """Load and fully validate the executor configuration.
 
     Built-in description assets and controller profiles use the installed
@@ -245,6 +245,12 @@ def load_configuration(path, device_selection=None, *, hand_source="manus"):
     if needs_controller:
         executor_profile(config, base)
     staged = config.get("staged_motion")
+    if home_config is not None:
+        if "arms" not in devices:
+            raise ValueError("alternate HOME requires arms in the selected devices")
+        if not isinstance(staged, dict):
+            raise ValueError("alternate HOME requires staged_motion configuration")
+        staged["home_config"] = str(home_config)
     if isinstance(staged, dict) and "home_config" in staged:
         home_path = staged.pop("home_config")
         if not isinstance(home_path, str) or not home_path.strip():
@@ -402,6 +408,8 @@ def main(argv=None):
                         help="default from config; hands=left+right, all=arms+left+right")
     parser.add_argument("--hand-source", choices=("manus", "exoskeleton"), default="manus",
                         help="Manus ROS hand commands (default), or explicit legacy TJH2 exoskeleton input")
+    parser.add_argument("-L", "--L", action="store_true",
+                        help="use home-L for startup Home checks and all return-Home motion")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--inspect", action="store_true", help="read hardware feedback/identity only, then exit")
     mode.add_argument("--confirm-real", action="store_true", help="allow real enable after typed confirmation and preflight")
@@ -424,7 +432,9 @@ def main(argv=None):
     configuration_path = args.config.resolve()
     base = workspace()
     try:
-        config, devices = load_configuration(configuration_path, args.devices, hand_source=args.hand_source)
+        home_config = package_share("tianji_description", "config", "home-L.yaml") if args.L else None
+        config, devices = load_configuration(configuration_path, args.devices,
+                                             hand_source=args.hand_source, home_config=home_config)
     except (OSError, KeyError, TypeError, ValueError, SafetyFault, ResourceNotFound, yaml.YAMLError) as error:
         parser.error(str(error))
     if args.dataset is not None and (not args.confirm_real or set(devices) != {"arms", "left_hand", "right_hand"}):

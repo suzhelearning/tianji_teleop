@@ -19,6 +19,7 @@ Data contract (schema-v1.md):
 from __future__ import annotations
 
 import enum
+from bisect import bisect_right
 from datetime import datetime
 from itertools import count
 import json
@@ -68,6 +69,7 @@ _IMAGE_BATCH_ROWS: Final = 32
 _OPEN_TIMEOUT_S: Final = 120.0
 _CLOSE_TIMEOUT_S: Final = 120.0
 _RESERVE_ATTEMPTS: Final = 4096
+_FUTURE_TOLERANCE_NS: Final = 5_000_000
 
 
 class EpisodeValidationError(RuntimeError):
@@ -266,6 +268,7 @@ class EpisodeWriter:
         self._failure: BaseException | None = None
         self._rejected: dict[str, int] = {}
         self._start_ns: int | None = None
+        self._cutoff_ns = 0
         self._last_relative: dict[str, int] = {}
         self._episode_number: int | None = None
         self._partial_path: Path | None = None
@@ -327,9 +330,25 @@ class EpisodeWriter:
             self._start_ns = origin
             self._state = _State.STARTED
 
-    def stop(self) -> None:
-        """Stop accepting samples. Non-blocking; queued samples are still written."""
+    def stop(self, cutoff_monotonic_ns: int = 0) -> None:
+        """Freeze capture, optionally at an earlier host CLOCK_MONOTONIC boundary.
+
+        Trimming queued, buffered and persisted samples is the worker's job;
+        this call never touches disk. Zero retains the legacy drain-all stop.
+        """
+        if not _is_int(cutoff_monotonic_ns) or cutoff_monotonic_ns < 0:
+            raise ValueError('cutoff_monotonic_ns must be a nonnegative integer')
         with self._lock:
+            if cutoff_monotonic_ns:
+                if cutoff_monotonic_ns > time.monotonic_ns() + _FUTURE_TOLERANCE_NS:
+                    raise ValueError('cutoff_monotonic_ns is in the future')
+                if self._start_ns is None or cutoff_monotonic_ns < self._start_ns:
+                    raise ValueError('cutoff_monotonic_ns is before the episode origin')
+                if self._state is not _State.STARTED:
+                    if self._cutoff_ns != cutoff_monotonic_ns:
+                        raise ValueError('episode already stopped with a different cutoff')
+                    return
+                self._cutoff_ns = int(cutoff_monotonic_ns)
             if self._state in (_State.NEW, _State.STARTED):
                 self._state = _State.STOPPED
 
@@ -665,6 +684,8 @@ class EpisodeWriter:
             self._flush_state(stream)
 
     def _relative_timestamp(self, stream: str, timestamp_ns: int) -> int | None:
+        if self._cutoff_ns and timestamp_ns > self._cutoff_ns:
+            return None
         relative = timestamp_ns - self._start_ns
         previous = self._last_relative.get(stream)
         if relative < 0:
@@ -709,9 +730,13 @@ class EpisodeWriter:
             return
         error: BaseException | None = None
         try:
+            self._truncate_at_cutoff()
             self._flush_all()
             if success is not None:
                 episode.attrs['success'] = bool(success)
+            if self._cutoff_ns:
+                episode.attrs['start_monotonic_ns'] = self._start_ns
+                episode.attrs['end_monotonic_ns'] = self._cutoff_ns
             episode.flush()
         except BaseException as exc:  # noqa: BLE001 - re-raised after close
             error = exc
@@ -723,6 +748,23 @@ class EpisodeWriter:
             self._file = None
         if error is not None:
             raise error
+
+    def _truncate_at_cutoff(self) -> None:
+        """Trim every stream on the HDF5 owner thread before final flush/close."""
+        if not self._cutoff_ns:
+            return
+        relative_cutoff = self._cutoff_ns - self._start_ns
+        for stream, (timestamps, values) in self._streams.items():
+            # Every stream is non-decreasing. Inclusive right bounds retain
+            # all samples at the key timestamp, including duplicate stamps.
+            pending = self._pending_ts[stream]
+            keep = bisect_right(pending, relative_cutoff)
+            del pending[keep:]
+            del self._pending_values[stream][keep:]
+            keep = bisect_right(timestamps, relative_cutoff)
+            if keep < timestamps.shape[0]:
+                timestamps.resize((keep,))
+                values.resize((keep, *values.shape[1:]))
 
     def _flush_state(self, stream: str) -> None:
         timestamps = self._pending_ts[stream]
@@ -936,6 +978,17 @@ def validate_episode(
         _check_members(images, set(config['camera_names']), 'images')
         for camera in config['camera_names']:
             streams[camera] = _validate_image_stream(episode, camera, config, True)
+
+        # Optional key-time bounds appear only on explicitly cut episodes.
+        bounds = ('start_monotonic_ns', 'end_monotonic_ns')
+        if any(name in episode.attrs for name in bounds):
+            if not all(name in episode.attrs and _is_int(episode.attrs[name]) for name in bounds):
+                raise EpisodeValidationError(f'{label}: episode clock bounds must be integer timestamps')
+            origin, end = (int(episode.attrs[name]) for name in bounds)
+            if origin <= 0 or end < origin:
+                raise EpisodeValidationError(f'{label}: invalid episode clock bounds')
+            if any(int(times[-1]) > end - origin for times in streams.values()):
+                raise EpisodeValidationError(f'{label}: samples extend past the episode end')
 
     counts = {name: int(times.size) for name, times in streams.items()}
     rates = {name: _rate_hz(times) for name, times in streams.items()}

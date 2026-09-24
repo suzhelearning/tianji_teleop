@@ -69,13 +69,20 @@ class DualArmController {
   bool beginSimulationSoftStart(SimulationSoftStartLimits limits = {});
   DlsPostureRuckigConfig trajectorySampleLimits(ArmSide side) const;
   bool synchronizeReferencesToActual();
+  // Atomic bilateral reset from a trusted, stationary hardware snapshot.
+  bool resetEpisodeReference(const std::array<Vec7, 2>& measured_q, DualArmTargets& tcp);
   const Vec7& reference(ArmSide side) const noexcept;
   const Vec7& previousVelocity(ArmSide side) const noexcept;
   const Vec7& previousAcceleration(ArmSide side) const noexcept;
   ArmMotionState referenceState(ArmSide side) const noexcept;
+  const ArmLimits& motionLimits(ArmSide side) const noexcept;
   bool setReferenceState(ArmSide side, const ArmMotionState& motion);
  private:
-  struct DlsState { bool valid{false}; };
+  struct DlsState {
+    bool valid{false};
+    Pose target;
+    PoseDlsStatus status{PoseDlsStatus::kNotConverged};
+  };
   void initializeDls();
   ControllerDiagnostics stepDls(const DualArmTargets&, const DualArmReferences*, double);
   bool targetsAreFinite(const DualArmTargets& targets) const;
@@ -86,6 +93,7 @@ class DualArmController {
   void clearHistory(ArmSide side);
   MujocoRobot& robot_;
   QpIkConfig config_;
+  const std::array<ArmLimits, 2> motion_limits_;
   ArmReferenceState left_state_, right_state_;
   std::unique_ptr<PicoEeFrankaDlsIk7> left_franka_dls_, right_franka_dls_;
   std::unique_ptr<DlsPinocchioArmKinematics> dls_kinematics_;
@@ -93,5 +101,7 @@ class DualArmController {
   DlsState left_dls_, right_dls_;
   bool simulation_soft_start_pending_{false};
   SimulationSoftStartLimits simulation_soft_start_limits_;
+  bool episode_relative_{false};
+  std::array<Vec7, 2> episode_posture_{Vec7::Zero(), Vec7::Zero()};
 };
 }  // namespace tianji_qp_ik

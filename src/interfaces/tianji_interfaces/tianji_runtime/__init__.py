@@ -14,6 +14,7 @@ contracts and those messages happens in the nodes, not here.
 """
 
 from .device import Feedback, LockedDevice, advances, positions, fresh
+from .hand2 import SERVICE_MODULE, Hand2Retargeter, Hand2ServiceError
 from .keyboard import OperatorKeyboard
 from .resources import (
     ResourceNotFound,
@@ -44,9 +45,12 @@ from .constants import (
 
 __all__ = [
     "Feedback",
+    "Hand2Retargeter",
+    "Hand2ServiceError",
     "LockedDevice",
     "OperatorKeyboard",
     "ResourceNotFound",
+    "SERVICE_MODULE",
     "compressed_dir",
     "config_path",
     "control_prefix",

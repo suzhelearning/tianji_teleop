@@ -78,6 +78,22 @@ def test_capture_buffer_requires_explicit_epoch_source_and_pair_skew():
     assert capture.samples == ()
 
 
+def test_set_ground_aborts_capture_and_allows_fresh_epoch_capture():
+    capture = OrientationCaptureBuffer()
+    capture.begin(5, "tcp_connection")
+    capture.add_head(np.eye(3), 100)
+    assert capture.add_controller(np.eye(3), 100, 5)
+
+    capture.update_epoch(6, "controller_set_ground")
+    assert capture.error == "tracking_epoch_changed"
+    assert not capture.add_controller(np.eye(3), 101, 6)
+
+    capture.begin(6, "controller_set_ground")
+    capture.add_head(np.eye(3), 102)
+    assert capture.add_controller(np.eye(3), 102, 6)
+    assert [sample.stamp_ns for sample in capture.samples] == [102]
+
+
 def _sample(target, controller=None, epoch=7, stamp=0):
     controller = np.eye(3) if controller is None else controller
     return OrientationSample(

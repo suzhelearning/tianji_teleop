@@ -271,6 +271,29 @@ QpIkConfig loadConfig(const std::string& path, ConfigConsumer consumer) {
   config.joint_limits.max_jerk_rad_s3 = optionalVector7(
       limits, "max_jerk_rad_s3",
       config.joint_limits.max_jerk_rad_s3);
+  const YAML::Node lower = limits["position_lower_rad"];
+  const YAML::Node upper = limits["position_upper_rad"];
+  if (static_cast<bool>(lower) != static_cast<bool>(upper)) {
+    throw std::runtime_error(
+        "joint_limits requires position_lower_rad and position_upper_rad together");
+  }
+  if (lower) {
+    if (!lower.IsSequence() || !upper.IsSequence() ||
+        lower.size() != 2 * kArmDof || upper.size() != 2 * kArmDof) {
+      throw std::runtime_error("joint_limits position bounds require fourteen finite values");
+    }
+    std::array<ArmLimits, 2> execution;
+    for (int index = 0; index < 2 * kArmDof; ++index) {
+      const double lo = lower[index].as<double>();
+      const double hi = upper[index].as<double>();
+      if (!std::isfinite(lo) || !std::isfinite(hi) || lo >= hi) {
+        throw std::runtime_error("joint_limits position bounds require finite lower < upper");
+      }
+      execution[index / kArmDof].lower_position[index % kArmDof] = lo;
+      execution[index / kArmDof].upper_position[index % kArmDof] = hi;
+    }
+    config.joint_limits.execution_limits = execution;
+  }
   const YAML::Node safety = root["safety"];
   config.safety.bound_tolerance = required<double>(safety, "bound_tolerance");
   config.safety.max_target_position_step = required<double>(safety, "max_target_position_step");
@@ -345,6 +368,35 @@ QpIkConfig loadConfig(const std::string& path, ConfigConsumer consumer) {
   return config;
 }
 
+ArmLimits effectiveArmLimits(const JointLimitConfig& config,
+                            const ArmLimits& model, ArmSide side) {
+  requirePositive(config.margin_rad, "joint_limits.margin_rad");
+  if (!model.lower_position.allFinite() || !model.upper_position.allFinite() ||
+      !model.velocity.allFinite() || (model.velocity.array() <= 0.0).any() ||
+      (model.lower_position.array() >= model.upper_position.array()).any()) {
+    throw std::runtime_error("invalid model joint limits");
+  }
+  ArmLimits result = model;
+  if (config.execution_limits) {
+    const auto& bounds = (*config.execution_limits)[side == ArmSide::kLeft ? 0 : 1];
+    if (!bounds.lower_position.allFinite() || !bounds.upper_position.allFinite() ||
+        (bounds.lower_position.array() >= bounds.upper_position.array()).any()) {
+      throw std::runtime_error("invalid execution joint position bounds");
+    }
+    result.lower_position = result.lower_position.cwiseMax(bounds.lower_position);
+    result.upper_position = result.upper_position.cwiseMin(bounds.upper_position);
+  }
+  const Vec7 lower = result.lower_position.array() + config.margin_rad;
+  const Vec7 upper = result.upper_position.array() - config.margin_rad;
+  if (!lower.allFinite() || !upper.allFinite() ||
+      (lower.array() >= upper.array()).any()) {
+    throw std::runtime_error(
+        std::string(side == ArmSide::kLeft ? "left" : "right") +
+        " effective joint limits are empty or infeasible with joint_limits.margin_rad");
+  }
+  return result;
+}
+
 Vec7 configuredInitialPosture(const ControllerConfig& config,
                               const ArmLimits& limits, ArmSide side) {
   if (!config.initial_posture_enabled) {
@@ -365,14 +417,14 @@ Vec7 configuredInitialPosture(const ControllerConfig& config,
         !std::isfinite(limits.upper_position[joint]) ||
         limits.lower_position[joint] > limits.upper_position[joint]) {
       throw std::runtime_error(
-          std::string("invalid ") + side_name + " model limit for joint " +
+          std::string("invalid ") + side_name + " motion limit for joint " +
           std::to_string(joint + 1));
     }
     if (posture[joint] < limits.lower_position[joint] ||
         posture[joint] > limits.upper_position[joint]) {
       throw std::runtime_error(
           std::string("configured ") + side_name + " initial posture joint " +
-          std::to_string(joint + 1) + " is outside model joint limits");
+          std::to_string(joint + 1) + " is outside effective joint limits");
     }
   }
   return posture;

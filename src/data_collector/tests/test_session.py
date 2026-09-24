@@ -91,12 +91,12 @@ class StubRuntime:
         self.episode_started = True
         self.events.append("begin_episode")
 
-    def end_episode(self):
+    def end_episode(self, cutoff_monotonic_ns=0):
         if not self.recording:
             return False
         self.recording = False
         self.events.append("end_episode")
-        self.writer.stop()
+        self.writer.stop(cutoff_monotonic_ns)
         return True
 
     def check(self):

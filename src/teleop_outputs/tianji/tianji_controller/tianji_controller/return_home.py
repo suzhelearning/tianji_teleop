@@ -9,7 +9,7 @@ import signal
 import sys
 import time
 
-from tianji_runtime.resources import config_path as workspace_config, workspace
+from tianji_runtime.resources import config_path as workspace_config, package_share, workspace
 from .run_teleop import load_configuration, make_hardware
 from .ros_commands import ExecutorLease
 from .safety import SafetyFault
@@ -57,6 +57,9 @@ class ArmHomeGate(StagedMotionGate):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, default=workspace_config("robot.json"))
+    posture = parser.add_mutually_exclusive_group()
+    posture.add_argument("--home-config", type=Path, help="alternate dual-arm HOME YAML; default uses robot configuration")
+    posture.add_argument("-L", "--L", action="store_true", help="use the dual-arm home-L posture")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--confirm-real", action="store_true", help="authorize immediate dual-arm HOME motion")
     mode.add_argument("--dry-run", action="store_true", help="validate and show HOME without connecting hardware (default)")
@@ -66,7 +69,9 @@ def main(argv=None):
     result = 0
     try:
         config_path = args.config.resolve()
-        config, _ = load_configuration(config_path, "arms")
+        if args.L:
+            args.home_config = package_share("tianji_description", "config", "home-L.yaml")
+        config, _ = load_configuration(config_path, "arms", home_config=args.home_config)
         gate = ArmHomeGate(config)
         for side in ("left", "right"):
             angles = [round(math.degrees(q), 3) for q in config["staged_motion"][f"home_{side}_rad"]]

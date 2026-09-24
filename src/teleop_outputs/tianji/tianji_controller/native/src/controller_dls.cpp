@@ -24,6 +24,34 @@ bool DualArmController::beginSimulationSoftStart(SimulationSoftStartLimits limit
   simulation_soft_start_limits_ = limits;
   return true;
 }
+bool DualArmController::resetEpisodeReference(
+    const std::array<Vec7, 2>& measured_q, DualArmTargets& tcp) {
+  const std::array<ArmMotionState, 2> stationary{
+      ArmMotionState{measured_q[0], Vec7::Zero(), Vec7::Zero()},
+      ArmMotionState{measured_q[1], Vec7::Zero(), Vec7::Zero()}};
+  if (!left_smoother_->canReset(stationary[0]) ||
+      !right_smoother_->canReset(stationary[1])) return false;
+  const auto left_tcp = dls_kinematics_->sampleTcp(ArmSide::kLeft, measured_q[0]).tcp_pose;
+  const auto right_tcp = dls_kinematics_->sampleTcp(ArmSide::kRight, measured_q[1]).tcp_pose;
+  if (!left_tcp.position.allFinite() || !left_tcp.rotation.allFinite() ||
+      !right_tcp.position.allFinite() || !right_tcp.rotation.allFinite()) return false;
+  // All potentially rejecting checks precede this bilateral commit.
+  (void)left_smoother_->reset(stationary[0]);
+  (void)right_smoother_->reset(stationary[1]);
+  left_smoother_->preserveConstraints();
+  right_smoother_->preserveConstraints();
+  left_franka_dls_->reset(stationary[0]); right_franka_dls_->reset(stationary[1]);
+  left_state_ = {measured_q[0], Vec7::Zero(), Vec7::Zero()};
+  right_state_ = {measured_q[1], Vec7::Zero(), Vec7::Zero()};
+  robot_.setArmState(ArmSide::kLeft, measured_q[0], Vec7::Zero());
+  robot_.setArmState(ArmSide::kRight, measured_q[1], Vec7::Zero());
+  robot_.forward();
+  episode_posture_ = measured_q; episode_relative_ = true;
+  simulation_soft_start_pending_ = false;
+  left_dls_ = {}; right_dls_ = {};
+  tcp = {left_tcp, right_tcp};
+  return true;
+}
 void DualArmController::initializeDls() {
   const auto& d = config_.pico_ee_franka_dls;
   const auto& p = d.post_smoothing;
@@ -72,12 +100,18 @@ void DualArmController::initializeDls() {
     }
   }
   const auto make = [&](ArmSide side) {
-    auto limits = robot_.mapping(side).limits;
+    auto limits = motionLimits(side);
     limits.lower_position.array() += config_.joint_limits.margin_rad;
     limits.upper_position.array() -= config_.joint_limits.margin_rad;
     return std::make_unique<RuckigTrajectoryLimiter7>(p, limits, 1.0/config_.controller.rate_hz);
   };
   auto left = make(ArmSide::kLeft), right = make(ArmSide::kRight);
+  if (config_.joint_limits.execution_limits &&
+      (!left->canReset(referenceState(ArmSide::kLeft)) ||
+       !right->canReset(referenceState(ArmSide::kRight)))) {
+    throw std::invalid_argument(
+        "initial reference is outside effective Ruckig motion limits (including joint margin)");
+  }
   left_franka_dls_ = std::move(left_dls); right_franka_dls_ = std::move(right_dls);
   dls_kinematics_ = std::move(kinematics);
   left_smoother_ = std::move(left); right_smoother_ = std::move(right);
@@ -108,7 +142,7 @@ ControllerDiagnostics DualArmController::stepDls(
                             DlsState& cache, ArmControllerDiagnostics& arm,
                             ArmMotionState& next) {
     const auto current = referenceState(side);
-    const auto limits = robot_.mapping(side).limits;
+    const auto& limits = motionLimits(side);
     if (!current.q.allFinite() || !current.qdot.allFinite() || !current.qddot.allFinite() ||
         !robot_.armPosition(side).allFinite()) return false;
     if (!cache.valid && !smoother.reset(current)) return false;
@@ -126,7 +160,16 @@ ControllerDiagnostics DualArmController::stepDls(
     }
     Vec7 goal = current.q;
     const auto pipeline_start=std::chrono::steady_clock::now();
-    if (live) {
+    const bool unchanged_episode_target = episode_relative_ && cache.valid &&
+        arm.target.position.isApprox(cache.target.position, 1e-12) &&
+        arm.target.rotation.isApprox(cache.target.rotation, 1e-12);
+    if (live && unchanged_episode_target) {
+      // Do not spend another nullspace/posture iteration on identical human input.
+      // The existing Ruckig trajectory still settles under all motion constraints.
+      goal = dls_solver->goal();
+      arm.dls_posture_reference_active = true;
+      arm.dls_posture_status = cache.status;
+    } else if (live) {
       PicoEeFrankaDlsInput input;
       input.target = arm.target; input.target_valid = true; input.dt = dt; input.limits = limits;
         // Source DLS owns the previous raw IK goal internally; its external
@@ -136,8 +179,10 @@ ControllerDiagnostics DualArmController::stepDls(
         const Vec7 velocity_limit = config_.pico_ee_franka_dls.max_velocity_rad_s.cwiseMin(limits.velocity);
         input.velocity_bounds.lower = -velocity_limit;
         input.velocity_bounds.upper = velocity_limit;
-        input.home_reference = side == ArmSide::kLeft ? config_.pico_ee_franka_dls.home_left_rad
-                                                     : config_.pico_ee_franka_dls.home_right_rad;
+        input.home_reference = episode_relative_
+            ? episode_posture_[side == ArmSide::kLeft ? 0U : 1U]
+            : (side == ArmSide::kLeft ? config_.pico_ee_franka_dls.home_left_rad
+                                      : config_.pico_ee_franka_dls.home_right_rad);
       input.evaluate = [&, side](const Vec7& q) {
         return config_.pico_ee_franka_dls.max_arm_plane_rate_rad_s > 0.0
             ? dls_kinematics_->sample(side, q)
@@ -159,6 +204,8 @@ ControllerDiagnostics DualArmController::stepDls(
       if (!solved.accepted || solved.target_held) return false;
       goal = solved.goal;
       cache.valid = true;
+      cache.target = arm.target;
+      cache.status = solved.dls.status;
     } else {
       // Stale/invalid input brakes toward the current model reference, never
       // continues toward the last IK goal. It cannot acknowledge mapping data.

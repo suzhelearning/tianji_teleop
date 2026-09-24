@@ -8,7 +8,6 @@ import json
 from pathlib import Path
 import tempfile
 import threading
-import time
 
 import numpy as np
 import yaml
@@ -107,13 +106,12 @@ class PicoPalmTcpPublisher:
         max_pair_skew_s: float = 0.03,
     ) -> None:
         from geometry_msgs.msg import PoseStamped
-        from rclpy.callback_groups import ReentrantCallbackGroup
+        from rclpy.callback_groups import MutuallyExclusiveCallbackGroup, ReentrantCallbackGroup
         from rclpy.node import Node
         from rclpy.qos import (
             DurabilityPolicy,
             QoSProfile,
             ReliabilityPolicy,
-            qos_profile_sensor_data,
         )
         from std_msgs.msg import String, UInt64
         from std_srvs.srv import Trigger
@@ -131,11 +129,17 @@ class PicoPalmTcpPublisher:
         self._gates = gates
         self._capture_timeout_s = float(capture_timeout_s)
         self._capture_active = False
+        self._capture_done = None
         self._tracking_epoch = 0
+        self._last_controller_stamp_ns = None
         self._tracking_epoch_source = "unknown"
         self._pose_stamped_type = PoseStamped
         self.node = Node(f"pico_{side}_palm_tcp_publisher")
-        callback_group = ReentrantCallbackGroup()
+        # Serialize streaming callbacks: reentrant per-frame work can backlog,
+        # contend for the GIL and publish older source poses after newer ones.
+        callback_group = MutuallyExclusiveCallbackGroup()
+        service_group = ReentrantCallbackGroup()
+        input_qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
         self.controller_topic = f"/pico/pose/{side}_hand"
         self.palm_topic = f"/pico/palm_{side}"
         output_qos = QoSProfile(
@@ -150,14 +154,14 @@ class PicoPalmTcpPublisher:
             PoseStamped,
             self.controller_topic,
             self._controller_callback,
-            qos_profile_sensor_data,
+            input_qos,
             callback_group=callback_group,
         )
         self._head_subscription = self.node.create_subscription(
             PoseStamped,
             "/pico/pose/head",
             self._head_callback,
-            qos_profile_sensor_data,
+            input_qos,
             callback_group=callback_group,
         )
         self._epoch_subscription = self.node.create_subscription(
@@ -179,7 +183,7 @@ class PicoPalmTcpPublisher:
             Trigger,
             self.orientation_service_name,
             self._calibrate_orientation,
-            callback_group=callback_group,
+            callback_group=service_group,
         )
         self.node.get_logger().info(
             f"[{side}] TCP runtime publisher ready: "
@@ -188,6 +192,9 @@ class PicoPalmTcpPublisher:
         )
 
     def _controller_callback(self, message) -> None:
+        stamp_ns = _stamp_ns(message.header.stamp)
+        if self._last_controller_stamp_ns is not None and stamp_ns <= self._last_controller_stamp_ns:
+            return
         try:
             with self._transform_lock:
                 transform = self._transform
@@ -200,6 +207,7 @@ class PicoPalmTcpPublisher:
             )
             return
         self.publisher.publish(output)
+        self._last_controller_stamp_ns = stamp_ns
         with self._capture_condition:
             if not self._capture_active:
                 return
@@ -212,7 +220,7 @@ class PicoPalmTcpPublisher:
             except ValueError:
                 accepted = False
             if accepted or self._capture.error is not None:
-                self._capture_condition.notify_all()
+                self._notify_capture()
 
     def _head_callback(self, message) -> None:
         with self._capture_condition:
@@ -224,15 +232,18 @@ class PicoPalmTcpPublisher:
                 )
             except ValueError:
                 return
+            self._notify_capture()
 
     def _epoch_callback(self, message) -> None:
         with self._capture_condition:
+            if int(message.data) != self._tracking_epoch:
+                self._last_controller_stamp_ns = None
             self._tracking_epoch = int(message.data)
             if self._capture_active:
                 self._capture.update_epoch(
                     self._tracking_epoch, self._tracking_epoch_source
                 )
-                self._capture_condition.notify_all()
+                self._notify_capture()
 
     def _epoch_status_callback(self, message) -> None:
         try:
@@ -244,7 +255,13 @@ class PicoPalmTcpPublisher:
             self._tracking_epoch_source = source
             if self._capture_active:
                 self._capture.update_epoch(self._tracking_epoch, source)
-                self._capture_condition.notify_all()
+                self._notify_capture()
+
+    def _notify_capture(self):
+        if (self._capture_done is not None and not self._capture_done.done()
+                and (self._capture.error is not None
+                     or len(self._capture.samples) >= self._gates.min_samples)):
+            self._capture_done.set_result(None)
 
     def _validate_candidate(self, document: dict) -> None:
         descriptor, name = tempfile.mkstemp(
@@ -260,7 +277,9 @@ class PicoPalmTcpPublisher:
         finally:
             path.unlink(missing_ok=True)
 
-    def _calibrate_orientation(self, _request, response):
+    async def _calibrate_orientation(self, _request, response):
+        from rclpy.task import Future
+
         with self._capture_condition:
             if self._capture_active:
                 response.success = False
@@ -275,18 +294,27 @@ class PicoPalmTcpPublisher:
                 response.message = str(error)
                 return response
             self._capture_active = True
-            deadline = time.monotonic() + self._capture_timeout_s
-            while (
-                len(self._capture.samples) < self._gates.min_samples
-                and self._capture.error is None
-            ):
-                remaining = deadline - time.monotonic()
-                if remaining <= 0.0:
-                    break
-                self._capture_condition.wait(timeout=remaining)
-            samples = self._capture.samples
-            capture_error = self._capture.error
-            self._capture_active = False
+            done = Future(executor=self.node.executor)
+            self._capture_done = done
+
+        def expire():
+            with self._capture_condition:
+                if not done.done():
+                    done.set_result(None)
+
+        # Yield the executor while collecting poses. A blocking Condition.wait
+        # required a thread pool even when calibration was idle, delaying poses.
+        timer = self.node.create_timer(self._capture_timeout_s, expire)
+        try:
+            await done
+        finally:
+            with self._capture_condition:
+                samples = self._capture.samples
+                capture_error = self._capture.error
+                self._capture_active = False
+                self._capture_done = None
+            timer.cancel()
+            self.node.destroy_timer(timer)
 
         if capture_error is not None:
             response.success = False
@@ -355,8 +383,8 @@ def main() -> None:
 
     rclpy.init(args=ros_arguments)
     publisher = PicoPalmTcpPublisher(arguments.side, artifact, transform)
-    from rclpy.executors import MultiThreadedExecutor
-    executor = MultiThreadedExecutor(num_threads=3)
+    from rclpy.executors import SingleThreadedExecutor
+    executor = SingleThreadedExecutor()
     executor.add_node(publisher.node)
     try:
         executor.spin()

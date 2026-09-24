@@ -15,10 +15,6 @@ LEFT_ARM_CALIBRATION_LAUNCH_FILE = (
 ARM_CALIBRATION_LAUNCH_FILE = (
     PACKAGE_ROOT / "launch" / "calibrate_pico_arm_geometry.launch.py"
 )
-TIANJI_TELEOP_LAUNCH_FILE = (
-    PACKAGE_ROOT.parents[1] / "teleop_outputs" / "tianji" / "tianji_cmd_pub" / "launch"
-    / "start_tianji_mujoco_teleop.launch.py"
-)
 
 
 def _load_launch_module():
@@ -49,15 +45,6 @@ def _load_left_arm_calibration_launch_module():
 def _load_arm_calibration_launch_module():
     spec = spec_from_file_location(
         "calibrate_pico_arm_geometry", ARM_CALIBRATION_LAUNCH_FILE
-    )
-    module = module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-def _load_tianji_teleop_launch_module():
-    spec = spec_from_file_location(
-        "start_tianji_mujoco_teleop", TIANJI_TELEOP_LAUNCH_FILE
     )
     module = module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -255,63 +242,3 @@ def test_generic_arm_calibration_launch_is_side_parameterized_and_automatic():
     assert "auto" in calibrator_arguments
 
 
-def test_tianji_teleop_launch_exposes_exact_transport_contract():
-    description = _load_tianji_teleop_launch_module().generate_launch_description()
-    arguments = {
-        entity.name: perform_substitutions(LaunchContext(), entity.default_value)
-        for entity in description.entities
-        if entity.__class__.__name__ == "DeclareLaunchArgument"
-    }
-
-    assert arguments == {
-        "skeleton_topic": "/pico/smpl_palm_corrected_ik",
-        "status_topic": "/pico/smpl_palm_corrected/status",
-        "record_flag_topic": "/pico/record_flag",
-        "diagnostics_topic": "/pico/tianji_mujoco_teleop/status",
-        "destination_address": "127.0.0.1",
-        "destination_port": "15000",
-        "cache_capacity": "8",
-        "position_retargeting_mode": "robot_arm_segments",
-        "robot_arm_reach_scale": "0.95",
-        "pico_world_x_offset_m": "0.10",
-    }
-
-
-def test_tianji_teleop_launch_starts_one_parameterized_bridge():
-    description = _load_tianji_teleop_launch_module().generate_launch_description()
-    nodes = [
-        entity
-        for entity in description.entities
-        if entity.__class__.__name__ == "Node"
-    ]
-
-    assert len(nodes) == 1
-    assert nodes[0].node_executable == "tianji_mujoco_teleop_bridge"
-    assert nodes[0]._Node__node_name == "tianji_mujoco_teleop_bridge"
-
-    context = LaunchContext()
-    context.launch_configurations.update({
-        "skeleton_topic": "/test/corrected_ik",
-        "status_topic": "/test/corrected_status",
-        "record_flag_topic": "/test/record_flag",
-        "diagnostics_topic": "/test/teleop_status",
-        "destination_address": "192.0.2.1",
-        "destination_port": "16000",
-        "cache_capacity": "12",
-        "position_retargeting_mode": "pico_palm",
-        "robot_arm_reach_scale": "0.95",
-        "pico_world_x_offset_m": "0.18",
-    })
-    parameters = evaluate_parameters(context, nodes[0]._Node__parameters)[0]
-    assert parameters == {
-        "skeleton_topic": "/test/corrected_ik",
-        "status_topic": "/test/corrected_status",
-        "record_flag_topic": "/test/record_flag",
-        "diagnostics_topic": "/test/teleop_status",
-        "destination_address": "192.0.2.1",
-        "destination_port": 16000,
-        "cache_capacity": 12,
-        "position_retargeting_mode": "pico_palm",
-        "robot_arm_reach_scale": 0.95,
-        "pico_world_x_offset_m": 0.18,
-    }

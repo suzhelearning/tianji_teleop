@@ -46,7 +46,7 @@ class OrientationSolution:
 class OrientationCaptureBuffer:
     """Pair controller/HMD rotations for one explicit tracking epoch."""
 
-    EXPLICIT_EPOCH_SOURCES = {"tcp_connection", "wire_world_reset"}
+    EXPLICIT_EPOCH_SOURCES = {"tcp_connection", "wire_world_reset", "controller_set_ground"}
 
     def __init__(self, max_pair_skew_ns: int = 30_000_000) -> None:
         if max_pair_skew_ns <= 0:

@@ -24,12 +24,13 @@ int run(const char* profile,const char* model,bool continuous_follow) {
   MujocoRobot robot(model);
   SimulationRecovery::Pair home;
   for(int i=0;i<2;++i) {
-    home[i].q=configuredInitialPosture(cfg.controller,robot.mapping(sides[i]).limits,sides[i]);
+    const auto limits=effectiveArmLimits(cfg.joint_limits,robot.mapping(sides[i]).limits,sides[i]);
+    home[i].q=configuredInitialPosture(cfg.controller,limits,sides[i]);
     robot.setArmPosition(sides[i],home[i].q);
   }
   robot.forward();
   DualArmController controller(robot,cfg);
-  SimulationRecovery recovery(cfg,{robot.mapping(sides[0]).limits,robot.mapping(sides[1]).limits},home,.005,
+  SimulationRecovery recovery(cfg,{controller.motionLimits(sides[0]),controller.motionLimits(sides[1])},home,.005,
                               continuous_follow?.05:.3);
   auto state=[&]() {return SimulationRecovery::Pair{controller.referenceState(sides[0]),controller.referenceState(sides[1])};};
   std::cout<<"{\"schema_version\":1,\"kind\":\"pico2_dls_ready\",\"simulation_only\":true}\n"<<std::flush;
@@ -53,7 +54,7 @@ int run(const char* profile,const char* model,bool continuous_follow) {
     DualArmTargets targets;
     for(int i=0;i<2;++i) {
       for(int j=0;j<7;++j)seeds[i][j]=get<double>(&request[48+(i*7+j)*8]);
-      const auto& lim=robot.mapping(sides[i]).limits;
+      const auto& lim=controller.motionLimits(sides[i]);
       check(seeds[i].allFinite()&&(seeds[i].array()>=lim.lower_position.array()).all()&&
             (seeds[i].array()<=lim.upper_position.array()).all(),"bad seed/limit");
       if(op!=3)check((seeds[i]-controller.reference(sides[i])).cwiseAbs().maxCoeff()<1e-7,"owner reference mismatch");

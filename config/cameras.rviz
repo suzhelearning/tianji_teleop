@@ -1,17 +1,24 @@
-# Image panels show raw RGB without requiring transforms between the cameras.
-# Optional frusta below use only the official driver's CameraInfo. Enable them
-# after selecting a fixed frame connected by real, calibrated TF; no extrinsics
-# or camera intrinsics are fabricated here.
 Panels:
   - Class: rviz_common/Displays
+    Help Height: 70
     Name: Displays
+    Property Tree Widget:
+      Expanded: ~
+      Splitter Ratio: 0.5
+    Tree Height: 249
   - Class: rviz_common/Views
+    Expanded:
+      - /Current View1
     Name: Views
+    Splitter Ratio: 0.5
 Visualization Manager:
   Class: ""
   Displays:
     - Class: rviz_default_plugins/Image
       Enabled: true
+      Max Value: 1
+      Median window: 5
+      Min Value: 0
       Name: Top RGB
       Normalize Range: false
       Topic:
@@ -23,6 +30,9 @@ Visualization Manager:
       Value: true
     - Class: rviz_default_plugins/Image
       Enabled: true
+      Max Value: 1
+      Median window: 5
+      Min Value: 0
       Name: Left Wrist RGB
       Normalize Range: false
       Topic:
@@ -34,6 +44,9 @@ Visualization Manager:
       Value: true
     - Class: rviz_default_plugins/Image
       Enabled: true
+      Max Value: 1
+      Median window: 5
+      Min Value: 0
       Name: Right Wrist RGB
       Normalize Range: false
       Topic:
@@ -44,40 +57,63 @@ Visualization Manager:
         Value: /cameras/right_wrist/color/image_raw
       Value: true
     - Class: rviz_common/Group
-      Enabled: false
-      Name: Driver CameraInfo (requires calibrated TF)
       Displays:
-        - Class: rviz_default_plugins/CameraInfo
+        - Alpha: 0.5
+          Class: rviz_default_plugins/CameraInfo
+          Color: 85; 255; 255
+          Edge color: 125; 125; 125
           Enabled: true
+          Far clip: 1
           Name: Top CameraInfo
+          Not show side polygons: true
+          Show edges: true
+          Show polygons: true
           Topic:
             Depth: 5
             Durability Policy: Volatile
+            Filter size: 10
             History Policy: Keep Last
             Reliability Policy: Best Effort
             Value: /cameras/top/color/camera_info
           Value: true
-        - Class: rviz_default_plugins/CameraInfo
+        - Alpha: 0.5
+          Class: rviz_default_plugins/CameraInfo
+          Color: 85; 255; 255
+          Edge color: 125; 125; 125
           Enabled: true
+          Far clip: 1
           Name: Left Wrist CameraInfo
+          Not show side polygons: true
+          Show edges: true
+          Show polygons: true
           Topic:
             Depth: 5
             Durability Policy: Volatile
+            Filter size: 10
             History Policy: Keep Last
             Reliability Policy: Best Effort
             Value: /cameras/left_wrist/color/camera_info
           Value: true
-        - Class: rviz_default_plugins/CameraInfo
+        - Alpha: 0.5
+          Class: rviz_default_plugins/CameraInfo
+          Color: 85; 255; 255
+          Edge color: 125; 125; 125
           Enabled: true
+          Far clip: 1
           Name: Right Wrist CameraInfo
+          Not show side polygons: true
+          Show edges: true
+          Show polygons: true
           Topic:
             Depth: 5
             Durability Policy: Volatile
+            Filter size: 10
             History Policy: Keep Last
             Reliability Policy: Best Effort
             Value: /cameras/right_wrist/color/camera_info
           Value: true
-      Value: false
+      Enabled: false
+      Name: Driver CameraInfo (requires calibrated TF)
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
@@ -86,6 +122,7 @@ Visualization Manager:
   Name: root
   Tools:
     - Class: rviz_default_plugins/Interact
+      Hide Inactive Objects: true
     - Class: rviz_default_plugins/MoveCamera
   Transformation:
     Current:
@@ -94,12 +131,41 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 2
+      Distance: 1.440451979637146
+      Enable Stereo Rendering:
+        Stereo Eye Separation: 0.05999999865889549
+        Stereo Focal Distance: 1
+        Swap Stereo Eyes: false
+        Value: false
+      Focal Point:
+        X: 0
+        Y: 0
+        Z: 0
+      Focal Shape Fixed Size: true
+      Focal Shape Size: 0.05000000074505806
+      Invert Z Axis: false
       Name: Current View
+      Near Clip Distance: 0.009999999776482582
+      Pitch: 0.7853981852531433
       Target Frame: <Fixed Frame>
+      Value: Orbit (rviz_default_plugins)
+      Yaw: 0.7853981852531433
     Saved: ~
 Window Geometry:
-  Height: 900
+  Displays:
+    collapsed: false
+  Height: 1011
   Hide Left Dock: false
   Hide Right Dock: false
-  Width: 1440
+  Left Wrist RGB:
+    collapsed: false
+  QMainWindow State: 000000ff00000000fd00000002000000000000018700000226fc0200000002fb000000100044006900730070006c00610079007301000001b00000017c000000c900fffffffb0000000a005600690065007700730100000332000000a4000000a400ffffff000000020000073e0000016dfc0100000003fb0000001c004c00650066007400200057007200690073007400200052004700420100000000000001c30000008500fffffffb0000000e0054006f0070002000520047004201000001c9000003440000006400fffffffb0000001e00520069006700680074002000570072006900730074002000520047004201000005130000022b0000008d00ffffff000005b10000022600000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
+  Right Wrist RGB:
+    collapsed: false
+  Top RGB:
+    collapsed: false
+  Views:
+    collapsed: false
+  Width: 1854
+  X: 66
+  Y: 32
